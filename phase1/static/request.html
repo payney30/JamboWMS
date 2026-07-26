@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Submit a Work Order — National Jamboree</title>
+<style>
+:root{
+  --pine:#1C3829;
+  --pine-deep:#122A1D;
+  --canvas:#EFEADC;
+  --canvas-panel:#FBF8F0;
+  --khaki-line:#D8CFB6;
+  --ink:#241F14;
+  --ink-soft:#5B5340;
+  --hivis:#E8620C;
+  --hivis-soft:#F4A25E;
+  --amber:#C9962B;
+  --moss:#3E6B4F;
+  --danger-bg:#FBE4D6;
+  --font-display: 'Oswald', 'Arial Narrow', 'Helvetica Neue', sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SF Mono', 'Consolas', 'Menlo', monospace;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-family:var(--font-body);}
+.wrap{max-width:560px;margin:0 auto;padding:20px 16px 60px;}
+.topbar{background:var(--pine);color:var(--canvas-panel);border-radius:10px;padding:18px 22px;
+  box-shadow:0 4px 0 var(--pine-deep);margin-bottom:20px;}
+.brand-eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--hivis-soft);margin:0 0 4px;}
+.brand-title{font-family:var(--font-display);font-weight:600;font-size:22px;letter-spacing:.01em;margin:0;text-transform:uppercase;}
+.card{background:var(--canvas-panel);border:1px solid var(--khaki-line);border-radius:10px;padding:20px;margin-bottom:16px;}
+label{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin:16px 0 6px;font-weight:600;}
+label:first-of-type{margin-top:0;}
+input[type=text], input[type=email], input[type=tel], select, textarea{
+  width:100%;padding:12px;border:1px solid var(--khaki-line);border-radius:8px;
+  font-size:16px;font-family:var(--font-body);background:#fff;color:var(--ink);
+}
+textarea{min-height:110px;resize:vertical;}
+.hint{font-size:12px;color:var(--ink-soft);margin-top:4px;}
+.required-mark{color:var(--hivis);}
+
+.priority-group{display:flex;flex-direction:column;gap:8px;}
+.priority-option{border:1px solid var(--khaki-line);border-radius:8px;padding:12px;display:flex;gap:10px;align-items:flex-start;cursor:pointer;background:#fff;}
+.priority-option input{margin-top:3px;width:18px;height:18px;flex-shrink:0;}
+.priority-option.selected{border-color:var(--pine);background:#F1F5EE;}
+.priority-option .p-name{font-weight:700;font-size:14px;}
+.priority-option .p-criteria{margin:4px 0 0;padding-left:18px;font-size:12px;color:var(--ink-soft);line-height:1.5;}
+.priority-option .p-criteria li{margin-bottom:1px;}
+
+.file-row{display:flex;align-items:center;gap:10px;}
+input[type=file]{font-size:13px;}
+
+.btn{background:var(--pine);color:#fff;border:none;border-radius:8px;padding:14px 18px;font-size:15px;font-weight:600;
+  cursor:pointer;width:100%;font-family:var(--font-body);}
+.btn:hover{background:var(--pine-deep);}
+.btn:disabled{opacity:.55;cursor:not-allowed;}
+.btn-ghost{background:transparent;color:var(--pine);border:1px solid var(--pine);width:auto;padding:8px 14px;font-size:13px;}
+.btn-ghost:hover{background:var(--pine);color:#fff;}
+
+.err-banner{background:var(--danger-bg);color:var(--hivis);border-radius:8px;padding:10px 14px;font-size:13px;margin-top:12px;}
+.field-err{color:var(--hivis);font-size:12px;margin-top:4px;min-height:14px;}
+
+/* Honeypot: visually hidden but present in the DOM, off-screen rather than
+   display:none (some bots skip display:none fields). */
+.hp-field{position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;}
+
+.confirm{text-align:center;padding:30px 10px;}
+.confirm .wo-number{font-family:var(--font-display);font-size:32px;font-weight:700;color:var(--pine);margin:14px 0;letter-spacing:.02em;}
+.confirm p{color:var(--ink-soft);font-size:14px;line-height:1.5;}
+
+.status-toggle{text-align:center;margin-top:8px;}
+.status-toggle a{color:var(--pine);font-size:13px;text-decoration:underline;cursor:pointer;}
+#statusResult{margin-top:14px;font-size:14px;}
+#statusResult .status-line{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--khaki-line);}
+#statusResult .status-line span:first-child{color:var(--ink-soft);text-transform:uppercase;font-size:11px;letter-spacing:.05em;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <p class="brand-eyebrow">National Jamboree &middot; Logistics Operations Center</p>
+    <h1 class="brand-title">Submit a Work Order</h1>
+  </div>
+
+  <div class="card" id="formCard">
+    <form id="woForm" autocomplete="on">
+      <label>Your name <span class="required-mark">*</span></label>
+      <input type="text" id="rName" required autocomplete="name">
+
+      <label>Contact email</label>
+      <input type="email" id="rEmail" autocomplete="email" placeholder="so we can send a confirmation">
+      <div class="hint">Optional, but you'll need it to check your request's status later.</div>
+
+      <label>Contact phone</label>
+      <input type="tel" id="rPhone" autocomplete="tel">
+
+      <label>How should we reach you with updates?</label>
+      <div class="priority-group" id="rContactPrefGroup" style="gap:6px;"></div>
+      <div class="field-err" id="rContactPrefErr"></div>
+
+      <label>Location <span class="required-mark">*</span></label>
+      <input type="text" id="rLocationSearch" list="rLocationList" placeholder="Start typing your camp or area…" required autocomplete="off">
+      <datalist id="rLocationList"></datalist>
+      <div class="field-err" id="rLocationErr"></div>
+
+      <label>What kind of issue is this?</label>
+      <select id="rWorkType">
+        <option value="NJ Maintenance">Maintenance (repairs, facilities)</option>
+        <option value="NJ Items/Parts">Items / parts request</option>
+        <option value="NJ IT">IT</option>
+        <option value="NJ Transportation">Transportation</option>
+        <option value="">Other / not sure</option>
+      </select>
+
+      <label>Describe the issue <span class="required-mark">*</span></label>
+      <textarea id="rDescription" required placeholder="What's going on, and where exactly?"></textarea>
+
+      <label>Priority <span class="required-mark">*</span></label>
+      <div class="priority-group" id="rPriorityGroup"></div>
+
+      <label>Photos (optional)</label>
+      <div class="file-row"><input type="file" id="rFiles" accept="image/*" multiple></div>
+      <div class="hint">Up to 5 photos, 10&nbsp;MB each — helps the team see what they're walking into.</div>
+
+      <!-- Honeypot: real people never see this field or fill it in. -->
+      <div class="hp-field" aria-hidden="true">
+        <label for="rWebsite">Leave this field blank</label>
+        <input type="text" id="rWebsite" name="website" tabindex="-1" autocomplete="off">
+      </div>
+
+      <div class="err-banner" id="formErr" style="display:none;"></div>
+
+      <button type="submit" class="btn" style="margin-top:20px;" id="submitBtn">Submit work order</button>
+    </form>
+  </div>
+
+  <div class="card" id="confirmCard" style="display:none;">
+    <div class="confirm">
+      <p style="color:var(--moss);font-weight:600;text-transform:uppercase;font-size:12px;letter-spacing:.08em;">Request received</p>
+      <div class="wo-number" id="confirmNumber"></div>
+      <p>Save this number — you can use it with your email to check the status of your request below.</p>
+      <button class="btn btn-ghost" onclick="resetForm()" style="margin-top:10px;">Submit another request</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="status-toggle"><a onclick="toggleStatusLookup()" id="statusToggleLink">Already submitted a request? Check its status</a></div>
+    <div id="statusLookup" style="display:none;margin-top:14px;">
+      <label>Work order number</label>
+      <input type="text" id="lkNumber" placeholder="WO-12345">
+      <label>Email used at submission</label>
+      <input type="email" id="lkEmail">
+      <button class="btn" style="margin-top:14px;" onclick="checkStatus()" id="lkBtn">Check status</button>
+      <div id="statusResult"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Criteria and colors match Work_Order_Priorties.pdf exactly, same text
+// already embedded in the existing LOC dashboards (PRIORITY_DEFS).
+const PRIORITIES = [
+  {key:'Highest', label:'Highest', color:'#E8620C', criteria:['Immediate safety issue', 'Is causing current program stoppage', 'Action needed within 2 hours']},
+  {key:'High', label:'High', color:'#F4A25E', criteria:['Safety concern, non-immediate', 'Will cause program stoppage within 24 hours', 'Action needed within 6 hours']},
+  {key:'Medium', label:'Medium', color:'#C9962B', criteria:['Will cause program stoppage beyond 24 hours', 'Action needed within 24 hours']},
+  {key:'Low', label:'Low', color:'#5C7A4A', criteria:['Action needed within 48 hours']},
+  {key:'Lowest', label:'Lowest', color:'#5A7385', criteria:['Action needed within 72 hours']},
+];
+// Not wired to an email/SMS provider yet — this just records what the
+// requester wants, so it's ready the moment one is (see the TODO in
+// app/routers/public.py). No default selection: leaving it blank is valid.
+const CONTACT_PREFS = [
+  {key:'email', label:'Email'},
+  {key:'text', label:'Text message'},
+  {key:'both', label:'Both'},
+];
+let ASSETS = [];
+
+function refreshSelectedStyling(groupEl){
+  groupEl.querySelectorAll('.priority-option').forEach(opt => {
+    opt.classList.toggle('selected', opt.querySelector('input').checked);
+  });
+}
+
+async function boot(){
+  try {
+    const res = await fetch('/public/assets');
+    ASSETS = await res.json();
+  } catch (e) {
+    ASSETS = [];
+  }
+  const list = document.getElementById('rLocationList');
+  list.innerHTML = ASSETS.map(a => `<option value="${escapeHtml(a.name)}">`).join('');
+
+  const group = document.getElementById('rPriorityGroup');
+  group.innerHTML = PRIORITIES.map((p, i) => `
+    <label class="priority-option" style="border-left:4px solid ${p.color};">
+      <input type="radio" name="rPriority" value="${p.key}" ${i===2?'checked':''} onchange="refreshSelectedStyling(this.closest('.priority-group'))">
+      <div>
+        <div class="p-name">${p.label}</div>
+        <ul class="p-criteria">${p.criteria.map(c => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
+      </div>
+    </label>`).join('');
+  refreshSelectedStyling(group);
+
+  const prefGroup = document.getElementById('rContactPrefGroup');
+  prefGroup.innerHTML = CONTACT_PREFS.map(p => `
+    <label class="priority-option" style="padding:9px 12px;">
+      <input type="radio" name="rContactPref" value="${p.key}" onchange="refreshSelectedStyling(this.closest('.priority-group'))">
+      <div class="p-name" style="font-size:13px;">${p.label}</div>
+    </label>`).join('');
+  refreshSelectedStyling(prefGroup);
+}
+
+function escapeHtml(s){
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+function findAssetByName(name){
+  const norm = name.trim().toLowerCase();
+  return ASSETS.find(a => a.name.toLowerCase() === norm);
+}
+
+document.getElementById('woForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errBanner = document.getElementById('formErr');
+  const locErr = document.getElementById('rLocationErr');
+  const prefErr = document.getElementById('rContactPrefErr');
+  errBanner.style.display = 'none';
+  locErr.textContent = '';
+  prefErr.textContent = '';
+
+  const locationName = document.getElementById('rLocationSearch').value;
+  const asset = findAssetByName(locationName);
+  if (!asset) {
+    locErr.textContent = 'Choose a location from the list.';
+    document.getElementById('rLocationSearch').focus();
+    return;
+  }
+
+  const name = document.getElementById('rName').value.trim();
+  const description = document.getElementById('rDescription').value.trim();
+  if (!name || !description) {
+    errBanner.textContent = 'Please fill in your name and a description of the issue.';
+    errBanner.style.display = 'block';
+    return;
+  }
+
+  const email = document.getElementById('rEmail').value.trim();
+  const phone = document.getElementById('rPhone').value.trim();
+  const contactPrefInput = document.querySelector('input[name="rContactPref"]:checked');
+  const contactPref = contactPrefInput ? contactPrefInput.value : '';
+  if ((contactPref === 'text' || contactPref === 'both') && !phone) {
+    prefErr.textContent = 'Add a phone number to receive text updates.';
+    return;
+  }
+  if ((contactPref === 'email' || contactPref === 'both') && !email) {
+    prefErr.textContent = 'Add an email to receive email updates.';
+    return;
+  }
+
+  const priorityInput = document.querySelector('input[name="rPriority"]:checked');
+  const submitBtn = document.getElementById('submitBtn');
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Submitting…';
+
+  const formData = new FormData();
+  formData.set('requester_name', name);
+  formData.set('requester_email', email);
+  formData.set('requester_phone', phone);
+  formData.set('asset_id', asset.id);
+  formData.set('work_type', document.getElementById('rWorkType').value);
+  formData.set('description', description);
+  formData.set('priority', priorityInput ? priorityInput.value : 'Medium');
+  formData.set('notify_preference', contactPref);
+  formData.set('website', document.getElementById('rWebsite').value); // honeypot
+  const files = document.getElementById('rFiles').files;
+  for (let i = 0; i < files.length; i++) formData.append('files', files[i]);
+
+  try {
+    const res = await fetch('/public/work-orders', {method: 'POST', body: formData});
+    if (!res.ok) {
+      let detail = res.statusText;
+      try { detail = (await res.json()).detail || detail; } catch (err) {}
+      if (res.status === 429) {
+        errBanner.textContent = detail;
+      } else {
+        errBanner.textContent = detail || 'Something went wrong — please try again.';
+      }
+      errBanner.style.display = 'block';
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit work order';
+      return;
+    }
+    const data = await res.json();
+    document.getElementById('confirmNumber').textContent = data.wo_number;
+    document.getElementById('formCard').style.display = 'none';
+    document.getElementById('confirmCard').style.display = 'block';
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  } catch (err) {
+    errBanner.textContent = 'Network error — check your connection and try again.';
+    errBanner.style.display = 'block';
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Submit work order';
+  }
+});
+
+function resetForm(){
+  document.getElementById('woForm').reset();
+  document.getElementById('formCard').style.display = 'block';
+  document.getElementById('confirmCard').style.display = 'none';
+  document.getElementById('submitBtn').disabled = false;
+  document.getElementById('submitBtn').textContent = 'Submit work order';
+  refreshSelectedStyling(document.getElementById('rPriorityGroup'));
+  refreshSelectedStyling(document.getElementById('rContactPrefGroup'));
+  window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+function toggleStatusLookup(){
+  const el = document.getElementById('statusLookup');
+  const showing = el.style.display !== 'none';
+  el.style.display = showing ? 'none' : 'block';
+}
+
+async function checkStatus(){
+  const resultEl = document.getElementById('statusResult');
+  const btn = document.getElementById('lkBtn');
+  const wo_number = document.getElementById('lkNumber').value.trim();
+  const email = document.getElementById('lkEmail').value.trim();
+  if (!wo_number || !email) {
+    resultEl.innerHTML = '<div class="field-err">Enter both your work order number and the email you used.</div>';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Checking…';
+  try {
+    const params = new URLSearchParams({wo_number, email});
+    const res = await fetch('/public/work-orders/lookup?' + params.toString());
+    if (!res.ok) {
+      resultEl.innerHTML = '<div class="field-err">We couldn\'t find a matching work order. Double check the number and email.</div>';
+      return;
+    }
+    const d = await res.json();
+    resultEl.innerHTML = `
+      <div class="status-line"><span>Work order</span><span>${escapeHtml(d.wo_number)}</span></div>
+      <div class="status-line"><span>Status</span><span>${escapeHtml(d.status)}</span></div>
+      <div class="status-line"><span>Priority</span><span>${escapeHtml(d.priority)}</span></div>
+      <div class="status-line"><span>Submitted</span><span>${new Date(d.created_at).toLocaleString()}</span></div>
+      ${d.closed_at ? `<div class="status-line"><span>Closed</span><span>${new Date(d.closed_at).toLocaleString()}</span></div>` : ''}
+    `;
+  } catch (e) {
+    resultEl.innerHTML = '<div class="field-err">Network error — try again.</div>';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Check status';
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

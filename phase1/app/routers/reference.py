@@ -1,0 +1,43 @@
+from fastapi import APIRouter, Depends, Request
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.orm import Session
+
+from .. import schemas, models, rate_limit
+from ..database import get_db
+from ..auth import get_current_user, verify_password, create_access_token
+from fastapi import HTTPException
+
+router = APIRouter(tags=["reference"])
+auth_router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.get("/teams", response_model=list[schemas.TeamOut])
+def list_teams(db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    return db.query(models.Team).filter(models.Team.is_active == True).order_by(models.Team.name).all()  # noqa: E712
+
+
+@router.get("/assets", response_model=list[schemas.AssetOut])
+def list_assets(db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    return db.query(models.Asset).order_by(models.Asset.name).all()
+
+
+@auth_router.post("/login")
+def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+
+    retry_after = rate_limit.check_locked(form.username, client_ip)
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="too many failed login attempts; try again later",
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
+
+    user = db.query(models.User).filter(models.User.email == form.username).first()
+    if not user or not verify_password(form.password, user.password_hash):
+        rate_limit.record_failure(form.username, client_ip)
+        raise HTTPException(401, "incorrect email or password")
+
+    rate_limit.record_success(form.username)
+    token = create_access_token(user.id)
+    return {"access_token": token, "token_type": "bearer", "role": user.role, "name": user.name}
