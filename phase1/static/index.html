@@ -319,7 +319,8 @@ async function load() {
 
 function renderKPIs(k){
   const items = [
-    {num:k.total, lbl:'Total'}, {num:k.open, lbl:'Open / Active'}, {num:k.closed, lbl:'Closed'},
+    {num:k.total, lbl:'Total'}, {num:k.open, lbl:'Open / Active'},
+    {num:k.highest_high_open, lbl:'Highest+High Open'}, {num:k.closed, lbl:'Closed'},
     {num:k.completion_rate+'%', lbl:'Completion Rate'}, {num:k.opened_today, lbl:'Opened Today'}, {num:k.closed_today, lbl:'Closed Today'},
   ];
   document.getElementById('kpiRow').innerHTML = items.map(i=>`<div class="kpi"><div class="num">${i.num}</div><div class="lbl">${i.lbl}</div></div>`).join('');

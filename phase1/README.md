@@ -65,8 +65,14 @@ alembic upgrade head   # creates the full schema via migrations
 python seed.py         # seeds reference data
 ```
 
-(You'll need `psycopg2-binary` installed for the postgres driver — it's not
-in requirements.txt since local dev defaults to sqlite.)
+`psycopg2-binary` is in `requirements.txt` now — it used to be left out
+since local dev defaults to SQLite, but it's needed the moment `DATABASE_URL`
+points at Postgres, which is exactly the point of deploying this for testing.
+
+`app/database.py` and `alembic/env.py` both normalize a `postgres://` URL
+(what most managed-Postgres platforms hand back) to the
+`postgresql+psycopg2://` scheme SQLAlchemy actually needs — you can paste a
+platform-provided `DATABASE_URL` in as-is without editing it.
 
 This has been validated against a real local Postgres 16 instance, not just
 SQLite: `alembic upgrade head` produced all 8 tables with every check
@@ -79,6 +85,73 @@ while Postgres always enforces them — so the "failed history write rolls
 back the whole mutation" guarantee is actually *more* solid on Postgres
 than in local dev, not less.
 
+## Deploying for testing/validation
+
+Reference data (`data/name_to_branch.json`, `data/name_to_camp_letter.json`,
+`data/NJ_LOC_Work_Order_Dashboard.html`) is bundled in the repo now, so
+`seed.py` and `backfill_fiix_history.py` work out of the box with no env
+vars — no more pointing at `/mnt/project` paths that only existed in one
+sandbox. Override with `NAME_TO_BRANCH_PATH` / `NAME_TO_CAMP_LETTER_PATH` /
+`FIIX_DASHBOARD_HTML` if you ever need a different source.
+
+### Before you deploy anywhere real
+
+- **`JWT_SECRET`** — the app now refuses to start against a non-SQLite
+  database while still using the fallback dev secret (`app/main.py`).
+  Generate a real one and set it as an environment variable on whatever
+  platform you use: `openssl rand -hex 32`. Never put this in code or
+  commit it.
+- **`DATABASE_URL`** — point it at your managed Postgres instance.
+- **`CORS_ALLOWED_ORIGINS`** — leave unset if the platform serves both the
+  API and the static frontend from one service (the default setup, and
+  what `render.yaml` assumes). Only set it if a separate frontend origin
+  needs to call the API directly.
+- **Uploaded photos are NOT durable by default.** `UPLOAD_DIR` defaults to
+  a local `uploads/` folder (see `app/routers/public.py`), which most PaaS
+  platforms wipe on every redeploy — their filesystem is ephemeral unless
+  you attach a persistent volume. For a short testing/validation window
+  this is a known, acceptable gap; before the real event, either attach a
+  volume at `UPLOAD_DIR` or move to object storage (S3-compatible) — the
+  module docstring in `app/routers/public.py` has the exact swap-in point.
+
+### Picking a platform
+
+For a fast path to something real people can test against, with minimal
+server administration, a cloud PaaS with a managed Postgres add-on is the
+easiest starting point — you're not locked into it for the real event,
+this just gets people clicking around soonest. A plain VM or an on-site/
+local-network machine both work too if you already know that's how the
+real deployment will run; they just take more setup (HTTPS, process
+supervision, DB backups all become your job).
+
+**Render** — `render.yaml` at the repo root defines a web service +
+managed Postgres wired together automatically (`DATABASE_URL` gets set
+for you via `fromDatabase`, `JWT_SECRET` is auto-generated via
+`generateValue`). From the Render dashboard: New → Blueprint → point at
+this repo. Confirm the plan names in `render.yaml` still exist in Render's
+current pricing before deploying — plan slugs change. After the first
+deploy, run `python seed.py` and `python backfill_fiix_history.py` once
+via Render's dashboard shell (or a one-off job) to populate the database —
+these aren't run automatically on every deploy, only the migration is
+(chained into the start command in both `Procfile` and `render.yaml`).
+
+**Railway / other Heroku-style platforms** — `Procfile` at the repo root
+defines the start command (`alembic upgrade head && uvicorn ...`), which
+Railway auto-detects for Python apps built via Nixpacks. Add a Postgres
+plugin from Railway's dashboard; it injects `DATABASE_URL` automatically.
+Set `JWT_SECRET` yourself in the Railway dashboard's environment variables
+(no auto-generate equivalent to Render's `generateValue`). One caveat
+worth knowing: Railway's own docs currently flag their managed Postgres
+HA offering as experimental and explicitly not for production databases
+yet — worth checking their current docs before committing to it as the
+database for anything beyond short-lived testing.
+
+Whichever platform: after the first successful deploy, seed and backfill
+once (dashboard shell, one-off job, or `ssh`/exec into the running
+container, depending on platform), then log in with the admin credentials
+`seed.py` prints and change that password immediately — the printed
+password only ever appears in that one log line.
+
 ## Running the tests
 
 ```bash
@@ -86,7 +159,7 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-75 tests, covering:
+77 tests, covering:
 - **`tests/test_status_history_engine.py`** — the highest-risk file. Asserts
   every status/team/priority mutation writes exactly the right
   `wo_status_history` row(s), that reassignment uses `event_type =
@@ -130,6 +203,11 @@ pytest -v
   just synthetic fixtures — that every one of the ~623 real historical
   tickets is accounted for (created or explicitly skipped with a reason)
   and ends up with exactly one status-history row.
+- **`tests/test_cutover_check.py`** — runs the actual `cutover_check.py`
+  against the real project data as part of the suite, so a future schema
+  or backfill change that breaks parity with the old dashboards' numbers
+  fails here instead of only being caught by someone remembering to run
+  the script by hand.
 
 Each test gets its own throwaway SQLite file (`tmp_path` fixture) with
 foreign keys enabled, so tests are fully isolated and can run in parallel.
@@ -189,6 +267,29 @@ foreign keys enabled, so tests are fully isolated and can run in parallel.
   accurate, per-ticket duration is not. Backfilled rows get
   `requester_name="Historical Fiix Import"` with no contact info, since
   the export never had it.
+- `cutover_check.py` — verifies the new dashboard's numbers against the old
+  static dashboard's numbers, computed from the exact same 623 historical
+  records. Doesn't re-run the old dashboard's JS — reimplements its KPI/
+  breakdown formulas straight from `dashboard_build_script.py` in Python,
+  then stands up a fresh migrated+seeded+backfilled copy of the new system
+  and diffs `crud.get_kpis`/`crud.get_breakdowns` against it. Currently:
+  **every comparable metric matches exactly** (total, open, closed,
+  highest+high open, completion rate, opened-on-the-data's-last-day, and
+  every status/priority/work-type breakdown value). Two things are
+  explicitly *not* compared, with the reason printed when you run it:
+  "closed today" (the old dashboard baked in a manually-computed
+  snapshot-diff constant that isn't derivable from the raw data at all —
+  this project exists specifically to replace that with real tracking) and
+  the team breakdown (the old dashboard folded unassigned WOs into a
+  synthetic "Inactionable" bucket; the new one just doesn't count them,
+  which is the more honest behavior). Run it yourself:
+  ```bash
+  python cutover_check.py
+  ```
+  Finding this check surfaced: `crud.get_kpis` was missing the
+  "Highest+High, open" KPI entirely, even though the PRD lists it as part
+  of the same KPI set as the old dashboards. Added — see `app/crud.py` and
+  the `highest_high_open` field on `KPIOut`.
 - `alembic/` — schema migrations (see "Schema changes" below)
 - `tests/` — pytest suite (see "Running the tests" below)
 
@@ -239,3 +340,13 @@ foreign keys enabled, so tests are fully isolated and can run in parallel.
 - ~~No rate limiting / login lockout~~ — done, see "Security hardening" above
 - ~~No automated tests~~ — done, see "Running the tests" above
 - ~~`create_all()` → Alembic migration~~ — done, see "Schema changes" above
+- ~~Hardcoded dev JWT secret could silently ship to a real deployment~~ —
+  done: the app now refuses to start against a non-SQLite database while
+  still using the fallback secret (`app/main.py`) — see "Deploying for
+  testing/validation" above
+- **Uploaded photos aren't durable across redeploys** on most PaaS
+  platforms (ephemeral filesystem, no volume attached by default) — fine
+  for a short testing window, needs a volume or object storage before the
+  real event. See "Deploying for testing/validation" above.
+- No email/SMS provider wired in yet for `notify_preference` — see
+  "Notifications / SLA alerting" above

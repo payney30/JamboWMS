@@ -15,6 +15,16 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./wo_system.db")
 
+# Managed Postgres on most PaaS platforms (Railway, Render, Heroku-style)
+# hands back a URL starting with "postgres://", which SQLAlchemy rejects —
+# it wants "postgresql://" or, for the psycopg2 driver specifically,
+# "postgresql+psycopg2://". Normalize both automatically so a copy-pasted
+# platform-provided DATABASE_URL just works without hand-editing it.
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
+
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

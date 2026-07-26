@@ -28,8 +28,8 @@ from app.database import SessionLocal, engine
 from app import models
 from app.auth import hash_password
 
-NAME_TO_BRANCH_PATH = os.environ.get("NAME_TO_BRANCH_PATH", "/mnt/project/name_to_branch.json")
-NAME_TO_CAMP_LETTER_PATH = os.environ.get("NAME_TO_CAMP_LETTER_PATH", "/mnt/project/name_to_camp_letter.json")
+NAME_TO_BRANCH_PATH = os.environ.get("NAME_TO_BRANCH_PATH", "data/name_to_branch.json")
+NAME_TO_CAMP_LETTER_PATH = os.environ.get("NAME_TO_CAMP_LETTER_PATH", "data/name_to_camp_letter.json")
 
 STARTER_TEAMS = [
     "2026 Jamboree LOC (Work Order Management)",

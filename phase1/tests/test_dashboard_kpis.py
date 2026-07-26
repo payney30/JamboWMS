@@ -99,3 +99,17 @@ def test_breakdowns_by_team_only_counts_assigned_work_orders(db, asset, team, ad
     breakdowns = crud.get_breakdowns(db)
     assert breakdowns["by_team"].get(team.name) == 1
     assert sum(breakdowns["by_team"].values()) == 1
+
+
+def test_highest_high_open_counts_only_open_highest_and_high(db, asset, admin_user):
+    _make_wo(db, asset, priority="Highest")  # open, counts
+    _make_wo(db, asset, priority="High")  # open, counts
+    _make_wo(db, asset, priority="Medium")  # open, doesn't count (wrong priority)
+
+    closed_highest = _make_wo(db, asset, priority="Highest")
+    crud.change_status(
+        db, closed_highest, schemas.StatusChangeRequest(status="Closed, Completed"), changed_by=admin_user.id
+    )  # closed, doesn't count even though priority matches
+
+    kpis = crud.get_kpis(db)
+    assert kpis["highest_high_open"] == 2

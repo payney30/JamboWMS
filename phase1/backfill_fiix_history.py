@@ -57,7 +57,7 @@ from app.database import SessionLocal, engine
 from app import models, schemas
 
 DASHBOARD_HTML_PATH = os.environ.get(
-    "FIIX_DASHBOARD_HTML", "/mnt/project/NJ_LOC_Work_Order_Dashboard.html"
+    "FIIX_DASHBOARD_HTML", "data/NJ_LOC_Work_Order_Dashboard.html"
 )
 
 UNASSIGNED_ASSET_NAME = "Unassigned (Historical Import)"

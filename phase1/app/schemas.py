@@ -151,6 +151,7 @@ class KPIOut(BaseModel):
     total: int
     open: int
     closed: int
+    highest_high_open: int
     completion_rate: float
     opened_today: int
     closed_today: int

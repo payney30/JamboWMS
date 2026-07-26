@@ -225,6 +225,15 @@ def get_kpis(db: Session) -> dict:
     open_ = total - closed
     rate = round((closed / total) * 100, 1) if total else 0.0
 
+    # Matches the old dashboard's renderKPIs() exactly: open AND priority
+    # in (Highest, High). Was missing from this endpoint even though the
+    # PRD lists it as part of the same KPI set as the old dashboards —
+    # added during the cutover comparison against NJ_LOC_Work_Order_Dashboard.html.
+    highest_high_open = db.query(func.count(models.WorkOrder.id)).filter(
+        ~models.WorkOrder.status.like("Closed%"),
+        models.WorkOrder.priority.in_(["Highest", "High"]),
+    ).scalar()
+
     today = dt.date.today()
     opened_today = db.query(func.count(models.WorkOrder.id)).filter(
         func.date(models.WorkOrder.created_at) == today
@@ -237,6 +246,7 @@ def get_kpis(db: Session) -> dict:
 
     return {
         "total": total, "open": open_, "closed": closed,
+        "highest_high_open": highest_high_open,
         "completion_rate": rate, "opened_today": opened_today,
         "closed_today": closed_today,
     }

@@ -181,7 +181,9 @@ def test_backfilled_wo_numbers_dont_collide_with_live_wos(db, base_camp_e_asset)
 
 # --- against the real project data ------------------------------------------
 
-REAL_DASHBOARD_PATH = "/mnt/project/NJ_LOC_Work_Order_Dashboard.html"
+REAL_DASHBOARD_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "NJ_LOC_Work_Order_Dashboard.html"
+)
 
 
 @pytest.mark.skipif(not os.path.exists(REAL_DASHBOARD_PATH), reason="project dashboard file not present")

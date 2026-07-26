@@ -22,6 +22,11 @@ config = context.config
 # at (sqlite for local dev, postgres for staging/prod) without editing
 # alembic.ini per environment.
 db_url = os.environ.get("DATABASE_URL", "sqlite:///./wo_system.db")
+# See app/database.py — same normalization for platform-provided "postgres://" URLs.
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
+elif db_url.startswith("postgresql://"):
+    db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 config.set_main_option("sqlalchemy.url", db_url)
 
 # Interpret the config file for Python logging.

@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: nj-loc-work-orders
+    runtime: python
+    # Repo layout has everything under a phase1/ subfolder rather than at
+    # the repo root — rootDir tells Render to run buildCommand/startCommand
+    # from inside there, so `pip install -r requirements.txt` etc. resolve
+    # correctly. If you ever flatten the repo so phase1/'s contents sit at
+    # the root instead, delete this line.
+    rootDir: phase1
+    # "starter" avoids the free tier's 15-min-inactivity sleep, which
+    # would give testers an annoying ~30-50s cold start on their first
+    # click of the day. Confirm this plan name still exists in Render's
+    # dashboard before deploying — plan names/pricing change over time.
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nj-loc-work-orders-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      # CORS_ALLOWED_ORIGINS intentionally left unset — the triage UI and
+      # requester form are served by this same app (see app/main.py), so
+      # same-origin requests never need it. Only set this if a separate
+      # frontend origin needs to call the API directly.
+
+databases:
+  - name: nj-loc-work-orders-db
+    # Confirm this plan name in Render's dashboard before deploying —
+    # same caveat as above.
+    plan: starter
