@@ -306,8 +306,30 @@ async function load() {
   const location = document.getElementById('fLocation').value;
   const team = document.getElementById('fTeam').value;
   const search = document.getElementById('fSearch').value;
-  const needsClientFilter = ['HighestHighOpen','Closed','OpenActive','OpenedToday','ClosedToday'].includes(activeQuickView);
-  if (!needsClientFilter && status) params.set('status', status);
+
+  // These quick views used to be applied client-side against whatever
+  // page the default limit happened to return. With priority-then-
+  // oldest-first sort and a limit well below the total row count, a
+  // newly-created low-priority WO (exactly the "Opened Today" case)
+  // sorts near the *end* and never made it into the fetched page at
+  // all — so the client-side filter had nothing to find even though
+  // the WO existed. These are now real server-side filters, so
+  // pagination is applied *after* filtering and nothing gets silently
+  // excluded before the client ever sees it.
+  if (activeQuickView === 'HighestHighOpen') {
+    params.set('priority_in', 'Highest,High');
+    params.set('exclude_closed', 'true');
+  } else if (activeQuickView === 'Closed') {
+    params.set('closed_only', 'true');
+  } else if (activeQuickView === 'OpenActive') {
+    params.set('exclude_closed', 'true');
+  } else if (activeQuickView === 'OpenedToday') {
+    params.set('opened_today', 'true');
+  } else if (activeQuickView === 'ClosedToday') {
+    params.set('closed_today', 'true');
+  } else if (status) {
+    params.set('status', status);
+  }
   if (priority) params.set('priority', priority);
   if (workType) params.set('work_type', workType);
   if (location) params.set('location_group', location);
@@ -325,28 +347,6 @@ async function load() {
     if (e.message !== 'session expired') showToast('Could not load work orders: ' + e.message, 'err');
     document.getElementById('woTableBody').innerHTML = '<tr class="empty-row"><td colspan="7">Could not load work orders.</td></tr>';
     return;
-  }
-
-  // The server computes "today" as a UTC calendar date (dt.date.today()
-  // on a UTC-clocked server, applied to UTC-stored timestamps via SQL's
-  // func.date()). Comparing with the browser's LOCAL calendar date
-  // (toDateString()) disagreed with the server for part of every day —
-  // whichever hours fall between local midnight and the UTC date
-  // rollover — which is exactly why the KPI count and the click-through
-  // filter didn't match. Comparing UTC-to-UTC on both sides fixes it
-  // regardless of the viewer's timezone.
-  const isToday = (isoString) => isoString && new Date(isoString).toISOString().slice(0,10) === new Date().toISOString().slice(0,10);
-
-  if (activeQuickView === 'HighestHighOpen') {
-    wos = wos.filter(w => (w.priority === 'Highest' || w.priority === 'High') && !w.status.startsWith('Closed'));
-  } else if (activeQuickView === 'Closed') {
-    wos = wos.filter(w => w.status.startsWith('Closed'));
-  } else if (activeQuickView === 'OpenActive') {
-    wos = wos.filter(w => !w.status.startsWith('Closed'));
-  } else if (activeQuickView === 'OpenedToday') {
-    wos = wos.filter(w => isToday(w.created_at));
-  } else if (activeQuickView === 'ClosedToday') {
-    wos = wos.filter(w => w.status.startsWith('Closed') && isToday(w.closed_at));
   }
 
   LAST_WOS = wos;
