@@ -234,6 +234,8 @@ def add_note(db: Session, wo: models.WorkOrder, payload: schemas.NoteCreate,
 
 def list_work_orders(db: Session, status=None, priority=None, team_id=None,
                       work_type=None, location_group=None, search=None,
+                      exclude_closed=False, closed_only=False, priority_in=None,
+                      opened_today=False, closed_today=False,
                       limit=100, offset=0):
     q = db.query(models.WorkOrder)
     if status:
@@ -252,6 +254,29 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
             (models.WorkOrder.description.ilike(like)) |
             (models.WorkOrder.wo_number.ilike(like)) |
             (models.WorkOrder.external_ref.ilike(like))
+        )
+    # These back the LOC triage KPI-card quick views (Open/Active,
+    # Highest+High Open, Closed, Opened Today, Closed Today). They used to
+    # be applied client-side against whatever page the default limit
+    # happened to return — with priority-then-oldest-first sort and a
+    # limit far below the total row count, a newly-created low-priority
+    # WO (exactly the "Opened Today" case) would sort near the *end* and
+    # never make it into the fetched page at all, so the client-side
+    # filter had nothing to find even though the WO existed. Doing this
+    # filtering in SQL means pagination is applied *after* filtering, so
+    # nothing gets silently excluded before the client ever sees it.
+    if exclude_closed:
+        q = q.filter(~models.WorkOrder.status.like("Closed%"))
+    if closed_only:
+        q = q.filter(models.WorkOrder.status.like("Closed%"))
+    if priority_in:
+        q = q.filter(models.WorkOrder.priority.in_(priority_in))
+    if opened_today:
+        q = q.filter(func.date(models.WorkOrder.created_at) == dt.date.today())
+    if closed_today:
+        q = q.filter(
+            models.WorkOrder.status.like("Closed%"),
+            func.date(models.WorkOrder.closed_at) == dt.date.today(),
         )
     # PRD 4.2: inbox sorts highest-priority first, oldest first within a
     # priority tier — matches the old dashboard's "needing attention" table.
