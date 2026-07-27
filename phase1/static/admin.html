@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>User Management — National Jamboree Work Orders</title>
+<style>
+:root{
+  --pine:#1C3829;
+  --pine-deep:#122A1D;
+  --canvas:#EFEADC;
+  --canvas-panel:#FBF8F0;
+  --khaki-line:#D8CFB6;
+  --ink:#241F14;
+  --ink-soft:#5B5340;
+  --hivis:#E8620C;
+  --hivis-soft:#F4A25E;
+  --amber:#C9962B;
+  --olive:#5C7A4A;
+  --moss:#3E6B4F;
+  --slate:#5A7385;
+  --closed:#7A8471;
+  --danger-bg:#FBE4D6;
+  --ok-bg:#E4EEE0;
+  --font-display: 'Oswald', 'Arial Narrow', 'Helvetica Neue', sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SF Mono', 'Consolas', 'Menlo', monospace;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-family:var(--font-body);}
+.wrap{max-width:1100px;margin:0 auto;padding:28px 24px 60px;}
+.topbar{background:var(--pine);color:var(--canvas-panel);border-radius:10px;padding:20px 26px;
+  display:flex;align-items:center;justify-content:space-between;box-shadow:0 4px 0 var(--pine-deep);flex-wrap:wrap;gap:10px;}
+.brand-eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--hivis-soft);margin:0 0 4px;}
+.brand-title{font-family:var(--font-display);font-weight:600;font-size:26px;letter-spacing:.01em;margin:0;text-transform:uppercase;}
+.topbar-actions{display:flex;gap:8px;}
+#loginBox{background:var(--canvas-panel);border:1px solid var(--khaki-line);border-radius:10px;padding:24px;max-width:360px;margin:60px auto;}
+#loginBox input{width:100%;padding:10px;margin:6px 0 14px;border:1px solid var(--khaki-line);border-radius:6px;font-size:14px;}
+#loginBox button, .btn{background:var(--pine);color:#fff;border:none;border-radius:6px;padding:10px 16px;font-size:13px;cursor:pointer;font-family:var(--font-body);}
+#loginBox button:hover, .btn:hover{background:var(--pine-deep);}
+.btn:disabled{opacity:.55;cursor:not-allowed;}
+.btn-ghost{background:transparent;color:var(--pine);border:1px solid var(--pine);}
+.btn-ghost:hover{background:var(--pine);color:#fff;}
+.btn-danger{background:transparent;color:var(--hivis);border:1px solid var(--hivis);}
+.btn-danger:hover{background:var(--hivis);color:#fff;}
+.btn-sm{padding:6px 10px;font-size:12px;}
+#loginErr{color:var(--hivis);font-size:12px;min-height:16px;}
+
+.section-title{font-family:var(--font-display);text-transform:uppercase;letter-spacing:.06em;font-size:13px;color:var(--ink-soft);margin:26px 0 10px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.filters select,.filters input{padding:8px 10px;border:1px solid var(--khaki-line);border-radius:6px;font-size:13px;background:var(--canvas-panel);}
+.filters input{flex:1;min-width:180px;}
+.filters label.check{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);}
+
+table{width:100%;border-collapse:collapse;background:var(--canvas-panel);border:1px solid var(--khaki-line);border-radius:8px;overflow:hidden;font-size:13px;}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--khaki-line);}
+th{background:#F1EDDF;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);}
+tr.inactive td{opacity:.5;}
+.role-chip{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:#E7E4DC;color:var(--ink-soft);}
+.role-admin,.role-loc{background:var(--danger-bg);color:var(--hivis);}
+.role-tech{background:var(--ok-bg);color:var(--moss);}
+.role-leadership{background:#FBF0D6;color:var(--amber);}
+.row-actions{display:flex;gap:6px;flex-wrap:wrap;}
+.empty-row td{color:var(--ink-soft);text-align:center;padding:22px 12px;}
+
+#drawer{position:fixed;top:0;right:-460px;width:440px;max-width:100%;height:100%;background:var(--canvas-panel);
+  border-left:1px solid var(--khaki-line);box-shadow:-6px 0 20px rgba(0,0,0,.15);transition:right .2s;overflow-y:auto;padding:24px;z-index:10;}
+#drawer.open{right:0;}
+#drawerBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.25);display:none;z-index:9;}
+#drawerBackdrop.open{display:block;}
+#drawer h2{font-family:var(--font-display);font-size:18px;margin:0 0 4px;}
+#drawer label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin:14px 0 4px;}
+#drawer select,#drawer input{width:100%;padding:8px;border:1px solid var(--khaki-line);border-radius:6px;font-size:13px;font-family:var(--font-body);}
+.close-btn{position:absolute;top:18px;right:18px;background:none;border:none;font-size:20px;cursor:pointer;color:var(--ink-soft);}
+.drawer-actions{margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;}
+.field-err{color:var(--hivis);font-size:11px;margin-top:4px;min-height:14px;}
+.hint{font-size:11px;color:var(--ink-soft);margin-top:4px;}
+
+.pw-reveal{background:var(--ok-bg);border:1px solid var(--olive);border-radius:8px;padding:16px;margin-top:16px;}
+.pw-reveal .pw{font-family:var(--font-mono);font-size:18px;font-weight:700;background:#fff;border-radius:6px;padding:10px 12px;margin:8px 0;word-break:break-all;user-select:all;}
+.pw-reveal .warn{font-size:12px;color:var(--ink-soft);}
+
+#toastStack{position:fixed;bottom:20px;right:20px;z-index:50;display:flex;flex-direction:column;gap:8px;max-width:340px;}
+.toast{background:var(--pine);color:#fff;border-radius:8px;padding:10px 14px;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.2);}
+.toast.err{background:var(--hivis);}
+.toast.ok{background:var(--moss);}
+</style>
+</head>
+<body>
+
+<div id="loginBox">
+  <h2 style="font-family:var(--font-display);margin-top:0;">User Management Login</h2>
+  <label>Email</label><input id="loginEmail" type="email" autocomplete="username">
+  <label>Password</label><input id="loginPass" type="password" autocomplete="current-password">
+  <button onclick="login()">Sign in</button>
+  <div id="loginErr"></div>
+</div>
+
+<div class="wrap" id="app" style="display:none;">
+  <div class="topbar">
+    <div>
+      <p class="brand-eyebrow">Admin &middot; National Jamboree Work Orders</p>
+      <h1 class="brand-title">User Management</h1>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn" onclick="openNewUser()">+ New user</button>
+      <button class="btn btn-ghost" onclick="logout()" style="background:transparent;color:#fff;border-color:#fff;">Sign out</button>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <span>Accounts</span>
+    <span id="meLabel" style="font-family:var(--font-body);text-transform:none;letter-spacing:normal;"></span>
+  </div>
+  <div class="filters">
+    <select id="fRole" onchange="load()"><option value="">All roles</option></select>
+    <select id="fTeam" onchange="load()"><option value="">All teams</option></select>
+    <input id="fSearch" placeholder="Search name or email…" oninput="debouncedLoad()">
+    <label class="check"><input type="checkbox" id="fInactive" onchange="load()"> Show deactivated</label>
+  </div>
+
+  <table style="margin-top:14px;">
+    <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Team</th><th>Status</th><th>Actions</th></tr></thead>
+    <tbody id="userTableBody"><tr class="empty-row"><td colspan="6">Loading…</td></tr></tbody>
+  </table>
+</div>
+
+<div id="drawerBackdrop" onclick="closeDrawer()"></div>
+<div id="drawer"></div>
+<div id="toastStack"></div>
+
+<script>
+const API = '';
+let TOKEN = localStorage.getItem('loc_token') || '';
+let ME = null, TEAMS = [], USERS = [];
+const ALL_ROLES = ["tech","leadership","loc","admin"];
+
+function escapeHtml(s){
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : s;
+  return d.innerHTML;
+}
+
+function showToast(msg, kind){
+  const el = document.createElement('div');
+  el.className = 'toast' + (kind ? ' ' + kind : '');
+  el.textContent = msg;
+  document.getElementById('toastStack').appendChild(el);
+  setTimeout(() => el.remove(), 5000);
+}
+
+async function api(path, opts={}) {
+  opts.headers = Object.assign({}, opts.headers, TOKEN ? {Authorization: 'Bearer ' + TOKEN} : {});
+  if (opts.body && !(opts.body instanceof URLSearchParams)) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(opts.body);
+  }
+  let res;
+  try {
+    res = await fetch(API + path, opts);
+  } catch (e) {
+    throw new Error('Network error — check your connection and try again.');
+  }
+  if (res.status === 401 && path !== '/auth/login') {
+    localStorage.removeItem('loc_token');
+    TOKEN = '';
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('loginBox').style.display = 'block';
+    document.getElementById('loginErr').textContent = 'Your session expired — please sign in again.';
+    throw new Error('session expired');
+  }
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail || detail; } catch (e) {}
+    const err = new Error(detail);
+    err.status = res.status;
+    throw err;
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+async function login() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  const errEl = document.getElementById('loginErr');
+  errEl.textContent = '';
+  if (!email || !pass) { errEl.textContent = 'Enter both an email and a password.'; return; }
+  const body = new URLSearchParams({username: email, password: pass});
+  try {
+    const data = await api('/auth/login', {method:'POST', body});
+    TOKEN = data.access_token;
+    localStorage.setItem('loc_token', TOKEN);
+    await boot();
+  } catch(e) {
+    errEl.textContent = e.status === 429 ? e.message : (e.message || 'Sign-in failed.');
+  }
+}
+function logout(){ localStorage.removeItem('loc_token'); TOKEN=''; location.reload(); }
+
+async function boot() {
+  try {
+    ME = await api('/auth/me');
+  } catch (e) { return; }
+  if (!['admin','loc'].includes(ME.role)) {
+    document.getElementById('loginErr').textContent = 'This account does not have user-management access.';
+    logout();
+    return;
+  }
+  document.getElementById('loginBox').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('meLabel').textContent =
+    ME.name + ' · ' + ME.role + (ME.role !== 'admin' ? ' (can manage tech & leadership accounts)' : '');
+
+  try {
+    TEAMS = await api('/teams');
+  } catch (e) {
+    showToast('Could not load teams: ' + e.message, 'err');
+    return;
+  }
+  populateFilterOptions();
+  await load();
+}
+
+function populateFilterOptions(){
+  const fRole = document.getElementById('fRole');
+  ALL_ROLES.forEach(r => fRole.insertAdjacentHTML('beforeend', `<option value="${r}">${r}</option>`));
+  const fTeam = document.getElementById('fTeam');
+  TEAMS.forEach(t => fTeam.insertAdjacentHTML('beforeend', `<option value="${t.id}">${escapeHtml(t.name)}</option>`));
+}
+
+let debounceTimer;
+function debouncedLoad(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(load, 300); }
+
+async function load() {
+  document.getElementById('userTableBody').innerHTML = '<tr class="empty-row"><td colspan="6">Loading…</td></tr>';
+  const params = new URLSearchParams();
+  const role = document.getElementById('fRole').value;
+  const team = document.getElementById('fTeam').value;
+  const includeInactive = document.getElementById('fInactive').checked;
+  if (role) params.set('role', role);
+  if (team) params.set('team_id', team);
+  if (includeInactive) params.set('include_inactive', 'true');
+
+  try {
+    USERS = await api('/users?' + params.toString());
+  } catch (e) {
+    if (e.message !== 'session expired') showToast('Could not load users: ' + e.message, 'err');
+    document.getElementById('userTableBody').innerHTML = '<tr class="empty-row"><td colspan="6">Could not load users.</td></tr>';
+    return;
+  }
+
+  const search = document.getElementById('fSearch').value.trim().toLowerCase();
+  let rows = USERS;
+  if (search) {
+    rows = rows.filter(u => u.name.toLowerCase().includes(search) || u.email.toLowerCase().includes(search));
+  }
+  renderTable(rows);
+}
+
+function canManage(u){
+  return ME.role === 'admin' || (u.role === 'tech' || u.role === 'leadership');
+}
+
+function renderTable(rows){
+  const tbody = document.getElementById('userTableBody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No users match.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(u => `
+    <tr class="${u.is_active ? '' : 'inactive'}">
+      <td>${escapeHtml(u.name)}</td>
+      <td>${escapeHtml(u.email)}</td>
+      <td><span class="role-chip role-${u.role}">${u.role}</span></td>
+      <td>${u.team ? escapeHtml(u.team.name) : '—'}</td>
+      <td>${u.is_active ? 'Active' : 'Deactivated'}</td>
+      <td class="row-actions">
+        <button class="btn btn-ghost btn-sm" onclick="openEditUser(${u.id})" ${canManage(u) ? '' : 'disabled title="Admin only"'}>Edit</button>
+        <button class="btn btn-ghost btn-sm" onclick="doResetPassword(${u.id})" ${canManage(u) ? '' : 'disabled'}>Reset password</button>
+        ${u.is_active
+          ? `<button class="btn btn-danger btn-sm" onclick="toggleActive(${u.id}, false)" ${canManage(u) && u.id !== ME.id ? '' : 'disabled'}>Deactivate</button>`
+          : `<button class="btn btn-ghost btn-sm" onclick="toggleActive(${u.id}, true)" ${canManage(u) ? '' : 'disabled'}>Reactivate</button>`
+        }
+      </td>
+    </tr>
+  `).join('');
+}
+
+function openDrawer(html){
+  document.getElementById('drawer').innerHTML = html;
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawerBackdrop').classList.add('open');
+}
+function closeDrawer(){
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawerBackdrop').classList.remove('open');
+}
+
+function roleOptions(selected){
+  const allowed = ME.role === 'admin' ? ALL_ROLES : ['tech','leadership'];
+  return allowed.map(r => `<option value="${r}" ${r===selected?'selected':''}>${r}</option>`).join('');
+}
+function teamOptions(selected){
+  return '<option value="">No team</option>' + TEAMS.map(t =>
+    `<option value="${t.id}" ${String(t.id)===String(selected)?'selected':''}>${escapeHtml(t.name)}</option>`
+  ).join('');
+}
+
+function openNewUser(){
+  openDrawer(`
+    <button class="close-btn" onclick="closeDrawer()">×</button>
+    <h2>New user</h2>
+    <label>Name</label><input id="nName">
+    <label>Email</label><input id="nEmail" type="email">
+    <label>Role</label><select id="nRole" onchange="onNewRoleChange()">${roleOptions('tech')}</select>
+    <label>Team ${ME.role==='admin'?'':''}<span id="nTeamReq" style="color:var(--hivis);">*</span></label>
+    <select id="nTeam">${teamOptions('')}</select>
+    <div class="hint">Required for tech accounts. A temporary password is generated automatically — you'll see it once, right after creating the account.</div>
+    <div class="field-err" id="nErr"></div>
+    <div class="drawer-actions"><button class="btn" onclick="createUser()">Create account</button></div>
+  `);
+}
+function onNewRoleChange(){
+  const req = document.getElementById('nRole').value === 'tech';
+  document.getElementById('nTeamReq').style.display = req ? 'inline' : 'none';
+}
+
+async function createUser(){
+  const btn = event.target;
+  const errEl = document.getElementById('nErr');
+  errEl.textContent = '';
+  const name = document.getElementById('nName').value.trim();
+  const email = document.getElementById('nEmail').value.trim();
+  const role = document.getElementById('nRole').value;
+  const teamVal = document.getElementById('nTeam').value;
+  if (!name || !email) { errEl.textContent = 'Name and email are required.'; return; }
+  if (role === 'tech' && !teamVal) { errEl.textContent = 'Tech accounts need a team.'; return; }
+  btn.disabled = true;
+  try {
+    const payload = {name, email, role, team_id: teamVal ? parseInt(teamVal) : null};
+    const result = await api('/users', {method:'POST', body:payload});
+    showPasswordReveal(result.user, result.temporary_password, 'Account created.');
+    load();
+  } catch (e) {
+    errEl.textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
+function showPasswordReveal(user, password, heading){
+  openDrawer(`
+    <button class="close-btn" onclick="closeDrawer()">×</button>
+    <h2>${escapeHtml(heading)}</h2>
+    <div class="hint">${escapeHtml(user.name)} · ${escapeHtml(user.email)}</div>
+    <div class="pw-reveal">
+      <div class="warn">Temporary password — shown once. Send it to them now (text or verbal is fine). Self-service password change isn't built yet, so if you can't hand it off immediately, keep this somewhere safe in the meantime.</div>
+      <div class="pw">${escapeHtml(password)}</div>
+    </div>
+    <div class="drawer-actions"><button class="btn" onclick="closeDrawer()">Done</button></div>
+  `);
+}
+
+function openEditUser(id){
+  const u = USERS.find(x => x.id === id);
+  if (!u) return;
+  openDrawer(`
+    <button class="close-btn" onclick="closeDrawer()">×</button>
+    <h2>${escapeHtml(u.name)}</h2>
+    <div class="hint">${escapeHtml(u.email)}</div>
+    <label>Name</label><input id="eName" value="${escapeHtml(u.name)}">
+    <label>Role</label><select id="eRole">${roleOptions(u.role)}</select>
+    <label>Team</label><select id="eTeam">${teamOptions(u.team ? u.team.id : '')}</select>
+    <div class="field-err" id="eErr"></div>
+    <div class="drawer-actions"><button class="btn" onclick="saveEditUser(${u.id})">Save changes</button></div>
+  `);
+}
+
+async function saveEditUser(id){
+  const btn = event.target;
+  const errEl = document.getElementById('eErr');
+  errEl.textContent = '';
+  btn.disabled = true;
+  try {
+    const teamVal = document.getElementById('eTeam').value;
+    const payload = {
+      name: document.getElementById('eName').value.trim(),
+      role: document.getElementById('eRole').value,
+      team_id: teamVal ? parseInt(teamVal) : null,
+    };
+    await api(`/users/${id}`, {method:'PATCH', body:payload});
+    showToast('Saved.', 'ok');
+    closeDrawer(); load();
+  } catch (e) {
+    errEl.textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
+async function toggleActive(id, makeActive){
+  try {
+    await api(`/users/${id}`, {method:'PATCH', body:{is_active: makeActive}});
+    showToast(makeActive ? 'Account reactivated.' : 'Account deactivated.', 'ok');
+    load();
+  } catch (e) {
+    showToast('Could not update account: ' + e.message, 'err');
+  }
+}
+
+async function doResetPassword(id){
+  const u = USERS.find(x => x.id === id);
+  if (!u) return;
+  if (!confirm(`Reset the password for ${u.name}? Their current password will stop working immediately.`)) return;
+  try {
+    const result = await api(`/users/${id}/reset-password`, {method:'POST'});
+    showPasswordReveal(u, result.temporary_password, 'Password reset.');
+  } catch (e) {
+    showToast('Could not reset password: ' + e.message, 'err');
+  }
+}
+
+if (TOKEN) boot();
+</script>
+</body>
+</html>
