@@ -44,8 +44,15 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
 
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-top:18px;}
 .kpi{background:var(--canvas-panel);border:1px solid var(--khaki-line);border-radius:8px;padding:14px 16px;position:relative;}
+.kpi.clickable{cursor:pointer;}
+.kpi.clickable:hover{border-color:var(--pine);}
+.kpi.active{border-color:var(--pine);border-width:2px;background:var(--ok-bg);}
 .kpi .num{font-family:var(--font-display);font-size:26px;font-weight:600;line-height:1;}
 .kpi .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-soft);margin-top:6px;}
+th.sortable{cursor:pointer;user-select:none;white-space:nowrap;}
+th.sortable:hover{color:var(--pine);}
+.sort-icon{font-size:9px;opacity:.45;margin-left:3px;}
+.sort-icon.active{opacity:1;color:var(--pine);}
 
 .section-title{font-family:var(--font-display);text-transform:uppercase;letter-spacing:.06em;font-size:13px;color:var(--ink-soft);margin:26px 0 10px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
 .section-title .hint{font-family:var(--font-body);text-transform:none;letter-spacing:normal;font-size:11px;color:var(--ink-soft);opacity:.75;}
@@ -117,7 +124,7 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
 
   <div class="section-title">
     <span>Filter</span>
-    <span class="hint">Inbox sorted by priority, then oldest first</span>
+    <span class="hint" id="sortHint">Inbox sorted by priority, then oldest first</span>
   </div>
   <div class="filters">
     <select id="fStatus" onchange="load()"><option value="">All Statuses</option></select>
@@ -133,7 +140,15 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
 
   <div class="section-title">Inbox</div>
   <table>
-    <thead><tr><th>WO#</th><th>Priority</th><th>Status</th><th>Description</th><th>Location</th><th>Team</th><th>Created</th></tr></thead>
+    <thead><tr>
+      <th class="sortable" onclick="setSort('wo_number')">WO# <span class="sort-icon" id="sortIcon-wo_number"></span></th>
+      <th class="sortable" onclick="setSort('priority')">Priority <span class="sort-icon" id="sortIcon-priority"></span></th>
+      <th class="sortable" onclick="setSort('status')">Status <span class="sort-icon" id="sortIcon-status"></span></th>
+      <th>Description</th>
+      <th class="sortable" onclick="setSort('location')">Location <span class="sort-icon" id="sortIcon-location"></span></th>
+      <th class="sortable" onclick="setSort('team')">Team <span class="sort-icon" id="sortIcon-team"></span></th>
+      <th class="sortable" onclick="setSort('created')">Created <span class="sort-icon" id="sortIcon-created"></span></th>
+    </tr></thead>
     <tbody id="woTableBody"><tr class="loading-row"><td colspan="7">Loading…</td></tr></tbody>
   </table>
 </div>
@@ -149,6 +164,9 @@ let TOKEN = localStorage.getItem('loc_token') || '';
 let TEAMS = [], ASSETS = [];
 let drawerLocationPicker = null, newWoLocationPicker = null;
 let activeQuickView = '';
+let currentSort = {key: null, dir: 'asc'};
+let LAST_WOS = [];
+const PRIORITY_ORDER = {"Highest":0,"High":1,"Medium":2,"Low":3,"Lowest":4};
 const STATUSES = ["Requested","Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
 const PRIORITIES = ["Highest","High","Medium","Low","Lowest"];
 const WORK_TYPES = ["NJ Maintenance","NJ IT","NJ Items/Parts","NJ Transportation"];
@@ -257,7 +275,7 @@ function renderQuickViews(){
 function applyQuickView(key){
   activeQuickView = key;
   renderQuickViews();
-  if (key === '' || key === 'HighestHighOpen' || key === 'Closed') {
+  if (['','HighestHighOpen','Closed','OpenActive','OpenedToday','ClosedToday'].includes(key)) {
     document.getElementById('fStatus').value = '';
     document.getElementById('fPriority').value = '';
   } else {
@@ -288,7 +306,7 @@ async function load() {
   const location = document.getElementById('fLocation').value;
   const team = document.getElementById('fTeam').value;
   const search = document.getElementById('fSearch').value;
-  const needsClientFilter = activeQuickView === 'HighestHighOpen' || activeQuickView === 'Closed';
+  const needsClientFilter = ['HighestHighOpen','Closed','OpenActive','OpenedToday','ClosedToday'].includes(activeQuickView);
   if (!needsClientFilter && status) params.set('status', status);
   if (priority) params.set('priority', priority);
   if (workType) params.set('work_type', workType);
@@ -309,23 +327,81 @@ async function load() {
     return;
   }
 
+  const isToday = (isoString) => isoString && new Date(isoString).toDateString() === new Date().toDateString();
+
   if (activeQuickView === 'HighestHighOpen') {
     wos = wos.filter(w => (w.priority === 'Highest' || w.priority === 'High') && !w.status.startsWith('Closed'));
   } else if (activeQuickView === 'Closed') {
     wos = wos.filter(w => w.status.startsWith('Closed'));
+  } else if (activeQuickView === 'OpenActive') {
+    wos = wos.filter(w => !w.status.startsWith('Closed'));
+  } else if (activeQuickView === 'OpenedToday') {
+    wos = wos.filter(w => isToday(w.created_at));
+  } else if (activeQuickView === 'ClosedToday') {
+    wos = wos.filter(w => w.status.startsWith('Closed') && isToday(w.closed_at));
   }
 
+  LAST_WOS = wos;
   renderKPIs(kpis);
-  renderTable(wos);
+  renderTable(sortWOs(wos));
+}
+
+function sortValue(w, key){
+  switch(key){
+    case 'wo_number': return w.wo_number || '';
+    case 'priority': return PRIORITY_ORDER[w.priority] ?? 99;
+    case 'status': return w.status || '';
+    case 'location': return (w.asset ? w.asset.name : '') || '';
+    case 'team': return (w.assigned_team ? w.assigned_team.name : '') || '';
+    case 'created': return new Date(w.created_at).getTime();
+    default: return '';
+  }
+}
+
+function sortWOs(wos){
+  if (!currentSort.key) return wos; // server default: priority, then oldest first
+  const dir = currentSort.dir === 'asc' ? 1 : -1;
+  return [...wos].sort((a, b) => {
+    const av = sortValue(a, currentSort.key), bv = sortValue(b, currentSort.key);
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
+  });
+}
+
+function setSort(key){
+  if (currentSort.key === key) {
+    currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    currentSort = {key, dir: 'asc'};
+  }
+  document.querySelectorAll('.sort-icon').forEach(el => { el.textContent = ''; el.classList.remove('active'); });
+  const icon = document.getElementById('sortIcon-' + key);
+  icon.textContent = currentSort.dir === 'asc' ? '▲' : '▼';
+  icon.classList.add('active');
+  const labels = {wo_number:'WO#', priority:'Priority', status:'Status', location:'Location', team:'Team', created:'Created'};
+  document.getElementById('sortHint').textContent = `Sorted by ${labels[key]} (${currentSort.dir === 'asc' ? 'ascending' : 'descending'})`;
+  renderTable(sortWOs(LAST_WOS));
 }
 
 function renderKPIs(k){
   const items = [
-    {num:k.total, lbl:'Total'}, {num:k.open, lbl:'Open / Active'},
-    {num:k.highest_high_open, lbl:'Highest+High Open'}, {num:k.closed, lbl:'Closed'},
-    {num:k.completion_rate+'%', lbl:'Completion Rate'}, {num:k.opened_today, lbl:'Opened Today'}, {num:k.closed_today, lbl:'Closed Today'},
+    {num:k.total, lbl:'Total', key:''},
+    {num:k.open, lbl:'Open / Active', key:'OpenActive'},
+    {num:k.highest_high_open, lbl:'Highest+High Open', key:'HighestHighOpen'},
+    {num:k.closed, lbl:'Closed', key:'Closed'},
+    {num:k.completion_rate+'%', lbl:'Completion Rate', key:null},
+    {num:k.opened_today, lbl:'Opened Today', key:'OpenedToday'},
+    {num:k.closed_today, lbl:'Closed Today', key:'ClosedToday'},
   ];
-  document.getElementById('kpiRow').innerHTML = items.map(i=>`<div class="kpi"><div class="num">${i.num}</div><div class="lbl">${i.lbl}</div></div>`).join('');
+  document.getElementById('kpiRow').innerHTML = items.map(i => {
+    const clickable = i.key !== null;
+    const active = clickable && activeQuickView === i.key;
+    return `<div class="kpi ${clickable ? 'clickable' : ''} ${active ? 'active' : ''}"
+      ${clickable ? `onclick="applyQuickView('${i.key}')"` : ''}>
+      <div class="num">${i.num}</div><div class="lbl">${i.lbl}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderTable(wos){

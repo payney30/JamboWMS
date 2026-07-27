@@ -55,6 +55,10 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
 table{width:100%;border-collapse:collapse;background:var(--canvas-panel);border:1px solid var(--khaki-line);border-radius:8px;overflow:hidden;font-size:13px;}
 th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--khaki-line);}
 th{background:#F1EDDF;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);}
+th.sortable{cursor:pointer;user-select:none;white-space:nowrap;}
+th.sortable:hover{color:var(--pine);}
+.sort-icon{font-size:9px;opacity:.45;margin-left:3px;}
+.sort-icon.active{opacity:1;color:var(--pine);}
 tr.inactive td{opacity:.5;}
 .role-chip{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:#E7E4DC;color:var(--ink-soft);}
 .role-admin,.role-loc{background:var(--danger-bg);color:var(--hivis);}
@@ -120,7 +124,14 @@ tr.inactive td{opacity:.5;}
   </div>
 
   <table style="margin-top:14px;">
-    <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Team</th><th>Status</th><th>Actions</th></tr></thead>
+    <thead><tr>
+      <th class="sortable" onclick="setSort('name')">Name <span class="sort-icon" id="sortIcon-name"></span></th>
+      <th class="sortable" onclick="setSort('email')">Email <span class="sort-icon" id="sortIcon-email"></span></th>
+      <th class="sortable" onclick="setSort('role')">Role <span class="sort-icon" id="sortIcon-role"></span></th>
+      <th class="sortable" onclick="setSort('team')">Team <span class="sort-icon" id="sortIcon-team"></span></th>
+      <th class="sortable" onclick="setSort('status')">Status <span class="sort-icon" id="sortIcon-status"></span></th>
+      <th>Actions</th>
+    </tr></thead>
     <tbody id="userTableBody"><tr class="empty-row"><td colspan="6">Loading…</td></tr></tbody>
   </table>
 </div>
@@ -133,6 +144,8 @@ tr.inactive td{opacity:.5;}
 const API = '';
 let TOKEN = localStorage.getItem('loc_token') || '';
 let ME = null, TEAMS = [], USERS = [];
+let currentSort = {key: null, dir: 'asc'};
+let LAST_ROWS = [];
 const ALL_ROLES = ["tech","leadership","loc","admin"];
 
 function escapeHtml(s){
@@ -254,7 +267,43 @@ async function load() {
   if (search) {
     rows = rows.filter(u => u.name.toLowerCase().includes(search) || u.email.toLowerCase().includes(search));
   }
-  renderTable(rows);
+  LAST_ROWS = rows;
+  renderTable(sortRows(rows));
+}
+
+function sortValue(u, key){
+  switch(key){
+    case 'name': return u.name || '';
+    case 'email': return u.email || '';
+    case 'role': return u.role || '';
+    case 'team': return (u.team ? u.team.name : '') || '';
+    case 'status': return u.is_active ? 0 : 1;
+    default: return '';
+  }
+}
+
+function sortRows(rows){
+  if (!currentSort.key) return rows;
+  const dir = currentSort.dir === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const av = sortValue(a, currentSort.key), bv = sortValue(b, currentSort.key);
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
+  });
+}
+
+function setSort(key){
+  if (currentSort.key === key) {
+    currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    currentSort = {key, dir: 'asc'};
+  }
+  document.querySelectorAll('.sort-icon').forEach(el => { el.textContent = ''; el.classList.remove('active'); });
+  const icon = document.getElementById('sortIcon-' + key);
+  icon.textContent = currentSort.dir === 'asc' ? '▲' : '▼';
+  icon.classList.add('active');
+  renderTable(sortRows(LAST_ROWS));
 }
 
 function canManage(u){
