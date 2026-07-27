@@ -48,6 +48,13 @@ textarea{min-height:110px;resize:vertical;}
 .priority-option .p-criteria{margin:4px 0 0;padding-left:18px;font-size:12px;color:var(--ink-soft);line-height:1.5;}
 .priority-option .p-criteria li{margin-bottom:1px;}
 
+/* POC sub-block: nested inside the "No" card once selected, visually
+   subordinate to the toggle rather than a whole new section. */
+.poc-subfields{display:none;margin-top:12px;padding-top:12px;border-top:1px dashed var(--khaki-line);}
+.poc-subfields.open{display:block;}
+.poc-subfields label{margin-top:10px;}
+.poc-subfields label:first-child{margin-top:0;}
+
 .file-row{display:flex;align-items:center;gap:10px;}
 input[type=file]{font-size:13px;}
 
@@ -94,10 +101,23 @@ input[type=file]{font-size:13px;}
 
       <label>Contact phone</label>
       <input type="tel" id="rPhone" autocomplete="tel">
+      <div class="hint">We may call or text this number with updates or questions.</div>
 
       <label>How should we reach you with updates?</label>
       <div class="priority-group" id="rContactPrefGroup" style="gap:6px;"></div>
       <div class="field-err" id="rContactPrefErr"></div>
+
+      <label>Are you the point of contact for this location/area? <span class="required-mark">*</span></label>
+      <div class="priority-group" id="rPocGroup" style="gap:6px;"></div>
+      <div class="poc-subfields" id="pocSubfields">
+        <label>Point of contact's name <span class="required-mark">*</span></label>
+        <input type="text" id="pocName" autocomplete="off">
+
+        <label>Point of contact's phone <span class="required-mark">*</span></label>
+        <input type="tel" id="pocPhone" autocomplete="off">
+        <div class="hint">We'll call or text the point of contact too, in addition to you.</div>
+      </div>
+      <div class="field-err" id="rPocErr"></div>
 
       <label>Location <span class="required-mark">*</span></label>
       <div id="rLocationPicker"></div>
@@ -175,12 +195,32 @@ const CONTACT_PREFS = [
   {key:'text', label:'Text message'},
   {key:'both', label:'Both'},
 ];
+// Default assumption is "yes" (requester = POC) so the common case adds
+// zero extra fields. Selecting "no" reveals the POC name/phone sub-fields.
+const POC_OPTIONS = [
+  {key:'yes', label:'Yes, I\u2019m the point of contact for this location/area'},
+  {key:'no', label:'No, someone else is the point of contact'},
+];
 let locationPicker = null;
 
 function refreshSelectedStyling(groupEl){
   groupEl.querySelectorAll('.priority-option').forEach(opt => {
     opt.classList.toggle('selected', opt.querySelector('input').checked);
   });
+}
+
+function onPocChange(){
+  const isRequester = document.querySelector('input[name="rPoc"]:checked')?.value === 'yes';
+  const sub = document.getElementById('pocSubfields');
+  sub.classList.toggle('open', !isRequester);
+  const pocName = document.getElementById('pocName');
+  const pocPhone = document.getElementById('pocPhone');
+  if (isRequester) {
+    pocName.value = '';
+    pocPhone.value = '';
+  }
+  document.getElementById('rPocErr').textContent = '';
+  refreshSelectedStyling(document.getElementById('rPocGroup'));
 }
 
 async function boot(){
@@ -209,6 +249,14 @@ async function boot(){
       <div class="p-name" style="font-size:13px;">${p.label}</div>
     </label>`).join('');
   refreshSelectedStyling(prefGroup);
+
+  const pocGroup = document.getElementById('rPocGroup');
+  pocGroup.innerHTML = POC_OPTIONS.map((p, i) => `
+    <label class="priority-option" style="padding:9px 12px;">
+      <input type="radio" name="rPoc" value="${p.key}" ${i===0?'checked':''} onchange="onPocChange()">
+      <div class="p-name" style="font-size:13px;">${p.label}</div>
+    </label>`).join('');
+  refreshSelectedStyling(pocGroup);
 }
 
 function escapeHtml(s){
@@ -222,9 +270,11 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
   const errBanner = document.getElementById('formErr');
   const locErr = document.getElementById('rLocationErr');
   const prefErr = document.getElementById('rContactPrefErr');
+  const pocErr = document.getElementById('rPocErr');
   errBanner.style.display = 'none';
   locErr.textContent = '';
   prefErr.textContent = '';
+  pocErr.textContent = '';
 
   const assetId = locationPicker ? locationPicker.getValue() : null;
   if (!assetId) {
@@ -254,6 +304,14 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
     return;
   }
 
+  const pocIsRequester = (document.querySelector('input[name="rPoc"]:checked')?.value || 'yes') === 'yes';
+  const pocName = document.getElementById('pocName').value.trim();
+  const pocPhone = document.getElementById('pocPhone').value.trim();
+  if (!pocIsRequester && (!pocName || !pocPhone)) {
+    pocErr.textContent = 'Add the point of contact\u2019s name and phone number.';
+    return;
+  }
+
   const priorityInput = document.querySelector('input[name="rPriority"]:checked');
   const submitBtn = document.getElementById('submitBtn');
   submitBtn.disabled = true;
@@ -263,6 +321,9 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
   formData.set('requester_name', name);
   formData.set('requester_email', email);
   formData.set('requester_phone', phone);
+  formData.set('poc_is_requester', pocIsRequester ? 'true' : 'false');
+  formData.set('poc_name', pocIsRequester ? '' : pocName);
+  formData.set('poc_phone', pocIsRequester ? '' : pocPhone);
   formData.set('asset_id', assetId);
   formData.set('work_type', document.getElementById('rWorkType').value);
   formData.set('description', description);
@@ -309,6 +370,8 @@ function resetForm(){
   document.getElementById('submitBtn').textContent = 'Submit work order';
   refreshSelectedStyling(document.getElementById('rPriorityGroup'));
   refreshSelectedStyling(document.getElementById('rContactPrefGroup'));
+  refreshSelectedStyling(document.getElementById('rPocGroup'));
+  document.getElementById('pocSubfields').classList.remove('open');
   window.scrollTo({top: 0, behavior: 'smooth'});
 }
 
