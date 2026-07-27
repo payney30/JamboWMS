@@ -46,6 +46,7 @@ class UserOut(BaseModel):
     name: str
     email: str
     role: str
+    team: Optional[TeamOut] = None
 
 
 class NoteOut(BaseModel):

@@ -151,6 +151,11 @@ def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Assign
     if not team:
         raise HTTPException(404, "team not found")
 
+    if payload.person_id is not None:
+        person = db.get(models.User, payload.person_id)
+        if not person or person.team_id != payload.team_id:
+            raise HTTPException(400, "person must belong to the team they're being assigned into")
+
     is_reroute = wo.assigned_team_id is not None and wo.assigned_team_id != payload.team_id
     if is_reroute and not payload.note:
         raise HTTPException(400, "a reason note is required when reassigning to a different team")
