@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Main LOC Dashboard — National Jamboree Work Orders</title>
+<style>
+:root{
+  --pine:#1C3829; --pine-deep:#122A1D; --canvas:#EFEADC; --canvas-panel:#FBF8F0;
+  --khaki-line:#D8CFB6; --ink:#241F14; --ink-soft:#5B5340; --hivis:#E8620C; --hivis-soft:#F4A25E;
+  --amber:#C9962B; --olive:#5C7A4A; --moss:#3E6B4F; --slate:#5A7385; --closed:#7A8471;
+  --font-display: 'Oswald', 'Arial Narrow', 'Helvetica Neue', sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SF Mono', 'Consolas', 'Menlo', monospace;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-family:var(--font-body);}
+.wrap{max-width:1180px;margin:0 auto;padding:24px 20px 60px;}
+.topbar{background:var(--pine);color:var(--canvas-panel);border-radius:10px;padding:18px 24px;
+  display:flex;align-items:center;justify-content:space-between;box-shadow:0 4px 0 var(--pine-deep);flex-wrap:wrap;gap:12px;}
+.brand-eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--hivis-soft);margin:0 0 4px;}
+.brand-title{font-family:var(--font-display);font-weight:600;font-size:24px;margin:0;text-transform:uppercase;}
+.refresh-note{font-size:11px;color:var(--hivis-soft);}
+#loginBox{background:var(--canvas-panel);border:1px solid var(--khaki-line);border-radius:10px;padding:24px;max-width:360px;margin:60px auto;}
+#loginBox input{width:100%;padding:10px;margin:6px 0 14px;border:1px solid var(--khaki-line);border-radius:6px;font-size:14px;}
+#loginBox button{background:var(--pine);color:#fff;border:none;border-radius:6px;padding:10px 16px;font-size:13px;cursor:pointer;}
+#loginErr{color:var(--hivis);font-size:12px;min-height:16px;}
+
+.dash-nav{display:flex;gap:10px;margin:16px 0;flex-wrap:wrap;}
+.dash-nav a{background:var(--canvas-panel);border:1px solid var(--khaki-line);border-radius:20px;padding:8px 16px;font-size:12px;color:var(--ink-soft);text-decoration:none;font-family:var(--font-body);}
+.dash-nav a:hover{border-color:var(--pine);color:var(--pine);}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:6px;}
+.stat{background:var(--canvas-panel);border:1px solid var(--khaki-line);border-radius:8px;padding:14px 16px;}
+.stat .num{font-family:var(--font-display);font-size:26px;font-weight:600;line-height:1;}
+.stat .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-soft);margin-top:6px;}
+
+.section-title{font-family:var(--font-display);text-transform:uppercase;letter-spacing:.06em;font-size:13px;color:var(--ink-soft);margin:26px 0 10px;}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+@media (max-width:800px){.grid-2{grid-template-columns:1fr;}}
+.card{background:var(--canvas-panel);border:1px solid var(--khaki-line);border-radius:8px;padding:16px;}
+.card h3{font-family:var(--font-display);font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin:0 0 12px;}
+
+.bar-row{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:12px;}
+.bar-label{width:130px;flex-shrink:0;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.bar-track{flex:1;background:#F1EDDF;border-radius:4px;height:16px;overflow:hidden;}
+.bar-fill{background:var(--moss);height:100%;border-radius:4px;}
+.bar-count{width:34px;text-align:right;font-family:var(--font-mono);color:var(--ink-soft);}
+
+table{width:100%;border-collapse:collapse;font-size:12px;}
+th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--khaki-line);}
+th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:var(--ink-soft);}
+.chip{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;}
+.chip-Highest,.chip-High{background:#FBE4D6;color:var(--hivis);}
+.empty-note{color:var(--ink-soft);font-size:12px;padding:8px 0;}
+
+#toastStack{position:fixed;bottom:16px;left:16px;right:16px;z-index:50;display:flex;flex-direction:column;gap:8px;align-items:center;}
+.toast{background:var(--pine);color:#fff;border-radius:8px;padding:10px 14px;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.2);}
+.toast.err{background:var(--hivis);}
+</style>
+</head>
+<body>
+
+<div id="loginBox">
+  <h2 style="font-family:var(--font-display);margin-top:0;">Dashboard Login</h2>
+  <label>Email</label><input id="loginEmail" type="email" autocomplete="username">
+  <label>Password</label><input id="loginPass" type="password" autocomplete="current-password">
+  <button onclick="login()">Sign in</button>
+  <div id="loginErr"></div>
+</div>
+
+<div class="wrap" id="app" style="display:none;">
+  <div class="topbar">
+    <div>
+      <p class="brand-eyebrow">Live · Read-only · Main LOC</p>
+      <h1 class="brand-title">National Jamboree Work Orders</h1>
+    </div>
+    <div>
+      <span class="refresh-note" id="refreshNote">Updates automatically every 60s</span>
+    </div>
+  </div>
+
+  <div class="dash-nav"><a href="dashboard-program.html">&larr; Program Team</a><a href="dashboard-basecamp.html">Base Camp Ops &rarr;</a></div>
+
+  <div class="stats" id="statRow"></div>
+
+  <div class="section-title">Trend — last 14 days</div>
+  <div class="card">
+    <div id="trendChart"></div>
+  </div>
+
+  <div class="section-title">Breakdown</div>
+  <div class="grid-2">
+    <div class="card"><h3>Status</h3><div id="byStatus"></div></div>
+    <div class="card"><h3>Priority</h3><div id="byPriority"></div></div>
+    <div class="card"><h3>Work type</h3><div id="byWorkType"></div></div>
+    <div class="card"><h3>Location / area</h3><div id="byLocation"></div></div>
+    <div class="card" style="grid-column:1 / -1;"><h3>Assigned team — total vs closed</h3><div id="byTeam"></div></div>
+  </div>
+
+  <div class="section-title">Needing attention — Highest/High priority, open, oldest first</div>
+  <div class="card">
+    <table>
+      <thead><tr><th>WO#</th><th>Priority</th><th>Status</th><th>Description</th><th>Location</th><th>Age</th></tr></thead>
+      <tbody id="attentionBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="toastStack"></div>
+
+<script>
+const API = '';
+let TOKEN = localStorage.getItem('loc_token') || '';
+const currentScope = 'main'; // fixed — this page is scope-locked, see dash-nav for the other two
+let refreshTimer = null;
+
+function escapeHtml(s){
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : s;
+  return d.innerHTML;
+}
+function showToast(msg, kind){
+  const el = document.createElement('div');
+  el.className = 'toast' + (kind ? ' ' + kind : '');
+  el.textContent = msg;
+  document.getElementById('toastStack').appendChild(el);
+  setTimeout(() => el.remove(), 5000);
+}
+
+async function api(path) {
+  const res = await fetch(API + path, {headers: TOKEN ? {Authorization: 'Bearer ' + TOKEN} : {}});
+  if (res.status === 401) {
+    localStorage.removeItem('loc_token');
+    TOKEN = '';
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('loginBox').style.display = 'block';
+    document.getElementById('loginErr').textContent = 'Your session expired — please sign in again.';
+    throw new Error('session expired');
+  }
+  if (!res.ok) throw new Error(res.statusText);
+  return res.json();
+}
+
+async function login() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  const errEl = document.getElementById('loginErr');
+  errEl.textContent = '';
+  if (!email || !pass) { errEl.textContent = 'Enter both an email and a password.'; return; }
+  try {
+    const res = await fetch(API + '/auth/login', {
+      method: 'POST',
+      body: new URLSearchParams({username: email, password: pass}),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || 'Sign-in failed.');
+    }
+    const data = await res.json();
+    TOKEN = data.access_token;
+    localStorage.setItem('loc_token', TOKEN);
+    boot();
+  } catch (e) {
+    errEl.textContent = e.message;
+  }
+}
+
+function boot(){
+  document.getElementById('loginBox').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  load();
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(load, 60000);
+}
+
+async function load(){
+  let kpis, breakdowns, trend, attention;
+  try {
+    [kpis, breakdowns, trend, attention] = await Promise.all([
+      api(`/dashboard/kpis?scope=${currentScope}`),
+      api(`/dashboard/breakdowns?scope=${currentScope}`),
+      api(`/dashboard/trend?scope=${currentScope}&days=14`),
+      api(`/dashboard/attention?scope=${currentScope}&limit=15`),
+    ]);
+  } catch (e) {
+    if (e.message !== 'session expired') showToast('Could not refresh dashboard: ' + e.message, 'err');
+    return;
+  }
+  renderStats(kpis);
+  renderBars('byStatus', breakdowns.by_status);
+  renderBars('byPriority', breakdowns.by_priority, ['Highest','High','Medium','Low','Lowest']);
+  renderBars('byWorkType', breakdowns.by_work_type);
+  renderBars('byLocation', breakdowns.by_location);
+  renderTeamTable(breakdowns.by_team, breakdowns.by_status);
+  renderTrend(trend);
+  renderAttention(attention);
+}
+
+function renderStats(k){
+  const items = [
+    {num:k.total, lbl:'Total'}, {num:k.open, lbl:'Open / Active'},
+    {num:k.highest_high_open, lbl:'Highest+High Open'}, {num:k.closed, lbl:'Closed'},
+    {num:k.completion_rate+'%', lbl:'Completion Rate'}, {num:k.opened_today, lbl:'Opened Today'}, {num:k.closed_today, lbl:'Closed Today'},
+  ];
+  document.getElementById('statRow').innerHTML = items.map(i=>`<div class="stat"><div class="num">${i.num}</div><div class="lbl">${i.lbl}</div></div>`).join('');
+}
+
+function renderBars(elId, dataObj, order){
+  const el = document.getElementById(elId);
+  let entries = Object.entries(dataObj || {});
+  if (order) {
+    entries = order.filter(k => dataObj[k]).map(k => [k, dataObj[k]]);
+  } else {
+    entries.sort((a,b) => b[1]-a[1]);
+  }
+  if (!entries.length) { el.innerHTML = '<div class="empty-note">No data yet.</div>'; return; }
+  const max = Math.max(...entries.map(e => e[1]));
+  el.innerHTML = entries.map(([label, count]) => `
+    <div class="bar-row">
+      <div class="bar-label">${escapeHtml(label)}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${max?Math.round(count/max*100):0}%"></div></div>
+      <div class="bar-count">${count}</div>
+    </div>
+  `).join('');
+}
+
+function renderTeamTable(byTeam, byStatus){
+  const el = document.getElementById('byTeam');
+  const entries = Object.entries(byTeam || {}).sort((a,b) => b[1]-a[1]);
+  if (!entries.length) { el.innerHTML = '<div class="empty-note">No team assignments yet.</div>'; return; }
+  // We don't have per-team closed counts from this endpoint; show total per team.
+  // (Full per-team closed breakdown would need a dedicated query — noted for a future pass.)
+  el.innerHTML = entries.map(([team, count]) => `
+    <div class="bar-row">
+      <div class="bar-label" style="width:260px;">${escapeHtml(team)}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.round(count/entries[0][1]*100)}%"></div></div>
+      <div class="bar-count">${count}</div>
+    </div>
+  `).join('');
+}
+
+function renderTrend(trend){
+  const el = document.getElementById('trendChart');
+  const w = 900, h = 180, pad = 30;
+  const max = Math.max(1, ...trend.map(d => Math.max(d.opened, d.closed)));
+  const stepX = (w - pad*2) / (trend.length - 1 || 1);
+  const y = v => h - pad - (v / max) * (h - pad*2);
+  const line = (key) => trend.map((d,i) => `${i===0?'M':'L'} ${pad+i*stepX} ${y(d[key])}`).join(' ');
+  const labels = trend.map((d,i) => i % Math.ceil(trend.length/7) === 0
+    ? `<text x="${pad+i*stepX}" y="${h-8}" font-size="9" fill="var(--ink-soft)" text-anchor="middle">${d.date.slice(5)}</text>` : '').join('');
+  el.innerHTML = `
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;font-family:var(--font-mono);">
+      <line x1="${pad}" y1="${h-pad}" x2="${w-pad}" y2="${h-pad}" stroke="var(--khaki-line)" />
+      <path d="${line('opened')}" fill="none" stroke="var(--hivis)" stroke-width="2" />
+      <path d="${line('closed')}" fill="none" stroke="var(--moss)" stroke-width="2" />
+      ${labels}
+    </svg>
+    <div style="display:flex;gap:16px;font-size:11px;color:var(--ink-soft);margin-top:6px;">
+      <span><span style="display:inline-block;width:10px;height:10px;background:var(--hivis);border-radius:2px;margin-right:4px;"></span>Opened</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:var(--moss);border-radius:2px;margin-right:4px;"></span>Closed</span>
+    </div>
+  `;
+}
+
+function renderAttention(rows){
+  const tbody = document.getElementById('attentionBody');
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-note">Nothing needs attention right now.</td></tr>'; return; }
+  const now = Date.now();
+  tbody.innerHTML = rows.map(w => {
+    const ageMs = now - new Date(w.created_at).getTime();
+    const hours = Math.floor(ageMs / 3600000);
+    const age = hours < 24 ? `${hours}h` : `${Math.floor(hours/24)}d ${hours%24}h`;
+    return `<tr>
+      <td>${escapeHtml(w.wo_number)}</td>
+      <td><span class="chip chip-${w.priority}">${w.priority}</span></td>
+      <td>${w.status}</td>
+      <td style="white-space:pre-wrap;">${escapeHtml((w.description||'').slice(0,90))}</td>
+      <td>${escapeHtml(w.asset ? w.asset.name : '')}</td>
+      <td>${age}</td>
+    </tr>`;
+  }).join('');
+}
+
+if (TOKEN) boot();
+</script>
+</body>
+</html>

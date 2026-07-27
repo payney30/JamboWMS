@@ -410,7 +410,7 @@ function renderTable(wos){
       <td>${w.wo_number}${w.external_ref ? `<div style="font-size:10px;color:var(--ink-soft);">Fiix #${escapeHtml(w.external_ref)}</div>` : ''}</td>
       <td><span class="chip chip-${w.priority}">${w.priority}</span></td>
       <td><span class="status-dot" style="background:${STATUS_COLOR[w.status]||'#999'}"></span>${w.status}</td>
-      <td>${escapeHtml((w.description||'').slice(0,70))}</td>
+      <td style="white-space:pre-wrap;">${escapeHtml((w.description||'').slice(0,70))}</td>
       <td>${w.asset ? escapeHtml(w.asset.name) : '—'}</td>
       <td>${w.assigned_team ? escapeHtml(w.assigned_team.name) : '—'}</td>
       <td>${new Date(w.created_at).toLocaleString()}</td>
