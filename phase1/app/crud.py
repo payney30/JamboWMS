@@ -263,32 +263,49 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
     )
 
 
-def get_kpis(db: Session) -> dict:
-    total = db.query(func.count(models.WorkOrder.id)).scalar()
-    closed = db.query(func.count(models.WorkOrder.id)).filter(
+def _scope_filter(db: Session, query, scope: str):
+    """Shared scope logic for the three PRD 4.4 dashboards. Filters via a
+    subquery on asset_id rather than an explicit join, so this is safe to
+    combine with queries (like by_location breakdowns) that already join
+    Asset themselves — an explicit join here would double-join and blow
+    up with an ambiguous-column error."""
+    if scope == "program":
+        ids = db.query(models.Asset.id).filter(models.Asset.location_group == "Program Areas")
+        query = query.filter(models.WorkOrder.asset_id.in_(ids))
+    elif scope == "basecamp":
+        # PRD: Base Camp Ops dashboard scope stays Charlie/Delta/Echo only.
+        ids = db.query(models.Asset.id).filter(models.Asset.camp_letter.in_(["C", "D", "E"]))
+        query = query.filter(models.WorkOrder.asset_id.in_(ids))
+    return query
+
+
+def get_kpis(db: Session, scope: str = "main") -> dict:
+    base = _scope_filter(db, db.query(models.WorkOrder.id), scope)
+    total = base.count()
+    closed = _scope_filter(db, db.query(models.WorkOrder.id), scope).filter(
         models.WorkOrder.status.like("Closed%")
-    ).scalar()
+    ).count()
     open_ = total - closed
     rate = round((closed / total) * 100, 1) if total else 0.0
 
-    # Matches the old dashboard's renderKPIs() exactly: open AND priority
-    # in (Highest, High). Was missing from this endpoint even though the
-    # PRD lists it as part of the same KPI set as the old dashboards —
-    # added during the cutover comparison against NJ_LOC_Work_Order_Dashboard.html.
-    highest_high_open = db.query(func.count(models.WorkOrder.id)).filter(
+    highest_high_open = _scope_filter(db, db.query(models.WorkOrder.id), scope).filter(
         ~models.WorkOrder.status.like("Closed%"),
         models.WorkOrder.priority.in_(["Highest", "High"]),
-    ).scalar()
+    ).count()
 
     today = dt.date.today()
-    opened_today = db.query(func.count(models.WorkOrder.id)).filter(
+    opened_today = _scope_filter(db, db.query(models.WorkOrder.id), scope).filter(
         func.date(models.WorkOrder.created_at) == today
-    ).scalar()
-    closed_today = db.query(func.count(models.WOStatusHistory.id)).filter(
+    ).count()
+
+    closed_today_q = db.query(models.WOStatusHistory.id).join(
+        models.WorkOrder, models.WOStatusHistory.work_order_id == models.WorkOrder.id
+    ).filter(
         models.WOStatusHistory.event_type == "status_change",
         models.WOStatusHistory.to_value.like("Closed%"),
         func.date(models.WOStatusHistory.changed_at) == today,
-    ).scalar()
+    )
+    closed_today = _scope_filter(db, closed_today_q, scope).count()
 
     return {
         "total": total, "open": open_, "closed": closed,
@@ -298,21 +315,28 @@ def get_kpis(db: Session) -> dict:
     }
 
 
-def get_breakdowns(db: Session) -> dict:
+def get_breakdowns(db: Session, scope: str = "main") -> dict:
     def counts(col):
-        rows = db.query(col, func.count(models.WorkOrder.id)).group_by(col).all()
+        q = _scope_filter(db, db.query(col, func.count(models.WorkOrder.id)), scope)
+        rows = q.group_by(col).all()
         return {k or "Unset": v for k, v in rows}
 
-    by_location = dict(
+    by_location_q = _scope_filter(
+        db,
         db.query(models.Asset.location_group, func.count(models.WorkOrder.id))
-        .join(models.WorkOrder, models.WorkOrder.asset_id == models.Asset.id)
-        .group_by(models.Asset.location_group).all()
+        .join(models.WorkOrder, models.WorkOrder.asset_id == models.Asset.id),
+        scope,
     )
-    by_team = dict(
+    by_location = dict(by_location_q.group_by(models.Asset.location_group).all())
+
+    by_team_q = _scope_filter(
+        db,
         db.query(models.Team.name, func.count(models.WorkOrder.id))
-        .join(models.WorkOrder, models.WorkOrder.assigned_team_id == models.Team.id)
-        .group_by(models.Team.name).all()
+        .join(models.WorkOrder, models.WorkOrder.assigned_team_id == models.Team.id),
+        scope,
     )
+    by_team = dict(by_team_q.group_by(models.Team.name).all())
+
     return {
         "by_status": counts(models.WorkOrder.status),
         "by_priority": counts(models.WorkOrder.priority),
@@ -320,6 +344,58 @@ def get_breakdowns(db: Session) -> dict:
         "by_location": by_location,
         "by_team": by_team,
     }
+
+
+def get_daily_trend(db: Session, scope: str = "main", days: int = 14) -> list[dict]:
+    """New WOs opened per day and WOs closed per day, for the trend line
+    on PRD 4.4's dashboards — this is the thing that made 'closed today'
+    trivial with a real DB instead of the old snapshot-diff file."""
+    start = dt.date.today() - dt.timedelta(days=days - 1)
+
+    opened_q = _scope_filter(
+        db,
+        db.query(func.date(models.WorkOrder.created_at).label("d"), func.count(models.WorkOrder.id)),
+        scope,
+    ).filter(func.date(models.WorkOrder.created_at) >= start).group_by("d")
+    opened_by_day = dict(opened_q.all())
+
+    closed_q = _scope_filter(
+        db,
+        db.query(func.date(models.WOStatusHistory.changed_at).label("d"), func.count(models.WOStatusHistory.id))
+        .join(models.WorkOrder, models.WOStatusHistory.work_order_id == models.WorkOrder.id)
+        .filter(
+            models.WOStatusHistory.event_type == "status_change",
+            models.WOStatusHistory.to_value.like("Closed%"),
+            func.date(models.WOStatusHistory.changed_at) >= start,
+        ),
+        scope,
+    ).group_by("d")
+    closed_by_day = dict(closed_q.all())
+
+    out = []
+    for i in range(days):
+        d = start + dt.timedelta(days=i)
+        key = d.isoformat()
+        # some drivers return date objects, some return strings — normalize
+        opened = opened_by_day.get(d) or opened_by_day.get(key) or 0
+        closed = closed_by_day.get(d) or closed_by_day.get(key) or 0
+        out.append({"date": key, "opened": opened, "closed": closed})
+    return out
+
+
+def get_needing_attention(db: Session, scope: str = "main", limit: int = 15) -> list[models.WorkOrder]:
+    """Highest/High priority, still open, oldest first — matches the
+    'needing attention' table from the original dashboards and the LOC
+    triage inbox's default sort."""
+    q = _scope_filter(
+        db,
+        db.query(models.WorkOrder).filter(
+            ~models.WorkOrder.status.like("Closed%"),
+            models.WorkOrder.priority.in_(["Highest", "High"]),
+        ),
+        scope,
+    )
+    return q.order_by(models.WorkOrder.created_at.asc()).limit(limit).all()
 
 
 def _generate_temp_password() -> str:
