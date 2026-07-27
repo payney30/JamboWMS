@@ -84,6 +84,15 @@ class WorkOrder(Base):
     requester_name = Column(String, nullable=False)
     requester_email = Column(String, nullable=True)
     requester_phone = Column(String, nullable=True)
+    # Point of contact for the affected location/area, when different from
+    # the requester (e.g. a staffer submits on behalf of their area lead).
+    # poc_is_requester=True (the default/common case) means poc_name/
+    # poc_phone are unused — LOC/tech views should fall back to
+    # requester_name/requester_phone for "who do I call" in that case
+    # rather than treating a null poc_name as missing data.
+    poc_is_requester = Column(Boolean, nullable=False, default=True)
+    poc_name = Column(String, nullable=True)
+    poc_phone = Column(String, nullable=True)
     asset_id = Column(Integer, ForeignKey("assets.id"), nullable=False)
     work_type = Column(String, nullable=False, default="")
     description = Column(Text, nullable=False)
