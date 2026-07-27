@@ -53,6 +53,15 @@ def list_public_assets(db: Session = Depends(get_db)):
     return db.query(models.Asset).order_by(models.Asset.name).all()
 
 
+@router.get("/locations/tree", response_model=list[schemas.LocationNode])
+def get_public_location_tree(db: Session = Depends(get_db)):
+    """Nested asset hierarchy for the public request form's location
+    picker (PRD 4.2a). Same shape as the authenticated /locations/tree —
+    no PII or internal fields involved either way, so nothing to narrow
+    here unlike list_public_assets above."""
+    return crud.build_location_tree(db, include_inactive=False)
+
+
 @router.post("/work-orders", response_model=schemas.PublicWorkOrderConfirmation, status_code=201)
 async def submit_public_work_order(
     request: Request,

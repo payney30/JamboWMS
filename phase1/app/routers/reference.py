@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
-from .. import schemas, models, rate_limit
+from .. import schemas, models, rate_limit, crud
 from ..database import get_db
 from ..auth import get_current_user, verify_password, create_access_token
 from fastapi import HTTPException
@@ -19,6 +19,14 @@ def list_teams(db: Session = Depends(get_db), user: models.User = Depends(get_cu
 @router.get("/assets", response_model=list[schemas.AssetOut])
 def list_assets(db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     return db.query(models.Asset).order_by(models.Asset.name).all()
+
+
+@router.get("/locations/tree", response_model=list[schemas.LocationNode])
+def get_location_tree(db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """Nested asset hierarchy for the LOC triage location picker (PRD
+    4.2a). Active nodes only — same data an admin hierarchy editor (PRD
+    4.5) would eventually manage, but this endpoint is what pickers read."""
+    return crud.build_location_tree(db, include_inactive=False)
 
 
 @auth_router.post("/login")
