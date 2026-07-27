@@ -34,3 +34,93 @@ def test_default_sort_is_priority_then_oldest_first(db, asset):
 
     expected = [highest_old.id, highest_new.id, high_new.id, medium.id, low_old.id]
     assert ids_in_order == expected
+
+
+def test_opened_today_survives_a_low_limit_even_when_sorted_past_it(db, asset):
+    """Regression test for the actual 'Opened Today shows 1, inbox shows 0'
+    bug: the quick view used to be applied client-side against a page
+    capped by `limit`. With the default priority-then-oldest sort, a
+    brand-new *Low* priority WO sorts dead last — behind any older
+    same-or-higher-priority WOs — so a small limit could return a page
+    that never contained it at all, and the client-side filter had
+    nothing to find. The fix moves this filter into SQL so pagination is
+    applied *after* filtering, not before."""
+    now = dt.datetime.utcnow()
+    # Twelve older Highest-priority WOs, backdated by full days so they're
+    # reliably NOT "today" no matter what time this test happens to run —
+    # they just need to sort ahead of the new Low-priority one below.
+    for i in range(12):
+        _make_wo(db, asset, "Highest", now - dt.timedelta(days=2, hours=i))
+
+    todays_low_priority_wo = _make_wo(db, asset, "Low", now)
+
+    # A limit far smaller than 12 — the old client-side-filter approach
+    # would never even see todays_low_priority_wo in the fetched page.
+    results = crud.list_work_orders(db, opened_today=True, limit=5)
+    assert [w.id for w in results] == [todays_low_priority_wo.id]
+
+
+def test_closed_today_filter(db, asset, admin_user):
+    wo = _make_wo(db, asset, "Medium", dt.datetime.utcnow())
+    crud.change_status(db, wo, schemas.StatusChangeRequest(status="Closed, Completed"), changed_by=admin_user.id)
+
+    other_closed_yesterday = _make_wo(db, asset, "Medium", dt.datetime.utcnow() - dt.timedelta(days=2))
+    crud.change_status(db, other_closed_yesterday, schemas.StatusChangeRequest(status="Closed, Completed"), changed_by=admin_user.id)
+    other_closed_yesterday.closed_at = dt.datetime.utcnow() - dt.timedelta(days=1)
+    db.commit()
+
+    results = crud.list_work_orders(db, closed_today=True)
+    assert [w.id for w in results] == [wo.id]
+
+
+def test_exclude_closed_and_closed_only_filters(db, asset, admin_user):
+    open_wo = _make_wo(db, asset, "Medium", dt.datetime.utcnow())
+    closed_wo = _make_wo(db, asset, "Medium", dt.datetime.utcnow())
+    crud.change_status(db, closed_wo, schemas.StatusChangeRequest(status="Closed, Completed"), changed_by=admin_user.id)
+
+    open_results = crud.list_work_orders(db, exclude_closed=True)
+    assert [w.id for w in open_results] == [open_wo.id]
+
+    closed_results = crud.list_work_orders(db, closed_only=True)
+    assert [w.id for w in closed_results] == [closed_wo.id]
+
+
+def test_priority_in_filter(db, asset):
+    highest = _make_wo(db, asset, "Highest", dt.datetime.utcnow())
+    high = _make_wo(db, asset, "High", dt.datetime.utcnow())
+    _make_wo(db, asset, "Medium", dt.datetime.utcnow())
+
+    results = crud.list_work_orders(db, priority_in=["Highest", "High"])
+    ids = {w.id for w in results}
+    assert ids == {highest.id, high.id}
+
+
+def test_router_opened_today_param(client, auth_headers, asset):
+    now_wo = client.post(
+        "/work-orders",
+        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Low"},
+        headers=auth_headers,
+    ).json()
+
+    resp = client.get("/work-orders?opened_today=true", headers=auth_headers)
+    assert resp.status_code == 200
+    ids = [w["id"] for w in resp.json()]
+    assert now_wo["id"] in ids
+
+
+def test_router_priority_in_param(client, auth_headers, asset):
+    highest = client.post(
+        "/work-orders",
+        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Highest"},
+        headers=auth_headers,
+    ).json()
+    medium = client.post(
+        "/work-orders",
+        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Medium"},
+        headers=auth_headers,
+    ).json()
+
+    resp = client.get("/work-orders?priority_in=Highest,High", headers=auth_headers)
+    ids = [w["id"] for w in resp.json()]
+    assert highest["id"] in ids
+    assert medium["id"] not in ids
