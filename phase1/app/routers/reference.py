@@ -51,7 +51,7 @@ def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Ses
         )
 
     user = db.query(models.User).filter(models.User.email == form.username).first()
-    if not user or not verify_password(form.password, user.password_hash):
+    if not user or not user.is_active or not verify_password(form.password, user.password_hash):
         rate_limit.record_failure(form.username, client_ip)
         raise HTTPException(401, "incorrect email or password")
 
