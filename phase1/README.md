@@ -130,27 +130,46 @@ for you via `fromDatabase`, `JWT_SECRET` is auto-generated via
 `generateValue`). From the Render dashboard: New → Blueprint → point at
 this repo. Confirm the plan names in `render.yaml` still exist in Render's
 current pricing before deploying — plan slugs change. After the first
-deploy, run `python seed.py` and `python backfill_fiix_history.py` once
-via Render's dashboard shell (or a one-off job) to populate the database —
-these aren't run automatically on every deploy, only the migration is
-(chained into the start command in both `Procfile` and `render.yaml`).
+deploy, run `python backfill_fiix_history.py` once via Render's dashboard
+shell (or a one-off job) to load historical data — `seed.py` does **not**
+need a manual run anymore; see the callout below.
 
 **Railway / other Heroku-style platforms** — `Procfile` at the repo root
-defines the start command (`alembic upgrade head && uvicorn ...`), which
-Railway auto-detects for Python apps built via Nixpacks. Add a Postgres
-plugin from Railway's dashboard; it injects `DATABASE_URL` automatically.
-Set `JWT_SECRET` yourself in the Railway dashboard's environment variables
+defines the start command (`alembic upgrade head && python seed.py &&
+python check_location_hierarchy.py && uvicorn ...`), which Railway
+auto-detects for Python apps built via Nixpacks. Add a Postgres plugin
+from Railway's dashboard; it injects `DATABASE_URL` automatically. Set
+`JWT_SECRET` yourself in the Railway dashboard's environment variables
 (no auto-generate equivalent to Render's `generateValue`). One caveat
 worth knowing: Railway's own docs currently flag their managed Postgres
 HA offering as experimental and explicitly not for production databases
 yet — worth checking their current docs before committing to it as the
 database for anything beyond short-lived testing.
 
-Whichever platform: after the first successful deploy, seed and backfill
-once (dashboard shell, one-off job, or `ssh`/exec into the running
-container, depending on platform), then log in with the admin credentials
-`seed.py` prints and change that password immediately — the printed
-password only ever appears in that one log line.
+> **`seed.py` and `check_location_hierarchy.py` now run automatically on
+> every deploy** (chained into the start command in both `Procfile` and
+> `render.yaml`, right after `alembic upgrade head`). `seed.py` is
+> idempotent — it upserts assets/teams/admin by name rather than
+> duplicating them — so this is safe on every deploy, not just the first.
+> This closes a real bug: an earlier migration (`5160d845f250`) added
+> `assets.parent_id`, but a migration only adds columns, it doesn't
+> populate them — only `seed.py`'s second pass does. Because `seed.py`
+> was a manual one-time step back then, production ran the migration
+> without a follow-up seed, every asset's `parent_id` stayed `NULL`, and
+> both location pickers silently rendered a flat list instead of a tree.
+> `check_location_hierarchy.py` now fails the deploy loudly if that ever
+> happens again (see that script's docstring, and
+> `tests/test_check_location_hierarchy.py`). `backfill_fiix_history.py` is
+> the one script that's still a genuine one-time step — it's already
+> idempotent about not re-importing the same historical WOs, but there's
+> no reason to run it on every deploy.
+
+Whichever platform: after the first successful deploy, run
+`python backfill_fiix_history.py` once (dashboard shell, one-off job, or
+`ssh`/exec into the running container, depending on platform), then log
+in with the admin credentials `seed.py` printed in the deploy log and
+change that password immediately — the printed password only ever
+appears in that one log line.
 
 ## Running the tests
 
@@ -238,8 +257,10 @@ foreign keys enabled, so tests are fully isolated and can run in parallel.
 - `static/request.html` — the public, no-login requester form (PRD 4.1):
   name/contact, a preferred-contact-method picker (email/text/both, with
   client- and server-side validation that you've actually given the
-  contact info that preference needs), a location typeahead sourced from
-  `/public/assets`, work type, description, a priority picker showing the
+  contact info that preference needs), a hierarchical location picker
+  (`static/location-picker.js`, shared with the LOC triage UI) sourced
+  from `/public/locations/tree` — type to search, or browse the full
+  branch → camp → subcamp tree — work type, description, a priority picker showing the
   exact criteria from `Work_Order_Priorties.pdf` inline per option (not a
   hover tooltip — doesn't work on mobile), up to 5 optional photos, a
   confirmation screen with the WO number, and an optional status-lookup
@@ -290,6 +311,13 @@ foreign keys enabled, so tests are fully isolated and can run in parallel.
   "Highest+High, open" KPI entirely, even though the PRD lists it as part
   of the same KPI set as the old dashboards. Added — see `app/crud.py` and
   the `highest_high_open` field on `KPIOut`.
+- `check_location_hierarchy.py` — deploy-time safety check, chained into
+  the start command right after `seed.py`. Compares the number of
+  root-level (`parent_id IS NULL`) assets against the number of top-level
+  branches the source hierarchy file actually defines; fails loudly if the
+  DB looks flat instead of nested. Exists specifically to catch the
+  "migration added a column but nobody re-ran `seed.py`" failure mode —
+  see its module docstring for the production incident that motivated it.
 - `alembic/` — schema migrations (see "Schema changes" below)
 - `tests/` — pytest suite (see "Running the tests" below)
 

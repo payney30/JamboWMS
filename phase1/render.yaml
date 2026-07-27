@@ -14,7 +14,14 @@ services:
     # dashboard before deploying — plan names/pricing change over time.
     plan: starter
     buildCommand: pip install -r requirements.txt
-    startCommand: "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    # seed.py re-runs on every deploy, not just the first one -- it's
+    # idempotent (upserts by name), and this is what closes the gap that
+    # caused the location picker to silently go flat in production: a
+    # migration can add a new backfill-requiring column (e.g. parent_id),
+    # but only seed.py's second pass actually populates it on existing
+    # rows. check_location_hierarchy.py then fails the deploy loudly if
+    # the hierarchy still looks flat, instead of shipping a broken picker.
+    startCommand: "alembic upgrade head && python seed.py && python check_location_hierarchy.py && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.3
