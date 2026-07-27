@@ -21,6 +21,10 @@ similar for SMS), the send calls belong right after crud.create_work_order
 below (submission) and in the status-change endpoint in
 app/routers/work_orders.py (close) — both already have everything they need
 (requester_email/phone, notify_preference) to decide what to send and where.
+When wiring that up: text/call updates should go to requester_phone AND, if
+poc_is_requester is False, to poc_phone as well — email stays scoped to
+requester_email only (no poc_email field exists). See
+NJ2026_Work_Order_System_PRD.md sections 4.1/5 for the recipient logic.
 """
 import os
 import uuid
@@ -68,6 +72,9 @@ async def submit_public_work_order(
     requester_name: str = Form(...),
     requester_email: Optional[str] = Form(None),
     requester_phone: Optional[str] = Form(None),
+    poc_is_requester: str = Form("true"),  # 'true' | 'false' — HTML forms send strings, not booleans
+    poc_name: Optional[str] = Form(None),
+    poc_phone: Optional[str] = Form(None),
     asset_id: int = Form(...),
     work_type: str = Form(""),
     description: str = Form(...),
@@ -99,6 +106,14 @@ async def submit_public_work_order(
         raise HTTPException(400, "name is required")
     if not description:
         raise HTTPException(400, "description is required")
+    # Accept the literal strings a plain HTML form submits ('true'/'false');
+    # anything else defaults to True (requester is the POC) rather than
+    # rejecting the submission over a malformed flag.
+    poc_is_requester_bool = (poc_is_requester or "true").strip().lower() != "false"
+    poc_name = (poc_name or "").strip() or None
+    poc_phone = (poc_phone or "").strip() or None
+    if not poc_is_requester_bool and (not poc_name or not poc_phone):
+        raise HTTPException(400, "poc_name and poc_phone are required when the requester is not the point of contact")
     if priority not in schemas.PRIORITIES:
         raise HTTPException(400, f"invalid priority: {priority}")
     if work_type not in schemas.WORK_TYPES:
@@ -118,6 +133,9 @@ async def submit_public_work_order(
             requester_name=requester_name,
             requester_email=requester_email or None,
             requester_phone=requester_phone or None,
+            poc_is_requester=poc_is_requester_bool,
+            poc_name=poc_name,
+            poc_phone=poc_phone,
             asset_id=asset_id,
             work_type=work_type,
             description=description,
