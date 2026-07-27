@@ -102,10 +102,16 @@ async def submit_public_work_order(
 
     requester_name = requester_name.strip()
     description = description.strip()
+    requester_email = (requester_email or "").strip()
+    requester_phone = (requester_phone or "").strip()
     if not requester_name:
         raise HTTPException(400, "name is required")
     if not description:
         raise HTTPException(400, "description is required")
+    if not requester_email:
+        raise HTTPException(400, "email is required")
+    if not requester_phone:
+        raise HTTPException(400, "phone is required")
     # Accept the literal strings a plain HTML form submits ('true'/'false');
     # anything else defaults to True (requester is the POC) rather than
     # rejecting the submission over a malformed flag.
