@@ -19,6 +19,10 @@ def _base_form(asset, **overrides):
         "description": "Leaky faucet in the latrine block",
         "priority": "Medium",
         "website": "",  # honeypot, left blank like a real user
+        # poc_is_requester defaults to "true" server-side if omitted, but
+        # tests set it explicitly here so the base form matches what the
+        # real form always sends.
+        "poc_is_requester": "true",
     }
     form.update(overrides)
     return form
@@ -179,3 +183,54 @@ def test_notify_preference_email_requires_an_email(client, asset):
 def test_notify_preference_is_optional(client, asset):
     resp = client.post("/public/work-orders", data=_base_form(asset, notify_preference=""))
     assert resp.status_code == 201
+
+
+def test_poc_defaults_to_requester_when_omitted(client, asset, db):
+    form = _base_form(asset)
+    del form["poc_is_requester"]  # simulate an older/minimal client that never sends the flag
+    resp = client.post("/public/work-orders", data=form)
+    assert resp.status_code == 201
+    wo = db.query(models.WorkOrder).filter(models.WorkOrder.wo_number == resp.json()["wo_number"]).first()
+    assert wo.poc_is_requester is True
+    assert wo.poc_name is None
+    assert wo.poc_phone is None
+
+
+def test_poc_not_requester_requires_name_and_phone(client, asset):
+    resp = client.post(
+        "/public/work-orders",
+        data=_base_form(asset, poc_is_requester="false"),
+    )
+    assert resp.status_code == 400
+
+    resp2 = client.post(
+        "/public/work-orders",
+        data=_base_form(asset, poc_is_requester="false", poc_name="Area Lead"),
+    )
+    assert resp2.status_code == 400  # phone still missing
+
+
+def test_poc_not_requester_persists_name_and_phone(client, asset, db):
+    resp = client.post(
+        "/public/work-orders",
+        data=_base_form(asset, poc_is_requester="false", poc_name="Area Lead", poc_phone="555-0199"),
+    )
+    assert resp.status_code == 201
+    wo = db.query(models.WorkOrder).filter(models.WorkOrder.wo_number == resp.json()["wo_number"]).first()
+    assert wo.poc_is_requester is False
+    assert wo.poc_name == "Area Lead"
+    assert wo.poc_phone == "555-0199"
+
+
+def test_poc_fields_ignored_when_poc_is_requester_true(client, asset, db):
+    """If poc_is_requester is true but a client sends stray poc_name/phone
+    anyway, they should be discarded rather than stored, so the two never
+    drift out of sync."""
+    resp = client.post(
+        "/public/work-orders",
+        data=_base_form(asset, poc_is_requester="true", poc_name="Should Be Ignored", poc_phone="555-0000"),
+    )
+    assert resp.status_code == 201
+    wo = db.query(models.WorkOrder).filter(models.WorkOrder.wo_number == resp.json()["wo_number"]).first()
+    assert wo.poc_name is None
+    assert wo.poc_phone is None
