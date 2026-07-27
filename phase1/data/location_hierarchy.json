@@ -1,0 +1,3869 @@
+[
+ {
+  "name": "NJ Base Camps Ops",
+  "code": "NJ-BC",
+  "branch_label": "Base Camps",
+  "children": [
+   {
+    "name": "NJ Base Camp A",
+    "code": "BC-A",
+    "branch_label": "Program Areas",
+    "children": [
+     {
+      "name": "NJ Subcamp A1",
+      "code": "BCA-SC-A1",
+      "branch_label": "Program Areas",
+      "children": [
+       {
+        "name": "Shower House NJ A1-1 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A1-1 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A1-1 W",
+        "code": "A1-1\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A1-2 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A1-2 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A1-2 W",
+        "code": "A1-2\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A1-3 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A1-3 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A1-3 W",
+        "code": "A1-3\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A1-4 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A1-4 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A1-4 W",
+        "code": "A1-4\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Subcamp A2",
+      "code": "BCA-SC-A2",
+      "branch_label": "Program Areas",
+      "children": [
+       {
+        "name": "Shower House NJ A2-1 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A2-1 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A2-1 W",
+        "code": "A2-1\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A2-2 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A2-2 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A2-2 W",
+        "code": "A2-2\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A2-3 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A2-3 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A2-3 W",
+        "code": "A2-3\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Subcamp A3",
+      "code": "BCA-SC-A3",
+      "branch_label": "Program Areas",
+      "children": [
+       {
+        "name": "Shower House NJ A3-1 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A3-1 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A3-1 W",
+        "code": "A3-1\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A3-2 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A3-2 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A3-2 W",
+        "code": "A3-2\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A3-3 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A3-3 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A3-3 W",
+        "code": "A3-3\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A3-4 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A3-4 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A3-4 W",
+        "code": "A3-4\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A3-5 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A3-5 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A3-5 W",
+        "code": "A3-5\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Subcamp A4",
+      "code": "BCA-SC-A4",
+      "branch_label": "Program Areas",
+      "children": [
+       {
+        "name": "Shower House NJ A4-1 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A4-1 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A4-1 W",
+        "code": "A4-1\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A4-2 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A4-2 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A4-2 W",
+        "code": "A4-2\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A4-3 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A4-3 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A4-3 W",
+        "code": "A4-3\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A4-4 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A4-4 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A4-4 W",
+        "code": "A4-4\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A4-5 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A4-5 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ A4-5 W",
+        "code": "A4-5\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NJ Base Camp B",
+    "code": "BC-B",
+    "branch_label": "Program Areas",
+    "children": [
+     {
+      "name": "NJ Subcamp B1",
+      "code": "BCB-SC-B1",
+      "branch_label": "Program Areas",
+      "children": [
+       {
+        "name": "Shower House NJ B1-1 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B1-1 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B1-1 W",
+        "code": "B1-1\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B1-2 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B1-2 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B1-2 W",
+        "code": "B1-2\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B1-3 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B1-3 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B1-3 W",
+        "code": "B1-3\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B1-4 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B1-4 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B1-4 W",
+        "code": "B1-4\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B1-5 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B1-5 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B1-5 W",
+        "code": "B1-5\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B1-6 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B1-6 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B1-6 W",
+        "code": "B1-6\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Subcamp B2",
+      "code": "BCB-SC-B2",
+      "branch_label": "Program Areas",
+      "children": [
+       {
+        "name": "Shower House NJ B2-1 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B2-1 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B2-1 W",
+        "code": "B2-1\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B2-2 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B2-2 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B2-2 W",
+        "code": "B2-2\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B2-3 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B2-3 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B2-3 W",
+        "code": "B2-3\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B2-4 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B2-4 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B2-4 W",
+        "code": "B2-4\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B2-5 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B2-5 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B2-5 W",
+        "code": "B2-5\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Subcamp B3",
+      "code": "BCB-SC-B3",
+      "branch_label": "Program Areas",
+      "children": [
+       {
+        "name": "Shower House NJ B3-1 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B3-1 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B3-1 W",
+        "code": "B3-1\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B3-2 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B3-2 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B3-2 W",
+        "code": "B3-2\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B3-3 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B3-3 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B3-3 W",
+        "code": "B3-3\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B3-4 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B3-4 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B3-4 W",
+        "code": "B3-4\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B3-5 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B3-5 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B3-5 W",
+        "code": "B3-5\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Subcamp B4",
+      "code": "BCB-SC-B4",
+      "branch_label": "Program Areas",
+      "children": [
+       {
+        "name": "Shower House NJ B4-1 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B4-1 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B4-1 W",
+        "code": "B4-1\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B4-2 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B4-2 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B4-2 W",
+        "code": "B4-2\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B4-3 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B4-3 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B4-3 W",
+        "code": "B4-3\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B4-4 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B4-4 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B4-4 W",
+        "code": "B4-4\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B4-5 E",
+        "code": "E",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B4-5 J",
+        "code": "J",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ B4-5 W",
+        "code": "B4-5\u2026",
+        "branch_label": "Program Areas",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "Eagle's Nest Lodge",
+      "code": "A905",
+      "branch_label": "Program Areas",
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "NJ Base Camp C",
+    "code": "BC-C",
+    "branch_label": "Base Camps",
+    "children": [
+     {
+      "name": "NJ Subcamp C1",
+      "code": "BCC-SC-C1",
+      "branch_label": "Base Camps",
+      "children": [
+       {
+        "name": "Shower House NJ C1-1 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C1-1 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C1-1 W",
+        "code": "C1-1\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C1-2 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C1-2 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C1-2 W",
+        "code": "C1-2\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C1-3 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C1-3 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C1-3 W",
+        "code": "C1-3\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C1-4 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C1-4 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C1-4 W",
+        "code": "C1-4\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C1-5 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C1-5 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C1-5 W",
+        "code": "C1-5\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Subcamp C2",
+      "code": "BCC-SC-C2",
+      "branch_label": "Base Camps",
+      "children": [
+       {
+        "name": "Shower House NJ C2-1 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C2-1 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C2-1 W",
+        "code": "C2-1\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C2-2 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C2-2 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C2-2 W",
+        "code": "C2-2\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C2-3 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C2-3 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C2-3 W",
+        "code": "C2-3\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C2-4 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C2-4 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C2-4 W",
+        "code": "C2-4\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C2-5 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C2-5 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C2-5 W",
+        "code": "C2-5\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Subcamp C3",
+      "code": "BCC-SC-C3",
+      "branch_label": "Base Camps",
+      "children": [
+       {
+        "name": "Shower House NJ C3-1 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C3-1 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C3-1 W",
+        "code": "C3-1\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C3-2 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C3-2 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C3-2 W",
+        "code": "C3-2\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C3-3 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C3-3 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C3-3 W",
+        "code": "C3-3\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C3-4 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C3-4 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C3-4 W",
+        "code": "C3-4\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C3-5 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C3-5 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C3-5 W",
+        "code": "C3-5\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Subcamp C4",
+      "code": "BCC-SC-C4",
+      "branch_label": "Base Camps",
+      "children": [
+       {
+        "name": "Shower House NJ C4-1 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C4-1 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C4-1 W",
+        "code": "C4-1\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C4-2 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C4-2 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C4-2 W",
+        "code": "C4-2\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C4-3 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C4-3 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C4-3 W",
+        "code": "C4-3\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C4-4 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C4-4 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C4-4 W",
+        "code": "C4-4\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C4-5 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C4-5 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ C4-5 W",
+        "code": "C4-5\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NJ Base Camp D",
+    "code": "BC-D",
+    "branch_label": "Base Camps",
+    "children": [
+     {
+      "name": "NJ Subcamp D1",
+      "code": "BCD-SC-\u2026",
+      "branch_label": "Base Camps",
+      "children": [
+       {
+        "name": "Shower House NJ D1-1 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D1-1 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D1-1 W",
+        "code": "D1-1\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D1-2 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D1-2 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D1-2 W",
+        "code": "D1-2\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D1-3 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D1-3 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D1-3 W",
+        "code": "D1-3\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D1-4 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D1-4 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D1-4 W",
+        "code": "D1-4\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Subcamp D2",
+      "code": "BCD-SC-\u2026",
+      "branch_label": "Base Camps",
+      "children": [
+       {
+        "name": "Shower House NJ D2-1 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D2-1 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D2-1 W",
+        "code": "D2-1\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D2-2 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D2-2 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D2-2 W",
+        "code": "D2-2\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D2-3 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D2-3 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D2-3 W",
+        "code": "D2-3\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D2-4 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D2-4 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D2-4 W",
+        "code": "D2-4\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Subcamp D3",
+      "code": "BCD-SC-\u2026",
+      "branch_label": "Base Camps",
+      "children": [
+       {
+        "name": "Shower House NJ D3-1 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D3-1 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D3-1 W",
+        "code": "D3-1\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D3-2 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D3-2 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D3-2 W",
+        "code": "D3-2\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D3-3 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D3-3 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D3-3 W",
+        "code": "D3-3\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D3-4 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D3-4 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D3-4 W",
+        "code": "D3-4\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D3-5 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D3-5 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D3-5 W",
+        "code": "D3-5\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Subcamp D4",
+      "code": "BCD-SC-\u2026",
+      "branch_label": "Base Camps",
+      "children": [
+       {
+        "name": "Shower House NJ D4-1 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D4-1 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D4-1 W",
+        "code": "D4-1\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D4-2 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D4-2 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D4-2 W",
+        "code": "D4-2\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D4-3 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D4-3 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D4-3 W",
+        "code": "D4-3\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D4-4 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D4-4 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ D4-4 W",
+        "code": "D4-4\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "Pigott Lodging",
+      "code": "A906",
+      "branch_label": "Base Camps",
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "NJ Base Camp E",
+    "code": "BC-E",
+    "branch_label": "Base Camps",
+    "children": [
+     {
+      "name": "NJ Subcamp E1",
+      "code": "BCE-SC-E1",
+      "branch_label": "Base Camps",
+      "children": [
+       {
+        "name": "Shower House NJ E1-1 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E1-1 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E1-1 W",
+        "code": "E1-1\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E1-2 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E1-2 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E1-2 W",
+        "code": "E1-2\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E1-3 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E1-3 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E1-3 W",
+        "code": "E1-3\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E1-4 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E1-4 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E1-4 W",
+        "code": "E1-4\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E1-5 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E1-5 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E1-5 W",
+        "code": "E1-5\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E1-6 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E1-6 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E1-6 W",
+        "code": "E1-6\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Subcamp E2",
+      "code": "BCE-SC-E2",
+      "branch_label": "Base Camps",
+      "children": [
+       {
+        "name": "Shower House NJ E2-1 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E2-1 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E2-1 W",
+        "code": "E2-1\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E2-2 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E2-2 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E2-2 W",
+        "code": "E2-2\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E2-3 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E2-3 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E2-3 W",
+        "code": "E2-3\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E2-4 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E2-4 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E2-4 W",
+        "code": "E2-4\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E2-5 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E2-5 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E2-5 W",
+        "code": "E2-5\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Subcamp E3",
+      "code": "BCE-SC-E3",
+      "branch_label": "Base Camps",
+      "children": [
+       {
+        "name": "Shower House NJ E3-1 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E3-1 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E3-1 W",
+        "code": "E3-1\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E3-2 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E3-2 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E3-2 W",
+        "code": "E3-2\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E3-3 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E3-3 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E3-3 W",
+        "code": "E3-3\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E3-4 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E3-4 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E3-4 W",
+        "code": "E3-4\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E3-5 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E3-5 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E3-5 W",
+        "code": "E3-5\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Subcamp E4",
+      "code": "BCE-SC-E4",
+      "branch_label": "Base Camps",
+      "children": [
+       {
+        "name": "Shower House NJ E4-1 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E4-1 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E4-1 W",
+        "code": "E4-1\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E4-2 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E4-2 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E4-2 W",
+        "code": "E4-2\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E4-3 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E4-3 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E4-3 W",
+        "code": "E4-3\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E4-4 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E4-4 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E4-4 W",
+        "code": "E4-4\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E4-5 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E4-5 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E4-5 W",
+        "code": "E4-5\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E4-6 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E4-6 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ E4-6 W",
+        "code": "E4-6\u2026",
+        "branch_label": "Base Camps",
+        "children": []
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NJ Base Camp F",
+    "code": "BC-F",
+    "branch_label": "Base Camps",
+    "children": [
+     {
+      "name": "NJ Subcamp F0",
+      "code": "BCF-SC-F0",
+      "branch_label": "Base Camps",
+      "children": [
+       {
+        "name": "Shower House NJ F01 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F01 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F01 W",
+        "code": "W",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F02 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F02 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F02 W",
+        "code": "W",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F03 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F03 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F03 W",
+        "code": "W",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F04 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F04 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F04 W",
+        "code": "W",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F05 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F05 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F05 W",
+        "code": "W",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F06 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F06 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F06 W",
+        "code": "W",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F07 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F07 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F07 W",
+        "code": "W",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F08 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F08 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F08 W",
+        "code": "W",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F09 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F09 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F09 W",
+        "code": "W",
+        "branch_label": "Base Camps",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Subcamp F1",
+      "code": "BCF-SC-F1",
+      "branch_label": "Base Camps",
+      "children": [
+       {
+        "name": "Shower House NJ F10 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F10 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F10 W",
+        "code": "W",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F11 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F11 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F11 W",
+        "code": "W",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F12 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F12 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F12 W",
+        "code": "W",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F13 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F13 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F13 W",
+        "code": "W",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F14 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F14 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F14 W",
+        "code": "W",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F15 E",
+        "code": "E",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F15 J",
+        "code": "J",
+        "branch_label": "Base Camps",
+        "children": []
+       },
+       {
+        "name": "Shower House NJ F15 W",
+        "code": "W",
+        "branch_label": "Base Camps",
+        "children": []
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NJ ServMart A",
+    "code": "LOG-SMA",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "NJ ServMart B",
+    "code": "LOG-SMB",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "NJ ServMart C",
+    "code": "LOG-SMC",
+    "branch_label": "Base Camps",
+    "children": []
+   },
+   {
+    "name": "NJ ServMart D",
+    "code": "LOG-SMD",
+    "branch_label": "Base Camps",
+    "children": []
+   },
+   {
+    "name": "NJ ServMart E",
+    "code": "LOG-SME",
+    "branch_label": "Base Camps",
+    "children": []
+   },
+   {
+    "name": "NJ ServMart F",
+    "code": "LOG-SMF",
+    "branch_label": "Base Camps",
+    "children": []
+   },
+   {
+    "name": "Contingent Ops HQ (at Pigott)",
+    "code": "CONOPS\u2026",
+    "branch_label": "Base Camps",
+    "children": []
+   }
+  ]
+ },
+ {
+  "name": "NJ Administration",
+  "code": "NJ-AD",
+  "branch_label": "Administration",
+  "children": [
+   {
+    "name": "NJ Staff Parking",
+    "code": "AD-SP",
+    "branch_label": "Administration",
+    "children": []
+   },
+   {
+    "name": "NJ Registration Area",
+    "code": "AD-SR",
+    "branch_label": "Administration",
+    "children": []
+   },
+   {
+    "name": "NJ Visitor Arrival Area",
+    "code": "AD-VA",
+    "branch_label": "Administration",
+    "children": []
+   },
+   {
+    "name": "NJ Pigott Headquarters",
+    "code": "AD-PH",
+    "branch_label": "Administration",
+    "children": []
+   },
+   {
+    "name": "NJ Ruby Welcome Center",
+    "code": "AD-RWC",
+    "branch_label": "Administration",
+    "children": []
+   },
+   {
+    "name": "NJ Scott Visitor Center",
+    "code": "AD-SVC",
+    "branch_label": "Administration",
+    "children": []
+   },
+   {
+    "name": "NJ Emergency Management (EMO)",
+    "code": "NJ-EMO",
+    "branch_label": "Administration",
+    "children": []
+   },
+   {
+    "name": "NJ Tickle Leadership Center",
+    "code": "A917",
+    "branch_label": "Administration",
+    "children": []
+   }
+  ]
+ },
+ {
+  "name": "NJ Logistics",
+  "code": "NJ-LOG",
+  "branch_label": "Logistics",
+  "children": [
+   {
+    "name": "NJ Motorpool",
+    "code": "LOG-MP",
+    "branch_label": "Logistics",
+    "children": [
+     {
+      "name": "NJ Fuel Farm",
+      "code": "MP-FF",
+      "branch_label": "Logistics",
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "NJ Arnold Logistics Center",
+    "code": "LOG-ALC",
+    "branch_label": "Logistics",
+    "children": []
+   },
+   {
+    "name": "NJ Maintenance & Sanitation",
+    "code": "LOG-M&S",
+    "branch_label": "Logistics",
+    "children": []
+   },
+   {
+    "name": "NJ Retail Ops HQ",
+    "code": "LOG-RO",
+    "branch_label": "Logistics",
+    "children": []
+   },
+   {
+    "name": "NJ Transportation Logistics Center",
+    "code": "LOG-TLC",
+    "branch_label": "Logistics",
+    "children": []
+   }
+  ]
+ },
+ {
+  "name": "NJ Program",
+  "code": "NJ-PRO",
+  "branch_label": "Program Areas",
+  "children": [
+   {
+    "name": "NJ Adventure",
+    "code": "PRO-ADV",
+    "branch_label": "Program Areas",
+    "children": [
+     {
+      "name": "NJ Adventure Areas",
+      "code": "ADV-AA",
+      "branch_label": "Program Areas",
+      "children": [
+       {
+        "name": "NJ Action Point",
+        "code": "ADV-AP",
+        "branch_label": "Program Areas",
+        "children": [
+         {
+          "name": "NJ AP BMX",
+          "code": "AP-BMX",
+          "branch_label": "Program Areas",
+          "children": []
+         },
+         {
+          "name": "NJ AP Canopy Tours",
+          "code": "AP-CT",
+          "branch_label": "Program Areas",
+          "children": []
+         },
+         {
+          "name": "NJ AP Challenge Course",
+          "code": "AP-CC",
+          "branch_label": "Program Areas",
+          "children": []
+         },
+         {
+          "name": "NJ AP Mountain Bike",
+          "code": "AP-MTB",
+          "branch_label": "Program Areas",
+          "children": []
+         },
+         {
+          "name": "NJ AP Skateboard",
+          "code": "AP-SKB",
+          "branch_label": "Program Areas",
+          "children": []
+         },
+         {
+          "name": "NJ AP Shooting Sports",
+          "code": "AP-SS",
+          "branch_label": "Program Areas",
+          "children": []
+         }
+        ]
+       },
+       {
+        "name": "NJ Thrasher Mountain",
+        "code": "ADV-TM",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "NJ Kayak",
+        "code": "ADV-KYK",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "NJ Rafting Loading Area",
+        "code": "ADV-RLA",
+        "branch_label": "Program Areas",
+        "children": []
+       },
+       {
+        "name": "NJ Paddleboard",
+        "code": "ADV-PB",
+        "branch_label": "Program Areas",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Adventure Valley",
+      "code": "ADV-AV",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "NJ A Ridge",
+      "code": "ADV-AR",
+      "branch_label": "Program Areas",
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "NJ Garden Ground",
+    "code": "PRO-GG",
+    "branch_label": "Program Areas",
+    "children": [
+     {
+      "name": "NJ Buckskin Games",
+      "code": "GG-BG",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "NJ Field Sports",
+      "code": "GG-FS",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "NJ GG Headquarters",
+      "code": "GG-HQ",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "NJ Highland Games",
+      "code": "GG-HG",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "NJ OA Indian Village",
+      "code": "GG-OAIV",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "NJ Pioneering",
+      "code": "GG-PN",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "NJ Spartan Race",
+      "code": "GG-SR",
+      "branch_label": "Program Areas",
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "Summit Center",
+    "code": "PRO-SC",
+    "branch_label": "Program Areas",
+    "children": [
+     {
+      "name": "Sustainability Treehouse",
+      "code": "SC-TH",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "The Cloud (Stem Quest)",
+      "code": "SC-TCL",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Gateway Village Lawn",
+      "code": "SC-GVL",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Gateway Village Tillerson Center",
+      "code": "SC-GVTC",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Jacks Landing East",
+      "code": "SC-JLE",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Performance Point North",
+      "code": "SC-PPN",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "AT&T Summit Stadium",
+      "code": "SC-ATT",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Freedom Field",
+      "code": "SC-FF",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Freedom Village",
+      "code": "SC-FV",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Boulder Cove",
+      "code": "SC-BC",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Jacks Landing West",
+      "code": "SC-JLW",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Legacy Village",
+      "code": "SC-LV",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "12 Points Plaza",
+      "code": "SC-12P",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Brownsea Island",
+      "code": "SC-BI",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Conservation Trail",
+      "code": "SC-CT",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Conservation Area",
+      "code": "SC-CA",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Cushman Fish Camp",
+      "code": "SC-CFC",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Crafton Complex",
+      "code": "SC-CC",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Harvey Mountain Bike Facility",
+      "code": "SC-HMB",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Performance Point South",
+      "code": "SC-PPS",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Action Point South",
+      "code": "SC-APS",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Action Point North",
+      "code": "SC-APN",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Gateway Zip Landing",
+      "code": "SC-GZL",
+      "branch_label": "Program Areas",
+      "children": []
+     },
+     {
+      "name": "Legacy Zip Landing",
+      "code": "SC-LZL",
+      "branch_label": "Program Areas",
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "The Ropes",
+    "code": "AV-Rop",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "The Rocks",
+    "code": "AV-Roc",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "High Gear",
+    "code": "AV-HG",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "Low Gear",
+    "code": "AV-LG",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "Big Zip Launch",
+    "code": "AV-BZ",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "The Park",
+    "code": "TM-TP",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "The Trax",
+    "code": "TM-TT",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "The Barrels",
+    "code": "AR-Bar",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "The Bows",
+    "code": "AR-Bows",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "The Canopy",
+    "code": "ADV-CP",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "Aquatics",
+    "code": "ADV-AQ",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "OA Headquarters",
+    "code": "GG-OAHQ",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "Boulder Cove Climbing",
+    "code": "ADV-BCC",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "Summit Zip",
+    "code": "ADV-SZ",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "Big Zip Landing",
+    "code": "PRO-BZL",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "Charlie Base Camp Bash",
+    "code": "PRO-CBCB",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "Delta Base Camp Bash",
+    "code": "PRO-DBCB",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "Leadership Heights",
+    "code": "PRO-LH",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "Polaris ATV (Disc Golf)",
+    "code": "PRO-ATV",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "Summit Apex Program",
+    "code": "PRO-SAP",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "Summit Apex Shows",
+    "code": "PRO-SAS",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "The Pools (Military)",
+    "code": "PRO-POOL",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "Titan Challenge",
+    "code": "PRO-TC",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "Program HQ (at Pigott)",
+    "code": "PRO-HQ",
+    "branch_label": "Program Areas",
+    "children": []
+   },
+   {
+    "name": "Buckskin Village",
+    "code": "A904",
+    "branch_label": "Program Areas",
+    "children": []
+   }
+  ]
+ },
+ {
+  "name": "NJ General/Other",
+  "code": "NJ-GO",
+  "branch_label": "General/Other",
+  "children": [
+   {
+    "name": "NJ Buildings",
+    "code": "GO-BD",
+    "branch_label": "General/Other",
+    "children": [
+     {
+      "name": "NJ Field Office #1",
+      "code": "BD-FO1",
+      "branch_label": "General/Other",
+      "children": []
+     },
+     {
+      "name": "NJ K-Span",
+      "code": "BD-KS",
+      "branch_label": "General/Other",
+      "children": []
+     },
+     {
+      "name": "NJ Field Office #2",
+      "code": "BD-FO2",
+      "branch_label": "General/Other",
+      "children": []
+     },
+     {
+      "name": "NJ Helipad",
+      "code": "BD-HP",
+      "branch_label": "General/Other",
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "NJ Roads/Trails/Bridges/Boardwalks",
+    "code": "GO-RTBB",
+    "branch_label": "General/Other",
+    "children": [
+     {
+      "name": "NJ Trails",
+      "code": "RTBB-TR",
+      "branch_label": "General/Other",
+      "children": [
+       {
+        "name": "NJ Bike Trails",
+        "code": "TR-BT",
+        "branch_label": "General/Other",
+        "children": [
+         {
+          "name": "NJ Bike Trail 1",
+          "code": "BT-1",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 2",
+          "code": "BT-2",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 3",
+          "code": "BT-3",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 4",
+          "code": "BT-4",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 5",
+          "code": "BT-5",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 6",
+          "code": "BT-6",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 7",
+          "code": "BT-7",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 8",
+          "code": "BT-8",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 9",
+          "code": "BT-9",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 10",
+          "code": "BT-10",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 11",
+          "code": "BT-11",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 12",
+          "code": "BT-12",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 13",
+          "code": "BT-13",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 14",
+          "code": "BT-14",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 15",
+          "code": "BT-15",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 16",
+          "code": "BT-16",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 17",
+          "code": "BT-17",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 18",
+          "code": "BT-18",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 19",
+          "code": "BT-19",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 20",
+          "code": "BT-20",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 21",
+          "code": "BT-21",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 22",
+          "code": "BT-22",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 23",
+          "code": "BT-23",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 24",
+          "code": "BT-24",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 25",
+          "code": "BT-25",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Trail 26",
+          "code": "BT-26",
+          "branch_label": "General/Other",
+          "children": []
+         }
+        ]
+       },
+       {
+        "name": "NJ Bike Rescue Trails",
+        "code": "BRT",
+        "branch_label": "General/Other",
+        "children": [
+         {
+          "name": "NJ Bike Rescue Trail 1",
+          "code": "BRT-1",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Rescue Trail 2",
+          "code": "BRT-2",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Rescue Trail 3",
+          "code": "BRT-3",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Rescue Trail 4",
+          "code": "BRT-4",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Rescue Trail 5",
+          "code": "BRT-5",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Rescue Trail 6",
+          "code": "BRT-6",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Rescue Trail 7",
+          "code": "BRT-7",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Rescue Trail 8",
+          "code": "BRT-8",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Bike Rescue Trail 9",
+          "code": "BRT-9",
+          "branch_label": "General/Other",
+          "children": []
+         }
+        ]
+       },
+       {
+        "name": "NJ Hiking Trails",
+        "code": "A305",
+        "branch_label": "General/Other",
+        "children": [
+         {
+          "name": "NJ Trail 1",
+          "code": "HT-1",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 2",
+          "code": "HT-2",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 3",
+          "code": "HT-3",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 4",
+          "code": "HT-4",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 5",
+          "code": "HT-5",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 6",
+          "code": "HT-6",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 7",
+          "code": "HT-7",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 8",
+          "code": "HT-8",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 9",
+          "code": "HT-9",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 10",
+          "code": "HT-10",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 11",
+          "code": "HT-11",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 12",
+          "code": "HT-12",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 13",
+          "code": "HT-13",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 14",
+          "code": "HT-14",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 15",
+          "code": "HT-15",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 16",
+          "code": "HT-16",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 18",
+          "code": "HT-18",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 19",
+          "code": "HT-19",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 20",
+          "code": "HT-20",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 21",
+          "code": "HT-21",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 22",
+          "code": "HT-22",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 23",
+          "code": "HT-23",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 24",
+          "code": "HT-24",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 25",
+          "code": "HT-25",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 26",
+          "code": "HT-26",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 27",
+          "code": "HT-27",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 28",
+          "code": "HT-28",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 29",
+          "code": "HT-29",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 30",
+          "code": "HT-30",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 31",
+          "code": "HT-31",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 32",
+          "code": "HT-32",
+          "branch_label": "General/Other",
+          "children": []
+         },
+         {
+          "name": "NJ Trail 33",
+          "code": "HT-33",
+          "branch_label": "General/Other",
+          "children": []
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "name": "NJ Boardwalks",
+      "code": "RTBB-BW",
+      "branch_label": "General/Other",
+      "children": [
+       {
+        "name": "NJ Boardwalk Goodrich East",
+        "code": "BDW-\u2026",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Boardwalk Goodrich West",
+        "code": "BDW-\u2026",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Boardwalk Goodrich North",
+        "code": "BDW-\u2026",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Boardwalk Goodrich South",
+        "code": "BDW-\u2026",
+        "branch_label": "General/Other",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Roads",
+      "code": "A303",
+      "branch_label": "General/Other",
+      "children": [
+       {
+        "name": "NJ Jack Furst Drive",
+        "code": "Rd-JFD",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Loop Road",
+        "code": "Rd-LR",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Upper Ridge Road",
+        "code": "Rd-URR",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Logistics Center Access Road",
+        "code": "Rd-LC\u2026",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Garden Ground Access Road",
+        "code": "Rd-G\u2026",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Helipad Access Road",
+        "code": "Rd-HAR",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Alpha Bravo Road",
+        "code": "Rd-ABR",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Mountain Pass",
+        "code": "Rd-MP",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Delta Pass",
+        "code": "Rd-DP",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ WWTP Access Road",
+        "code": "Rd-W\u2026",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Eastern Road",
+        "code": "Rd-ER",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Echo Pass",
+        "code": "Rd-EP",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Fenneman Way",
+        "code": "Rd-FW",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ C.P. Way",
+        "code": "Rd-C\u2026",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Valley Loop",
+        "code": "Rd-VL",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Zip Launch Access Road",
+        "code": "Rd-ZL",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Action point Road",
+        "code": "Rd-AP",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Stadium Road",
+        "code": "Rd-SR",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Legacy Village Road",
+        "code": "Rd-LVR",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Logistics Center Way",
+        "code": "Rd-LC\u2026",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Foxtrot Road",
+        "code": "Rd-FR",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Hazel Ruby Lane",
+        "code": "Rd-HRL",
+        "branch_label": "General/Other",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Bridges",
+      "code": "A304",
+      "branch_label": "General/Other",
+      "children": [
+       {
+        "name": "NJ Boulder Cove Bridge",
+        "code": "BR-BC",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Brownsea Bridge",
+        "code": "BR-BS",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Consol Energy Bridge",
+        "code": "BR-CEB",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Cruikshank Bridge",
+        "code": "BR-CR",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Dam A1 Bridge",
+        "code": "BR-A1",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Dam B Bridge",
+        "code": "BR-B",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Hamilton Branch Bridge",
+        "code": "BR-Br\u2026",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Kayak Bridge",
+        "code": "BR-KA",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Lake B Bridge",
+        "code": "BR-LB",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Legacy (vehicle) Bridge",
+        "code": "BR-Leg",
+        "branch_label": "General/Other",
+        "children": []
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NJ Utilities",
+    "code": "GO-UT",
+    "branch_label": "General/Other",
+    "children": [
+     {
+      "name": "NJ Water",
+      "code": "Wat",
+      "branch_label": "General/Other",
+      "children": []
+     },
+     {
+      "name": "NJ Sewer",
+      "code": "Sew",
+      "branch_label": "General/Other",
+      "children": []
+     },
+     {
+      "name": "NJ Gas",
+      "code": "Gas",
+      "branch_label": "General/Other",
+      "children": []
+     },
+     {
+      "name": "NJ Electric",
+      "code": "Ele",
+      "branch_label": "General/Other",
+      "children": []
+     },
+     {
+      "name": "NJ Waste Water Treatment Plant",
+      "code": "WWTP",
+      "branch_label": "General/Other",
+      "children": []
+     },
+     {
+      "name": "NJ Water Tanks",
+      "code": "WT",
+      "branch_label": "General/Other",
+      "children": []
+     },
+     {
+      "name": "NJ Fiber",
+      "code": "Fiber",
+      "branch_label": "General/Other",
+      "children": []
+     },
+     {
+      "name": "NJ Pole Farm",
+      "code": "PF",
+      "branch_label": "General/Other",
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "NJ Lakes & Dams",
+    "code": "GO-LD",
+    "branch_label": "General/Other",
+    "children": [
+     {
+      "name": "NJ Lakes",
+      "code": "LD-Lak",
+      "branch_label": "General/Other",
+      "children": [
+       {
+        "name": "NJ Goodrich East Lake",
+        "code": "GRE",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Goodrich West Lake",
+        "code": "GRW",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Bravo Lake",
+        "code": "BL",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Tickle Lake",
+        "code": "TL",
+        "branch_label": "General/Other",
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "NJ Dams",
+      "code": "LD-Dam",
+      "branch_label": "General/Other",
+      "children": [
+       {
+        "name": "NJ Dam 1.2",
+        "code": "1.2",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Dam A",
+        "code": "A",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Dam A1",
+        "code": "A1",
+        "branch_label": "General/Other",
+        "children": []
+       },
+       {
+        "name": "NJ Dam B",
+        "code": "B",
+        "branch_label": "General/Other",
+        "children": []
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "NJ Off-Site Properties",
+  "code": "NJ-OSP",
+  "branch_label": "Off-Site Properties",
+  "children": [
+   {
+    "name": "NJ Cunard",
+    "code": "OSP-CD",
+    "branch_label": "Off-Site Properties",
+    "children": []
+   },
+   {
+    "name": "NJ First Destination Park",
+    "code": "OSP-FDP",
+    "branch_label": "Off-Site Properties",
+    "children": []
+   },
+   {
+    "name": "NJ Railroad Avenue",
+    "code": "OSP-RRA",
+    "branch_label": "Off-Site Properties",
+    "children": []
+   },
+   {
+    "name": "NJ River Run Park",
+    "code": "OSP-RRP",
+    "branch_label": "Off-Site Properties",
+    "children": []
+   },
+   {
+    "name": "NJ Stonecliff",
+    "code": "OSP-SCF",
+    "branch_label": "Off-Site Properties",
+    "children": []
+   },
+   {
+    "name": "NJ New River Lodge",
+    "code": "A907",
+    "branch_label": "Off-Site Properties",
+    "children": []
+   }
+  ]
+ },
+ {
+  "name": "NJ Medical",
+  "code": "AD-MED",
+  "branch_label": "Medical",
+  "children": [
+   {
+    "name": "NJ Jamboree Health Center",
+    "code": "MED-JHC",
+    "branch_label": "Medical",
+    "children": [
+     {
+      "name": "NJ JHC Medical Headquarters",
+      "code": "MED-JHC\u2026",
+      "branch_label": "Medical",
+      "children": []
+     },
+     {
+      "name": "NJ JHC Logistics",
+      "code": "MED-JHC\u2026",
+      "branch_label": "Medical",
+      "children": []
+     },
+     {
+      "name": "NJ JHC IT",
+      "code": "MED-JHC\u2026",
+      "branch_label": "Medical",
+      "children": []
+     },
+     {
+      "name": "NJ JHC Pharmacy",
+      "code": "MED-JHC\u2026",
+      "branch_label": "Medical",
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "NJ A/B Medical",
+    "code": "MED-A/B",
+    "branch_label": "Medical",
+    "children": []
+   },
+   {
+    "name": "NJ C Medical",
+    "code": "MED-C",
+    "branch_label": "Medical",
+    "children": []
+   },
+   {
+    "name": "NJ D Medical",
+    "code": "MED-D",
+    "branch_label": "Medical",
+    "children": []
+   },
+   {
+    "name": "NJ F Medical",
+    "code": "MED-F",
+    "branch_label": "Medical",
+    "children": []
+   },
+   {
+    "name": "NJ Stadium Medical",
+    "code": "MED-SM",
+    "branch_label": "Medical",
+    "children": []
+   },
+   {
+    "name": "NJ Thrasher Mountain Medical",
+    "code": "MED-TM",
+    "branch_label": "Medical",
+    "children": []
+   },
+   {
+    "name": "NJ Garden Ground Medical",
+    "code": "MED-GGM",
+    "branch_label": "Medical",
+    "children": []
+   },
+   {
+    "name": "NJ Medical HQ D4",
+    "code": "MED-D4",
+    "branch_label": "Medical",
+    "children": []
+   },
+   {
+    "name": "NJ E Medical",
+    "code": "MED-E",
+    "branch_label": "Medical",
+    "children": []
+   }
+  ]
+ },
+ {
+  "name": "NJ Food",
+  "code": "A908",
+  "branch_label": "Food",
+  "children": [
+   {
+    "name": "Pigott Dining",
+    "code": "LOG-FS",
+    "branch_label": "Food",
+    "children": []
+   },
+   {
+    "name": "Fork in the Road Dining",
+    "code": "A902",
+    "branch_label": "Food",
+    "children": []
+   },
+   {
+    "name": "Staff Chat n Chew",
+    "code": "A903",
+    "branch_label": "Food",
+    "children": []
+   },
+   {
+    "name": "Base Camp D (Troop Food Distribution)",
+    "code": "A914",
+    "branch_label": "Food",
+    "children": []
+   },
+   {
+    "name": "Base Camp C (Troop Food Distribution)",
+    "code": "A915",
+    "branch_label": "Food",
+    "children": []
+   },
+   {
+    "name": "Echo Dining",
+    "code": "A919",
+    "branch_label": "Food",
+    "children": []
+   }
+  ]
+ },
+ {
+  "name": "Summit Housing & Conference Centers",
+  "code": "A909",
+  "branch_label": "Summit Housing & Conference Centers",
+  "children": [
+   {
+    "name": "Fenneman Lodge & Hall",
+    "code": "BC-FLH",
+    "branch_label": "Summit Housing & Conference Centers",
+    "children": []
+   },
+   {
+    "name": "Perry Point & WP Overlook",
+    "code": "A910",
+    "branch_label": "Summit Housing & Conference Centers",
+    "children": []
+   },
+   {
+    "name": "Yamagata Hall & Lodging",
+    "code": "A911",
+    "branch_label": "Summit Housing & Conference Centers",
+    "children": []
+   },
+   {
+    "name": "Marriott Leadership Center",
+    "code": "A912",
+    "branch_label": "Summit Housing & Conference Centers",
+    "children": []
+   }
+  ]
+ }
+]
