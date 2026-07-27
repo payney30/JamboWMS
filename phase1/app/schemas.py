@@ -78,6 +78,9 @@ class WorkOrderCreate(BaseModel):
     requester_name: str
     requester_email: Optional[str] = None
     requester_phone: Optional[str] = None
+    poc_is_requester: bool = True
+    poc_name: Optional[str] = None  # required by the router when poc_is_requester is False
+    poc_phone: Optional[str] = None  # required by the router when poc_is_requester is False
     asset_id: int
     work_type: str = ""
     description: str
@@ -128,6 +131,9 @@ class WorkOrderDetail(WorkOrderListItem):
     requester_name: str
     requester_email: Optional[str]
     requester_phone: Optional[str]
+    poc_is_requester: bool = True
+    poc_name: Optional[str] = None
+    poc_phone: Optional[str] = None
     notify_preference: Optional[str] = None
     work_type: str
     assigned_person: Optional[UserOut] = None
