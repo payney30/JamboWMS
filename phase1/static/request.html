@@ -95,17 +95,13 @@ input[type=file]{font-size:13px;}
       <label>Your name <span class="required-mark">*</span></label>
       <input type="text" id="rName" required autocomplete="name">
 
-      <label>Contact email</label>
-      <input type="email" id="rEmail" autocomplete="email" placeholder="so we can send a confirmation">
-      <div class="hint">Optional, but you'll need it to check your request's status later.</div>
+      <label>Contact email <span class="required-mark">*</span></label>
+      <input type="email" id="rEmail" required autocomplete="email" placeholder="so we can send a confirmation">
+      <div class="hint">You'll need this to check your request's status later.</div>
 
-      <label>Contact phone</label>
-      <input type="tel" id="rPhone" autocomplete="tel">
+      <label>Contact phone <span class="required-mark">*</span></label>
+      <input type="tel" id="rPhone" required autocomplete="tel">
       <div class="hint">We may call or text this number with updates or questions.</div>
-
-      <label>How should we reach you with updates?</label>
-      <div class="priority-group" id="rContactPrefGroup" style="gap:6px;"></div>
-      <div class="field-err" id="rContactPrefErr"></div>
 
       <label>Are you the point of contact for this location/area? <span class="required-mark">*</span></label>
       <div class="priority-group" id="rPocGroup" style="gap:6px;"></div>
@@ -187,14 +183,6 @@ const PRIORITIES = [
   {key:'Low', label:'Low', color:'#5C7A4A', criteria:['Action needed within 48 hours']},
   {key:'Lowest', label:'Lowest', color:'#5A7385', criteria:['Action needed within 72 hours']},
 ];
-// Not wired to an email/SMS provider yet — this just records what the
-// requester wants, so it's ready the moment one is (see the TODO in
-// app/routers/public.py). No default selection: leaving it blank is valid.
-const CONTACT_PREFS = [
-  {key:'email', label:'Email'},
-  {key:'text', label:'Text message'},
-  {key:'both', label:'Both'},
-];
 // Default assumption is "yes" (requester = POC) so the common case adds
 // zero extra fields. Selecting "no" reveals the POC name/phone sub-fields.
 const POC_OPTIONS = [
@@ -224,39 +212,50 @@ function onPocChange(){
 }
 
 async function boot(){
-  const pickerEl = document.getElementById('rLocationPicker');
-  locationPicker = LocationPicker.mount(pickerEl, {
-    treeUrl: '/public/locations/tree',
-    placeholder: 'Start typing your camp or area…',
-    onChange: () => { document.getElementById('rLocationErr').textContent = ''; },
-  });
+  // Each piece below is independent — if one throws (e.g. location-picker.js
+  // fails to load, or its /public/locations/tree fetch fails), the others
+  // should still render. Previously a single failure early in boot() could
+  // silently prevent everything after it (priority, contact-pref, and POC
+  // toggle groups) from ever being populated.
+  try {
+    const pickerEl = document.getElementById('rLocationPicker');
+    locationPicker = LocationPicker.mount(pickerEl, {
+      treeUrl: '/public/locations/tree',
+      placeholder: 'Start typing your camp or area…',
+      onChange: () => { document.getElementById('rLocationErr').textContent = ''; },
+    });
+  } catch (err) {
+    console.error('Location picker failed to load:', err);
+    document.getElementById('rLocationErr').textContent =
+      'Location lookup failed to load — please refresh the page. If this keeps happening, contact the LOC directly.';
+  }
 
-  const group = document.getElementById('rPriorityGroup');
-  group.innerHTML = PRIORITIES.map((p, i) => `
-    <label class="priority-option" style="border-left:4px solid ${p.color};">
-      <input type="radio" name="rPriority" value="${p.key}" ${i===2?'checked':''} onchange="refreshSelectedStyling(this.closest('.priority-group'))">
-      <div>
-        <div class="p-name">${p.label}</div>
-        <ul class="p-criteria">${p.criteria.map(c => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
-      </div>
-    </label>`).join('');
-  refreshSelectedStyling(group);
+  try {
+    const group = document.getElementById('rPriorityGroup');
+    group.innerHTML = PRIORITIES.map((p, i) => `
+      <label class="priority-option" style="border-left:4px solid ${p.color};">
+        <input type="radio" name="rPriority" value="${p.key}" ${i===2?'checked':''} onchange="refreshSelectedStyling(this.closest('.priority-group'))">
+        <div>
+          <div class="p-name">${p.label}</div>
+          <ul class="p-criteria">${p.criteria.map(c => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
+        </div>
+      </label>`).join('');
+    refreshSelectedStyling(group);
+  } catch (err) {
+    console.error('Priority group failed to render:', err);
+  }
 
-  const prefGroup = document.getElementById('rContactPrefGroup');
-  prefGroup.innerHTML = CONTACT_PREFS.map(p => `
-    <label class="priority-option" style="padding:9px 12px;">
-      <input type="radio" name="rContactPref" value="${p.key}" onchange="refreshSelectedStyling(this.closest('.priority-group'))">
-      <div class="p-name" style="font-size:13px;">${p.label}</div>
-    </label>`).join('');
-  refreshSelectedStyling(prefGroup);
-
-  const pocGroup = document.getElementById('rPocGroup');
-  pocGroup.innerHTML = POC_OPTIONS.map((p, i) => `
-    <label class="priority-option" style="padding:9px 12px;">
-      <input type="radio" name="rPoc" value="${p.key}" ${i===0?'checked':''} onchange="onPocChange()">
-      <div class="p-name" style="font-size:13px;">${p.label}</div>
-    </label>`).join('');
-  refreshSelectedStyling(pocGroup);
+  try {
+    const pocGroup = document.getElementById('rPocGroup');
+    pocGroup.innerHTML = POC_OPTIONS.map((p, i) => `
+      <label class="priority-option" style="padding:9px 12px;">
+        <input type="radio" name="rPoc" value="${p.key}" ${i===0?'checked':''} onchange="onPocChange()">
+        <div class="p-name" style="font-size:13px;">${p.label}</div>
+      </label>`).join('');
+    refreshSelectedStyling(pocGroup);
+  } catch (err) {
+    console.error('POC group failed to render:', err);
+  }
 }
 
 function escapeHtml(s){
@@ -269,11 +268,9 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const errBanner = document.getElementById('formErr');
   const locErr = document.getElementById('rLocationErr');
-  const prefErr = document.getElementById('rContactPrefErr');
   const pocErr = document.getElementById('rPocErr');
   errBanner.style.display = 'none';
   locErr.textContent = '';
-  prefErr.textContent = '';
   pocErr.textContent = '';
 
   const assetId = locationPicker ? locationPicker.getValue() : null;
@@ -285,22 +282,11 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
 
   const name = document.getElementById('rName').value.trim();
   const description = document.getElementById('rDescription').value.trim();
-  if (!name || !description) {
-    errBanner.textContent = 'Please fill in your name and a description of the issue.';
-    errBanner.style.display = 'block';
-    return;
-  }
-
   const email = document.getElementById('rEmail').value.trim();
   const phone = document.getElementById('rPhone').value.trim();
-  const contactPrefInput = document.querySelector('input[name="rContactPref"]:checked');
-  const contactPref = contactPrefInput ? contactPrefInput.value : '';
-  if ((contactPref === 'text' || contactPref === 'both') && !phone) {
-    prefErr.textContent = 'Add a phone number to receive text updates.';
-    return;
-  }
-  if ((contactPref === 'email' || contactPref === 'both') && !email) {
-    prefErr.textContent = 'Add an email to receive email updates.';
+  if (!name || !description || !email || !phone) {
+    errBanner.textContent = 'Please fill in your name, contact email, contact phone, and a description of the issue.';
+    errBanner.style.display = 'block';
     return;
   }
 
@@ -328,7 +314,6 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
   formData.set('work_type', document.getElementById('rWorkType').value);
   formData.set('description', description);
   formData.set('priority', priorityInput ? priorityInput.value : 'Medium');
-  formData.set('notify_preference', contactPref);
   formData.set('website', document.getElementById('rWebsite').value); // honeypot
   const files = document.getElementById('rFiles').files;
   for (let i = 0; i < files.length; i++) formData.append('files', files[i]);
@@ -369,7 +354,6 @@ function resetForm(){
   document.getElementById('submitBtn').disabled = false;
   document.getElementById('submitBtn').textContent = 'Submit work order';
   refreshSelectedStyling(document.getElementById('rPriorityGroup'));
-  refreshSelectedStyling(document.getElementById('rContactPrefGroup'));
   refreshSelectedStyling(document.getElementById('rPocGroup'));
   document.getElementById('pocSubfields').classList.remove('open');
   window.scrollTo({top: 0, behavior: 'smooth'});
