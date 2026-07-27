@@ -57,6 +57,12 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
 #toastStack{position:fixed;bottom:16px;left:16px;right:16px;z-index:50;display:flex;flex-direction:column;gap:8px;align-items:center;}
 .toast{background:var(--pine);color:#fff;border-radius:8px;padding:10px 14px;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.2);}
 .toast.err{background:var(--hivis);}
+
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0 4px;}
+.filters select,.filters input{padding:8px 10px;border:1px solid var(--khaki-line);border-radius:6px;font-size:13px;background:var(--canvas-panel);}
+.filters input{flex:1;min-width:180px;}
+.filters .reset-btn{background:transparent;color:var(--ink-soft);border:1px solid var(--khaki-line);border-radius:6px;padding:8px 14px;font-size:12px;cursor:pointer;}
+.filters .reset-btn:hover{border-color:var(--pine);color:var(--pine);}
 </style>
 </head>
 <body>
@@ -81,6 +87,17 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
   </div>
 
   <div class="dash-nav"><a href="dashboard-program.html">&larr; Program Team</a><a href="dashboard-basecamp.html">Base Camp Ops &rarr;</a></div>
+
+  <div class="section-title">Filter <span class="refresh-note" id="filterCount" style="color:var(--ink-soft);"></span></div>
+  <div class="filters">
+    <select id="fStatus" onchange="load()"><option value="">All statuses</option></select>
+    <select id="fPriority" onchange="load()"><option value="">All priorities</option></select>
+    <select id="fWorkType" onchange="load()"><option value="">All work types</option></select>
+    <select id="fLocation" onchange="load()"><option value="">All locations</option></select>
+    <select id="fTeam" onchange="load()"><option value="">All teams</option></select>
+    <input id="fSearch" placeholder="Search description or WO#…" oninput="debouncedLoad()">
+    <button class="reset-btn" onclick="clearFilters()">Reset filters</button>
+  </div>
 
   <div class="stats" id="statRow"></div>
 
@@ -114,6 +131,10 @@ const API = '';
 let TOKEN = localStorage.getItem('loc_token') || '';
 const currentScope = 'main'; // fixed — this page is scope-locked, see dash-nav for the other two
 let refreshTimer = null;
+let TEAMS = [], ASSETS = [];
+const STATUSES = ["Requested","Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
+const PRIORITIES = ["Highest","High","Medium","Low","Lowest"];
+const WORK_TYPES = ["NJ IT","NJ Items/Parts","NJ Maintenance","NJ Transportation"];
 
 function escapeHtml(s){
   const d = document.createElement('div');
@@ -166,22 +187,73 @@ async function login() {
   }
 }
 
-function boot(){
+async function boot(){
   document.getElementById('loginBox').style.display = 'none';
   document.getElementById('app').style.display = 'block';
+  try {
+    [TEAMS, ASSETS] = await Promise.all([api('/teams'), api('/assets')]);
+  } catch (e) {
+    showToast('Could not load filter reference data: ' + e.message, 'err');
+  }
+  populateFilterOptions();
   load();
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = setInterval(load, 60000);
 }
 
+function populateFilterOptions(){
+  const fStatus = document.getElementById('fStatus');
+  STATUSES.forEach(s => fStatus.insertAdjacentHTML('beforeend', `<option value="${s}">${s}</option>`));
+  const fPriority = document.getElementById('fPriority');
+  PRIORITIES.forEach(p => fPriority.insertAdjacentHTML('beforeend', `<option value="${p}">${p}</option>`));
+  const fWorkType = document.getElementById('fWorkType');
+  WORK_TYPES.forEach(w => fWorkType.insertAdjacentHTML('beforeend', `<option value="${w}">${w}</option>`));
+  const fTeam = document.getElementById('fTeam');
+  TEAMS.forEach(t => fTeam.insertAdjacentHTML('beforeend', `<option value="${t.id}">${escapeHtml(t.name)}</option>`));
+  const fLocation = document.getElementById('fLocation');
+  const locations = Array.from(new Set(ASSETS.map(a => a.location_group))).sort();
+  locations.forEach(l => fLocation.insertAdjacentHTML('beforeend', `<option value="${l}">${escapeHtml(l)}</option>`));
+}
+
+function clearFilters(){
+  ['fStatus','fPriority','fWorkType','fLocation','fTeam'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('fSearch').value = '';
+  load();
+}
+
+function currentFilterParams(){
+  const params = new URLSearchParams();
+  params.set('scope', currentScope);
+  const status = document.getElementById('fStatus').value;
+  const priority = document.getElementById('fPriority').value;
+  const workType = document.getElementById('fWorkType').value;
+  const location = document.getElementById('fLocation').value;
+  const team = document.getElementById('fTeam').value;
+  const search = document.getElementById('fSearch').value;
+  if (status) params.set('status', status);
+  if (priority) params.set('priority', priority);
+  if (workType) params.set('work_type', workType);
+  if (location) params.set('location_group', location);
+  if (team) params.set('team_id', team);
+  if (search) params.set('search', search);
+  document.getElementById('filterCount').textContent =
+    [status, priority, workType, location, team, search].filter(Boolean).length
+      ? `(${[status, priority, workType, location, team, search].filter(Boolean).length} active)` : '';
+  return params;
+}
+
+let debounceTimer;
+function debouncedLoad(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(load, 300); }
+
 async function load(){
+  const params = currentFilterParams();
   let kpis, breakdowns, trend, attention;
   try {
     [kpis, breakdowns, trend, attention] = await Promise.all([
-      api(`/dashboard/kpis?scope=${currentScope}`),
-      api(`/dashboard/breakdowns?scope=${currentScope}`),
-      api(`/dashboard/trend?scope=${currentScope}&days=14`),
-      api(`/dashboard/attention?scope=${currentScope}&limit=15`),
+      api(`/dashboard/kpis?${params.toString()}`),
+      api(`/dashboard/breakdowns?${params.toString()}`),
+      api(`/dashboard/trend?${params.toString()}&days=14`),
+      api(`/dashboard/attention?${params.toString()}&limit=15`),
     ]);
   } catch (e) {
     if (e.message !== 'session expired') showToast('Could not refresh dashboard: ' + e.message, 'err');

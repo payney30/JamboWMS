@@ -327,7 +327,15 @@ async function load() {
     return;
   }
 
-  const isToday = (isoString) => isoString && new Date(isoString).toDateString() === new Date().toDateString();
+  // The server computes "today" as a UTC calendar date (dt.date.today()
+  // on a UTC-clocked server, applied to UTC-stored timestamps via SQL's
+  // func.date()). Comparing with the browser's LOCAL calendar date
+  // (toDateString()) disagreed with the server for part of every day —
+  // whichever hours fall between local midnight and the UTC date
+  // rollover — which is exactly why the KPI count and the click-through
+  // filter didn't match. Comparing UTC-to-UTC on both sides fixes it
+  // regardless of the viewer's timezone.
+  const isToday = (isoString) => isoString && new Date(isoString).toISOString().slice(0,10) === new Date().toISOString().slice(0,10);
 
   if (activeQuickView === 'HighestHighOpen') {
     wos = wos.filter(w => (w.priority === 'Highest' || w.priority === 'High') && !w.status.startsWith('Closed'));
