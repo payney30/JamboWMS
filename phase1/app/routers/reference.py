@@ -29,6 +29,15 @@ def get_location_tree(db: Session = Depends(get_db), user: models.User = Depends
     return crud.build_location_tree(db, include_inactive=False)
 
 
+@auth_router.get("/me", response_model=schemas.UserOut)
+def me(user: models.User = Depends(get_current_user)):
+    """Lets a page restore role/team from a stored token on reload without
+    re-parsing the login response — used by the technician view, which
+    needs to know the caller's team before it can request the right
+    scoped queue."""
+    return user
+
+
 @auth_router.post("/login")
 def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     client_ip = request.client.host if request.client else "unknown"
