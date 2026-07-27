@@ -147,14 +147,58 @@ def loc_user(db):
 
 
 @pytest.fixture()
-def auth_headers(client, admin_user):
+def tech_user(db, team):
+    u = models.User(
+        name="Tech User",
+        email="tech@test.local",
+        password_hash=hash_password("test-password"),
+        role="tech",
+        team_id=team.id,
+    )
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+    return u
+
+
+@pytest.fixture()
+def tech_user_other_team(db, other_team):
+    u = models.User(
+        name="Other Team Tech",
+        email="tech-other@test.local",
+        password_hash=hash_password("test-password"),
+        role="tech",
+        team_id=other_team.id,
+    )
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+    return u
+
+
+def _login(client, email):
     resp = client.post(
         "/auth/login",
-        data={"username": admin_user.email, "password": "test-password"},
+        data={"username": email, "password": "test-password"},
     )
     assert resp.status_code == 200, resp.text
     token = resp.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture()
+def auth_headers(client, admin_user):
+    return _login(client, admin_user.email)
+
+
+@pytest.fixture()
+def tech_auth_headers(client, tech_user):
+    return _login(client, tech_user.email)
+
+
+@pytest.fixture()
+def other_tech_auth_headers(client, tech_user_other_team):
+    return _login(client, tech_user_other_team.email)
 
 
 @pytest.fixture()
