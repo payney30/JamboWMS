@@ -128,3 +128,92 @@ def test_dashboard_router_scope_endpoints(client, auth_headers, asset):
 
     resp3 = client.get("/dashboard/attention?scope=main", headers=auth_headers)
     assert resp3.status_code == 200
+
+
+def test_extra_filters_combine_with_scope(db, auth_headers, client):
+    program_asset = _asset(db, location_group="Program Areas")
+    _make_wo(db, program_asset, priority="Highest")
+    _make_wo(db, program_asset, priority="Low")
+
+    kpis = crud.get_kpis(db, scope="program", priority="Highest")
+    assert kpis["total"] == 1
+
+
+def test_status_filter(db):
+    a = _asset(db)
+    open_wo = _make_wo(db, a)
+    closed_wo = _make_wo(db, a)
+    closed_wo.status = "Closed, Completed"
+    db.commit()
+
+    kpis = crud.get_kpis(db, scope="main", status="Closed, Completed")
+    assert kpis["total"] == 1
+
+
+def test_work_type_filter(db):
+    a = _asset(db)
+    wo1 = crud.create_work_order(
+        db, schemas.WorkOrderCreate(requester_name="Scout", asset_id=a.id, description="x", priority="Medium", work_type="NJ IT"),
+    )
+    crud.create_work_order(
+        db, schemas.WorkOrderCreate(requester_name="Scout", asset_id=a.id, description="x", priority="Medium", work_type="NJ Maintenance"),
+    )
+    kpis = crud.get_kpis(db, scope="main", work_type="NJ IT")
+    assert kpis["total"] == 1
+
+
+def test_team_filter(db, team, other_team, admin_user):
+    a = _asset(db)
+    wo1 = _make_wo(db, a)
+    crud.assign_work_order(db, wo1, schemas.AssignRequest(team_id=team.id), changed_by=admin_user.id)
+    wo2 = _make_wo(db, a)
+    crud.assign_work_order(db, wo2, schemas.AssignRequest(team_id=other_team.id), changed_by=admin_user.id)
+
+    kpis = crud.get_kpis(db, scope="main", team_id=team.id)
+    assert kpis["total"] == 1
+
+
+def test_location_group_filter_narrows_within_scope(db):
+    medical = _asset(db, location_group="Medical")
+    food = _asset(db, location_group="Food")
+    _make_wo(db, medical)
+    _make_wo(db, food)
+
+    kpis = crud.get_kpis(db, scope="main", location_group="Medical")
+    assert kpis["total"] == 1
+
+
+def test_search_filter_matches_description_or_wo_number(db):
+    a = _asset(db)
+    wo = crud.create_work_order(
+        db, schemas.WorkOrderCreate(requester_name="Scout", asset_id=a.id, description="broken sink", priority="Medium"),
+    )
+    crud.create_work_order(
+        db, schemas.WorkOrderCreate(requester_name="Scout", asset_id=a.id, description="need cones", priority="Medium"),
+    )
+
+    kpis = crud.get_kpis(db, scope="main", search="sink")
+    assert kpis["total"] == 1
+
+    kpis2 = crud.get_kpis(db, scope="main", search=wo.wo_number)
+    assert kpis2["total"] == 1
+
+
+def test_router_passes_through_extra_filters(client, auth_headers, asset, team, admin_user):
+    wo = client.post(
+        "/work-orders",
+        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Highest"},
+        headers=auth_headers,
+    ).json()
+    client.post(f"/work-orders/{wo['id']}/assign", json={"team_id": team.id}, headers=auth_headers)
+
+    resp = client.get(f"/dashboard/kpis?scope=main&priority=Highest&team_id={team.id}", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 1
+
+    resp2 = client.get("/dashboard/trend?scope=main&days=5", headers=auth_headers)
+    assert resp2.status_code == 200
+    assert len(resp2.json()) == 5
+
+    resp3 = client.get("/dashboard/attention?scope=main", headers=auth_headers)
+    assert resp3.status_code == 200
