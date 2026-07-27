@@ -14,6 +14,7 @@ def _base_form(asset, **overrides):
     form = {
         "requester_name": "Scout Leader",
         "requester_email": "leader@example.com",
+        "requester_phone": "555-0100",
         "asset_id": str(asset.id),
         "work_type": "NJ Maintenance",
         "description": "Leaky faucet in the latrine block",
@@ -54,6 +55,22 @@ def test_public_submission_requires_name_and_description(client, asset):
     assert resp.status_code == 400
 
     resp2 = client.post("/public/work-orders", data=_base_form(asset, description=""))
+    assert resp2.status_code == 400
+
+
+def test_public_submission_requires_email(client, asset):
+    resp = client.post("/public/work-orders", data=_base_form(asset, requester_email=""))
+    assert resp.status_code == 400
+
+    resp2 = client.post("/public/work-orders", data=_base_form(asset, requester_email="   "))
+    assert resp2.status_code == 400
+
+
+def test_public_submission_requires_phone(client, asset):
+    resp = client.post("/public/work-orders", data=_base_form(asset, requester_phone=""))
+    assert resp.status_code == 400
+
+    resp2 = client.post("/public/work-orders", data=_base_form(asset, requester_phone="   "))
     assert resp2.status_code == 400
 
 
