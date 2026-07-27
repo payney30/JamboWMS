@@ -7,10 +7,12 @@ db.commit() as the matching WOStatusHistory row. If you add a new field
 mutation later, ask "does this need a history row?" before wiring it up.
 """
 import datetime as dt
+import secrets
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case
 from fastapi import HTTPException
 from . import models, schemas
+from .auth import hash_password
 
 # Lower rank = higher priority = sorts first. Ties (an unrecognized value,
 # which the CHECK constraint shouldn't allow, but belt-and-suspenders)
@@ -318,3 +320,67 @@ def get_breakdowns(db: Session) -> dict:
         "by_location": by_location,
         "by_team": by_team,
     }
+
+
+def _generate_temp_password() -> str:
+    return secrets.token_urlsafe(9)  # ~12 chars, URL-safe — easy to read aloud/text
+
+
+def list_users(db: Session, role: str | None = None, team_id: int | None = None,
+                include_inactive: bool = False) -> list[models.User]:
+    q = db.query(models.User)
+    if not include_inactive:
+        q = q.filter(models.User.is_active == True)  # noqa: E712
+    if role:
+        q = q.filter(models.User.role == role)
+    if team_id:
+        q = q.filter(models.User.team_id == team_id)
+    return q.order_by(models.User.name).all()
+
+
+def create_user(db: Session, payload: schemas.UserCreate) -> tuple[models.User, str]:
+    if payload.role not in schemas.ROLES:
+        raise HTTPException(400, f"invalid role: {payload.role}")
+    if payload.role == "tech" and not payload.team_id:
+        raise HTTPException(400, "a team is required for tech-role accounts")
+    if payload.team_id is not None and not db.get(models.Team, payload.team_id):
+        raise HTTPException(404, "team not found")
+    if db.query(models.User).filter(models.User.email == payload.email).first():
+        raise HTTPException(400, "a user with this email already exists")
+
+    password = payload.password or _generate_temp_password()
+    user = models.User(
+        name=payload.name, email=payload.email, role=payload.role,
+        team_id=payload.team_id, password_hash=hash_password(password),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user, password
+
+
+def update_user(db: Session, user: models.User, payload: schemas.UserUpdate) -> models.User:
+    data = payload.model_dump(exclude_unset=True)
+
+    if "role" in data and data["role"] not in schemas.ROLES:
+        raise HTTPException(400, f"invalid role: {data['role']}")
+    if "team_id" in data and data["team_id"] is not None and not db.get(models.Team, data["team_id"]):
+        raise HTTPException(404, "team not found")
+
+    effective_role = data.get("role", user.role)
+    effective_team_id = data.get("team_id", user.team_id)
+    if effective_role == "tech" and not effective_team_id:
+        raise HTTPException(400, "a team is required for tech-role accounts")
+
+    for field, value in data.items():
+        setattr(user, field, value)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def reset_password(db: Session, user: models.User) -> str:
+    password = _generate_temp_password()
+    user.password_hash = hash_password(password)
+    db.commit()
+    return password

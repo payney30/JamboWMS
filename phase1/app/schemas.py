@@ -9,6 +9,7 @@ STATUSES = (
 )
 WORK_TYPES = ("NJ IT", "NJ Items/Parts", "NJ Maintenance", "NJ Transportation", "")
 NOTIFY_PREFERENCES = ("email", "text", "both")
+ROLES = ("loc", "tech", "leadership", "admin")
 
 
 class TeamOut(BaseModel):
@@ -179,3 +180,45 @@ class BreakdownOut(BaseModel):
     by_work_type: dict
     by_location: dict
     by_team: dict
+
+
+class UserAdminOut(BaseModel):
+    """User row as shown on the admin user-management screen — includes
+    is_active/created_at, unlike the lean UserOut used for note authorship
+    etc. Never includes password_hash."""
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    email: str
+    role: str
+    team: Optional[TeamOut] = None
+    is_active: bool
+    created_at: dt.datetime
+
+
+class UserCreate(BaseModel):
+    name: str
+    email: str
+    role: str  # loc | tech | leadership | admin — see schemas.ROLES
+    team_id: Optional[int] = None  # required if role == 'tech'; see crud.create_user
+    password: Optional[str] = None  # omit to auto-generate a temporary password
+
+
+class UserCreateResponse(BaseModel):
+    """temporary_password is only ever returned here and from the
+    reset-password endpoint — it's never stored in plaintext and this is
+    the caller's one chance to see it, same convention as seed.py's
+    printed admin password."""
+    user: UserAdminOut
+    temporary_password: str
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    team_id: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class PasswordResetResponse(BaseModel):
+    temporary_password: str

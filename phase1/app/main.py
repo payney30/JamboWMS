@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import work_orders, dashboard, reference, public
+from .routers import work_orders, dashboard, reference, public, users
 from .routers.public import UPLOAD_DIR
 from .database import DATABASE_URL
 from .auth import SECRET_KEY, DEV_SECRET_KEY
@@ -57,6 +57,7 @@ app.include_router(work_orders.router)
 app.include_router(dashboard.router)
 app.include_router(reference.router)
 app.include_router(public.router)
+app.include_router(users.router)
 
 # Uploaded photos from the public requester form (see app/routers/public.py)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
