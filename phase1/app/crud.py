@@ -25,6 +25,45 @@ _PRIORITY_RANK = case(
 )
 
 
+def build_location_tree(db: Session, include_inactive: bool = False) -> list[dict]:
+    """Reconstruct the nested location hierarchy (PRD 4.2a) from the flat
+    assets table. Every Asset row (branch, camp, subcamp, shower house,
+    leaf) becomes one tree node; parent_id links them.
+
+    include_inactive=False (the default, used by both the requester form
+    and LOC triage pickers) prunes soft-deleted nodes AND everything under
+    them, so a deleted branch can't resurface via an active child — new
+    selections never see it. include_inactive=True is for the future admin
+    hierarchy view (PRD 4.5), which needs to show inactive nodes to allow
+    restoring them.
+    """
+    q = db.query(models.Asset)
+    if not include_inactive:
+        q = q.filter(models.Asset.is_active == True)  # noqa: E712
+    rows = q.order_by(models.Asset.sort_order, models.Asset.name).all()
+
+    by_id = {a.id: a for a in rows}
+    children_by_parent: dict[int | None, list] = {}
+    for a in rows:
+        # An active node whose parent was pruned (parent inactive, or
+        # missing from this filtered set) has no reachable parent in this
+        # view — treat it as a root rather than dropping it silently.
+        parent_key = a.parent_id if (a.parent_id in by_id or a.parent_id is None) else None
+        children_by_parent.setdefault(parent_key, []).append(a)
+
+    def node(a) -> dict:
+        return {
+            "id": a.id,
+            "name": a.name,
+            "code": a.code,
+            "branch_label": a.location_group,
+            "is_active": a.is_active,
+            "children": [node(c) for c in children_by_parent.get(a.id, [])],
+        }
+
+    return [node(a) for a in children_by_parent.get(None, [])]
+
+
 def _next_wo_number(db: Session) -> str:
     last = db.query(models.WorkOrder).order_by(models.WorkOrder.id.desc()).first()
     next_id = (last.id + 1) if last else 10001

@@ -25,6 +25,21 @@ class AssetOut(BaseModel):
     camp_letter: Optional[str] = None
 
 
+class LocationNode(BaseModel):
+    """A node in the nested location hierarchy (PRD 4.2a). Built by
+    crud.build_location_tree, not read directly off the ORM model, so this
+    doesn't use from_attributes — it's constructed from plain dicts."""
+    id: int
+    name: str
+    code: Optional[str] = None
+    branch_label: str
+    is_active: bool = True
+    children: List["LocationNode"] = []
+
+
+LocationNode.model_rebuild()
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

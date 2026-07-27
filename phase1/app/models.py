@@ -7,7 +7,7 @@ import datetime as dt
 from sqlalchemy import (
     Column, Integer, String, Text, Boolean, ForeignKey, TIMESTAMP, CheckConstraint
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from .database import Base
 
 
@@ -43,11 +43,32 @@ class User(Base):
 
 
 class Asset(Base):
+    """
+    A single node in the location hierarchy (PRD 4.2a / 4.5). Every node —
+    branch, camp, subcamp, shower house, or a directly-loggable leaf — is a
+    row here, same as before. What's new is that rows can now nest via
+    parent_id, so the full tree (not just each leaf's top-level branch) can
+    be reconstructed for the hierarchical location picker.
+
+    Soft-delete only: is_active=False removes a location from the picker
+    for NEW selections, but the row itself is never deleted, so existing
+    work_orders.asset_id references (and historical reporting/dashboards)
+    keep working exactly as before. See crud.build_location_tree.
+    """
     __tablename__ = "assets"
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False, unique=True)
     location_group = Column(String, nullable=False)
     camp_letter = Column(String, nullable=True)
+    parent_id = Column(Integer, ForeignKey("assets.id"), nullable=True)
+    code = Column(String, nullable=True)
+    sort_order = Column(Integer, nullable=False, default=0)
+    is_active = Column(Boolean, nullable=False, default=True)
+
+    children = relationship(
+        "Asset", backref=backref("parent", remote_side=[id]),
+        order_by="Asset.sort_order",
+    )
 
 
 class WorkOrder(Base):
