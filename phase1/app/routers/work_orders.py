@@ -43,6 +43,11 @@ def list_work_orders(
     work_type: Optional[str] = None,
     location_group: Optional[str] = None,
     search: Optional[str] = None,
+    exclude_closed: bool = False,
+    closed_only: bool = False,
+    priority_in: Optional[str] = None,  # comma-separated, e.g. "Highest,High"
+    opened_today: bool = False,
+    closed_today: bool = False,
     limit: int = Query(100, le=500),
     offset: int = 0,
     db: Session = Depends(get_db),
@@ -52,9 +57,12 @@ def list_work_orders(
     # the query string — the server, not the frontend, owns this boundary.
     if user.role == "tech":
         team_id = user.team_id
+    priority_list = [p.strip() for p in priority_in.split(",")] if priority_in else None
     return crud.list_work_orders(
         db, status=status, priority=priority, team_id=team_id,
         work_type=work_type, location_group=location_group, search=search,
+        exclude_closed=exclude_closed, closed_only=closed_only, priority_in=priority_list,
+        opened_today=opened_today, closed_today=closed_today,
         limit=limit, offset=offset,
     )
 
