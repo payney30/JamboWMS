@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fulfillment Queue — National Jamboree Work Orders</title>
+<style>
+:root{
+  --pine:#1C3829;
+  --pine-deep:#122A1D;
+  --canvas:#EFEADC;
+  --canvas-panel:#FBF8F0;
+  --khaki-line:#D8CFB6;
+  --ink:#241F14;
+  --ink-soft:#5B5340;
+  --hivis:#E8620C;
+  --hivis-soft:#F4A25E;
+  --amber:#C9962B;
+  --olive:#5C7A4A;
+  --moss:#3E6B4F;
+  --slate:#5A7385;
+  --closed:#7A8471;
+  --danger-bg:#FBE4D6;
+  --ok-bg:#E4EEE0;
+  --font-display: 'Oswald', 'Arial Narrow', 'Helvetica Neue', sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SF Mono', 'Consolas', 'Menlo', monospace;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-family:var(--font-body);}
+.wrap{max-width:1000px;margin:0 auto;padding:20px 16px 60px;}
+.topbar{background:var(--moss);color:var(--canvas-panel);border-radius:10px;padding:18px 22px;
+  display:flex;align-items:center;justify-content:space-between;box-shadow:0 4px 0 #2E5339;flex-wrap:wrap;gap:10px;}
+.brand-eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--hivis-soft);margin:0 0 4px;}
+.brand-title{font-family:var(--font-display);font-weight:600;font-size:24px;letter-spacing:.01em;margin:0;text-transform:uppercase;}
+#loginBox{background:var(--canvas-panel);border:1px solid var(--khaki-line);border-radius:10px;padding:24px;max-width:360px;margin:60px auto;}
+#loginBox input{width:100%;padding:12px;margin:6px 0 14px;border:1px solid var(--khaki-line);border-radius:6px;font-size:16px;}
+#loginBox button, .btn{background:var(--moss);color:#fff;border:none;border-radius:6px;padding:12px 16px;font-size:14px;cursor:pointer;font-family:var(--font-body);}
+#loginBox button:hover, .btn:hover{background:#2E5339;}
+.btn:disabled{opacity:.55;cursor:not-allowed;}
+.btn-ghost{background:transparent;color:var(--moss);border:1px solid var(--moss);}
+.btn-ghost:hover{background:var(--moss);color:#fff;}
+#loginErr{color:var(--hivis);font-size:12px;min-height:16px;}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-top:16px;}
+.stat{background:var(--canvas-panel);border:1px solid var(--khaki-line);border-radius:8px;padding:12px 14px;}
+.stat .num{font-family:var(--font-display);font-size:22px;font-weight:600;line-height:1;}
+.stat .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-soft);margin-top:5px;}
+
+.section-title{font-family:var(--font-display);text-transform:uppercase;letter-spacing:.06em;font-size:13px;color:var(--ink-soft);margin:22px 0 10px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.filters select,.filters input{padding:10px;border:1px solid var(--khaki-line);border-radius:6px;font-size:14px;background:var(--canvas-panel);}
+.filters input{flex:1;min-width:160px;}
+
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 4px;}
+.chip-btn{background:var(--canvas-panel);border:1px solid var(--khaki-line);border-radius:20px;padding:6px 13px;font-size:12px;cursor:pointer;color:var(--ink-soft);}
+.chip-btn:hover{border-color:var(--moss);color:var(--moss);}
+.chip-btn.active{background:var(--moss);border-color:var(--moss);color:#fff;}
+
+.cards{display:flex;flex-direction:column;gap:8px;}
+.wo-card{background:var(--canvas-panel);border:1px solid var(--khaki-line);border-radius:8px;padding:12px 14px;cursor:pointer;}
+.wo-card:hover{border-color:var(--moss);}
+.wo-card-top{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.wo-num{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);}
+.wo-desc{font-size:14px;margin:6px 0;line-height:1.35;}
+.wo-meta{font-size:11px;color:var(--ink-soft);display:flex;gap:10px;flex-wrap:wrap;}
+.chip{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;}
+.chip-Highest,.chip-High{background:var(--danger-bg);color:var(--hivis);}
+.chip-Medium{background:#FBF0D6;color:var(--amber);}
+.chip-Low,.chip-Lowest{background:#E7E4DC;color:var(--ink-soft);}
+.status-pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:#F1EDDF;color:var(--ink-soft);}
+.empty-state{color:var(--ink-soft);text-align:center;padding:40px 12px;font-size:14px;}
+
+#drawer{position:fixed;top:0;right:-100%;width:100%;max-width:460px;height:100%;background:var(--canvas-panel);
+  border-left:1px solid var(--khaki-line);box-shadow:-6px 0 20px rgba(0,0,0,.15);transition:right .2s;overflow-y:auto;padding:22px;z-index:10;}
+#drawer.open{right:0;}
+#drawerBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.25);display:none;z-index:9;}
+#drawerBackdrop.open{display:block;}
+#drawer h2{font-family:var(--font-display);font-size:17px;margin:0 0 2px;}
+#drawer .sub{font-size:12px;color:var(--ink-soft);margin-bottom:6px;}
+#drawer label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin:14px 0 4px;}
+#drawer select,#drawer textarea,#drawer input{width:100%;padding:10px;border:1px solid var(--khaki-line);border-radius:6px;font-size:14px;font-family:var(--font-body);}
+#drawer textarea{min-height:64px;}
+.readonly-block{background:#F1EDDF;border-radius:6px;padding:10px 12px;font-size:13px;line-height:1.4;}
+.close-btn{position:absolute;top:16px;right:16px;background:none;border:none;font-size:22px;cursor:pointer;color:var(--ink-soft);}
+.note{background:#F1EDDF;border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px;}
+.note .meta{color:var(--ink-soft);font-size:10px;margin-top:3px;}
+.hist{font-size:11px;color:var(--ink-soft);padding:4px 0;border-bottom:1px dashed var(--khaki-line);}
+.drawer-group{border-top:1px dashed var(--khaki-line);padding-top:14px;margin-top:14px;}
+.drawer-group:first-of-type{border-top:none;margin-top:0;padding-top:0;}
+.drawer-actions{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;}
+.field-err{color:var(--hivis);font-size:11px;margin-top:4px;min-height:14px;}
+
+#toastStack{position:fixed;bottom:16px;left:16px;right:16px;z-index:50;display:flex;flex-direction:column;gap:8px;align-items:center;}
+.toast{background:var(--moss);color:#fff;border-radius:8px;padding:10px 14px;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.2);max-width:400px;}
+.toast.err{background:var(--hivis);}
+.toast.ok{background:var(--moss);}
+
+@media (min-width:640px){
+  .wrap{padding:28px 24px 60px;}
+}
+</style>
+</head>
+<body>
+
+<div id="loginBox">
+  <h2 style="font-family:var(--font-display);margin-top:0;">Fulfillment Team Login</h2>
+  <label>Email</label><input id="loginEmail" type="email" autocomplete="username">
+  <label>Password</label><input id="loginPass" type="password" autocomplete="current-password">
+  <button onclick="login()">Sign in</button>
+  <div id="loginErr"></div>
+</div>
+
+<div class="wrap" id="app" style="display:none;">
+  <div class="topbar">
+    <div>
+      <p class="brand-eyebrow" id="teamLabel">Live &middot; National Jamboree Work Orders</p>
+      <h1 class="brand-title" id="pageTitle">Fulfillment Queue</h1>
+    </div>
+    <button class="btn" onclick="logout()">Sign out</button>
+  </div>
+
+  <div id="teamSelectWrap" style="display:none;margin-top:14px;">
+    <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin-bottom:4px;">Viewing queue for (LOC/admin only)</label>
+    <select id="fTeamSelect" onchange="onTeamChange()"></select>
+  </div>
+
+  <div class="stats" id="statRow"></div>
+
+  <div class="section-title">
+    <span>Filter</span>
+  </div>
+  <div class="filters">
+    <select id="fStatus" onchange="load()"><option value="">All statuses</option></select>
+    <select id="fPriority" onchange="load()"><option value="">All priorities</option></select>
+    <input id="fSearch" placeholder="Search description or WO#…" oninput="debouncedLoad()">
+  </div>
+  <div class="chips" id="quickViews"></div>
+
+  <div class="section-title">Queue</div>
+  <div class="cards" id="woCards"><div class="empty-state">Loading…</div></div>
+</div>
+
+<div id="drawerBackdrop" onclick="closeDrawer()"></div>
+<div id="drawer"></div>
+<div id="toastStack"></div>
+
+<script>
+const API = '';
+let TOKEN = localStorage.getItem('tech_token') || '';
+let ME = null, TEAMS = [];
+let activeQuickView = '';
+let scopeTeamId = null; // the team whose queue we're viewing
+const TECH_STATUSES = ["Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
+const PRIORITIES = ["Highest","High","Medium","Low","Lowest"];
+const STATUS_LABELS = ["Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
+const QUICK_VIEWS = [
+  {key:'', label:'All open'},
+  {key:'Assigned', label:'New / Assigned'},
+  {key:'Work In Progress', label:'In progress'},
+  {key:'On Hold', label:'On hold'},
+  {key:'Closed', label:'Closed'},
+];
+
+function escapeHtml(s){
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : s;
+  return d.innerHTML;
+}
+
+function showToast(msg, kind){
+  const el = document.createElement('div');
+  el.className = 'toast' + (kind ? ' ' + kind : '');
+  el.textContent = msg;
+  document.getElementById('toastStack').appendChild(el);
+  setTimeout(() => el.remove(), 5000);
+}
+
+async function api(path, opts={}) {
+  opts.headers = Object.assign({}, opts.headers, TOKEN ? {Authorization: 'Bearer ' + TOKEN} : {});
+  if (opts.body && !(opts.body instanceof URLSearchParams)) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(opts.body);
+  }
+  let res;
+  try {
+    res = await fetch(API + path, opts);
+  } catch (e) {
+    throw new Error('Network error — check your connection and try again.');
+  }
+  if (res.status === 401 && path !== '/auth/login') {
+    localStorage.removeItem('tech_token');
+    TOKEN = '';
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('loginBox').style.display = 'block';
+    document.getElementById('loginErr').textContent = 'Your session expired — please sign in again.';
+    throw new Error('session expired');
+  }
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail || detail; } catch (e) {}
+    const err = new Error(detail);
+    err.status = res.status;
+    throw err;
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+async function login() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  const errEl = document.getElementById('loginErr');
+  errEl.textContent = '';
+  if (!email || !pass) { errEl.textContent = 'Enter both an email and a password.'; return; }
+  const body = new URLSearchParams({username: email, password: pass});
+  try {
+    const data = await api('/auth/login', {method:'POST', body});
+    TOKEN = data.access_token;
+    localStorage.setItem('tech_token', TOKEN);
+    await boot();
+  } catch(e) {
+    errEl.textContent = e.status === 429 ? e.message : (e.message || 'Sign-in failed.');
+  }
+}
+function logout(){ localStorage.removeItem('tech_token'); TOKEN=''; location.reload(); }
+
+async function boot() {
+  try {
+    ME = await api('/auth/me');
+  } catch (e) {
+    return; // 401 handling already redirected to login
+  }
+  if (!['tech','loc','admin'].includes(ME.role)) {
+    document.getElementById('loginErr').textContent = 'This account does not have fulfillment-team access.';
+    logout();
+    return;
+  }
+  document.getElementById('loginBox').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+
+  try {
+    TEAMS = await api('/teams');
+  } catch (e) {
+    showToast('Could not load teams: ' + e.message, 'err');
+    return;
+  }
+
+  if (ME.role === 'tech') {
+    scopeTeamId = ME.team ? ME.team.id : null;
+    document.getElementById('teamLabel').textContent =
+      (ME.team ? ME.team.name : 'No team assigned') + ' · ' + ME.name;
+    if (!scopeTeamId) {
+      showToast('Your account has no team assigned — contact the LOC to get set up.', 'err');
+    }
+  } else {
+    document.getElementById('teamLabel').textContent = 'LOC/admin view · ' + ME.name;
+    document.getElementById('teamSelectWrap').style.display = 'block';
+    const sel = document.getElementById('fTeamSelect');
+    sel.innerHTML = TEAMS.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+    scopeTeamId = TEAMS.length ? TEAMS[0].id : null;
+    sel.value = scopeTeamId;
+  }
+
+  populateFilterOptions();
+  renderQuickViews();
+  await load();
+}
+
+function onTeamChange(){
+  scopeTeamId = parseInt(document.getElementById('fTeamSelect').value);
+  load();
+}
+
+function populateFilterOptions(){
+  const fStatus = document.getElementById('fStatus');
+  STATUS_LABELS.forEach(s => fStatus.insertAdjacentHTML('beforeend', `<option value="${s}">${s}</option>`));
+  const fPriority = document.getElementById('fPriority');
+  PRIORITIES.forEach(p => fPriority.insertAdjacentHTML('beforeend', `<option value="${p}">${p}</option>`));
+}
+
+function renderQuickViews(){
+  document.getElementById('quickViews').innerHTML = QUICK_VIEWS.map(v =>
+    `<button class="chip-btn ${activeQuickView===v.key?'active':''}" onclick="applyQuickView('${v.key}')">${v.label}</button>`
+  ).join('');
+}
+
+function applyQuickView(key){
+  activeQuickView = key;
+  renderQuickViews();
+  document.getElementById('fStatus').value = (key === '' || key === 'Closed') ? '' : key;
+  load();
+}
+
+let debounceTimer;
+function debouncedLoad(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(load, 300); }
+
+async function load() {
+  if (!scopeTeamId) {
+    document.getElementById('woCards').innerHTML = '<div class="empty-state">No team to show a queue for.</div>';
+    return;
+  }
+  document.getElementById('woCards').innerHTML = '<div class="empty-state">Loading…</div>';
+
+  const params = new URLSearchParams();
+  params.set('team_id', scopeTeamId); // ignored server-side for tech role; used for LOC/admin's team picker
+  const status = document.getElementById('fStatus').value;
+  const priority = document.getElementById('fPriority').value;
+  const search = document.getElementById('fSearch').value;
+  if (status) params.set('status', status);
+  if (priority) params.set('priority', priority);
+  if (search) params.set('search', search);
+  params.set('limit', '200');
+
+  let wos;
+  try {
+    wos = await api('/work-orders?' + params.toString());
+  } catch (e) {
+    if (e.message !== 'session expired') showToast('Could not load queue: ' + e.message, 'err');
+    document.getElementById('woCards').innerHTML = '<div class="empty-state">Could not load the queue.</div>';
+    return;
+  }
+
+  if (activeQuickView === 'Closed') {
+    wos = wos.filter(w => w.status.startsWith('Closed'));
+  } else if (activeQuickView === '') {
+    wos = wos.filter(w => !w.status.startsWith('Closed'));
+  }
+
+  renderStats(wos);
+  renderCards(wos);
+}
+
+function renderStats(wos){
+  const today = new Date().toISOString().slice(0,10);
+  const inProgress = wos.filter(w => w.status === 'Work In Progress').length;
+  const onHold = wos.filter(w => w.status === 'On Hold').length;
+  const newAssigned = wos.filter(w => w.status === 'Assigned').length;
+  const highestHigh = wos.filter(w => !w.status.startsWith('Closed') && (w.priority === 'Highest' || w.priority === 'High')).length;
+  const items = [
+    {n: newAssigned, l:'New'}, {n: inProgress, l:'In progress'},
+    {n: onHold, l:'On hold'}, {n: highestHigh, l:'High priority open'},
+  ];
+  document.getElementById('statRow').innerHTML = items.map(i =>
+    `<div class="stat"><div class="num">${i.n}</div><div class="lbl">${i.l}</div></div>`
+  ).join('');
+}
+
+function renderCards(wos){
+  const wrap = document.getElementById('woCards');
+  if (!wos.length) {
+    wrap.innerHTML = '<div class="empty-state">Nothing here right now.</div>';
+    return;
+  }
+  wrap.innerHTML = wos.map(w => `
+    <div class="wo-card" onclick="openDetail(${w.id})">
+      <div class="wo-card-top">
+        <span class="wo-num">${escapeHtml(w.wo_number)}</span>
+        <span class="chip chip-${w.priority}">${w.priority}</span>
+      </div>
+      <div class="wo-desc">${escapeHtml((w.description || '').slice(0,140))}${(w.description||'').length>140?'…':''}</div>
+      <div class="wo-meta">
+        <span class="status-pill">${w.status}</span>
+        <span>${escapeHtml(w.asset ? w.asset.name : '')}</span>
+        <span>${new Date(w.created_at).toLocaleDateString()}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function openDrawer(html){
+  document.getElementById('drawer').innerHTML = html;
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawerBackdrop').classList.add('open');
+}
+function closeDrawer(){
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawerBackdrop').classList.remove('open');
+}
+
+async function openDetail(id){
+  let w;
+  try {
+    w = await api('/work-orders/' + id);
+  } catch (e) {
+    if (e.message !== 'session expired') showToast('Could not load work order: ' + e.message, 'err');
+    return;
+  }
+
+  const statusOpts = TECH_STATUSES.map(s => `<option value="${s}" ${s===w.status?'selected':''}>${s}</option>`).join('');
+  const teamOpts = TEAMS.filter(t => t.id !== w.assigned_team.id)
+    .map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+
+  const notesHtml = (w.notes.length ? w.notes : []).slice().reverse().map(n => `
+    <div class="note">${escapeHtml(n.note_text)}
+      <div class="meta">${n.note_type} &middot; ${n.author ? escapeHtml(n.author.name) : 'system'} &middot; ${new Date(n.created_at).toLocaleString()}</div>
+    </div>`).join('') || '<div class="empty-state" style="padding:10px 0;">No notes yet.</div>';
+
+  const histHtml = w.history.slice().reverse().map(h => `
+    <div class="hist">${h.event_type}: ${h.from_value ? escapeHtml(h.from_value) + ' → ' : ''}${escapeHtml(h.to_value)} &middot; ${new Date(h.changed_at).toLocaleString()}</div>
+  `).join('') || '<div class="empty-state" style="padding:10px 0;">No history yet.</div>';
+
+  openDrawer(`
+    <button class="close-btn" onclick="closeDrawer()">×</button>
+    <h2>${escapeHtml(w.wo_number)}</h2>
+    <div class="sub">${escapeHtml(w.work_type || 'No work type')} &middot; <span class="chip chip-${w.priority}">${w.priority}</span></div>
+
+    <div class="readonly-block">
+      <strong>${escapeHtml(w.asset ? w.asset.name : 'No location')}</strong><br>
+      ${escapeHtml(w.description)}
+    </div>
+
+    <div class="drawer-group">
+      <label>Status</label>
+      <select id="dStatus">${statusOpts}</select>
+      <label>Note (required when closing)</label>
+      <textarea id="dStatusNote" placeholder="What did you do…"></textarea>
+      <div class="field-err" id="dStatusErr"></div>
+      <div class="drawer-actions">
+        <button class="btn" onclick="saveStatus(${w.id})">Update status</button>
+      </div>
+    </div>
+
+    <div class="drawer-group">
+      <label>Reassign — wrong team? Send it to the right one</label>
+      <select id="dTeam"><option value="">Choose a team…</option>${teamOpts}</select>
+      <label>Reason (required)</label>
+      <textarea id="dAssignNote" placeholder="Why is this moving teams…"></textarea>
+      <div class="field-err" id="dAssignErr"></div>
+      <div class="drawer-actions">
+        <button class="btn btn-ghost" onclick="saveAssign(${w.id})">Reassign</button>
+      </div>
+    </div>
+
+    <div class="drawer-group">
+      <label>Add a work note</label>
+      <textarea id="dNote" placeholder="Progress update, blocker, parts needed…"></textarea>
+      <div class="drawer-actions">
+        <button class="btn btn-ghost" onclick="saveNote(${w.id})">Add note</button>
+      </div>
+    </div>
+
+    <div class="section-title" style="margin-top:20px;">Notes</div>
+    ${notesHtml}
+    <div class="section-title">History</div>
+    ${histHtml}
+  `);
+}
+
+async function withButtonLock(btn, fn){
+  if (!btn) { await fn(); return; }
+  btn.disabled = true;
+  const original = btn.textContent;
+  try {
+    await fn();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
+async function saveStatus(id){
+  const btn = event.target;
+  const errEl = document.getElementById('dStatusErr');
+  errEl.textContent = '';
+  await withButtonLock(btn, async () => {
+    const status = document.getElementById('dStatus').value;
+    const note = document.getElementById('dStatusNote').value || null;
+    if (status.startsWith('Closed') && !note) {
+      errEl.textContent = 'Add a note describing what was done before closing.';
+      return;
+    }
+    try {
+      await api(`/work-orders/${id}/status`, {method:'POST', body:{status, note}});
+      showToast('Status updated.', 'ok');
+      closeDrawer(); load();
+    } catch (e) {
+      if (e.message !== 'session expired') errEl.textContent = e.message;
+    }
+  });
+}
+
+async function saveAssign(id){
+  const btn = event.target;
+  const errEl = document.getElementById('dAssignErr');
+  errEl.textContent = '';
+  await withButtonLock(btn, async () => {
+    const teamVal = document.getElementById('dTeam').value;
+    const note = document.getElementById('dAssignNote').value || null;
+    if (!teamVal) { errEl.textContent = 'Choose a team to send it to.'; return; }
+    if (!note) { errEl.textContent = 'A reason is required when reassigning.'; return; }
+    try {
+      await api(`/work-orders/${id}/assign`, {method:'POST', body:{team_id: parseInt(teamVal), note}});
+      showToast('Reassigned.', 'ok');
+      closeDrawer(); load();
+    } catch (e) {
+      if (e.message !== 'session expired') errEl.textContent = e.message;
+    }
+  });
+}
+
+async function saveNote(id){
+  const btn = event.target;
+  await withButtonLock(btn, async () => {
+    const note_text = document.getElementById('dNote').value;
+    if (!note_text) { showToast('Write a note before saving.', 'err'); return; }
+    try {
+      await api(`/work-orders/${id}/notes`, {method:'POST', body:{note_text, note_type:'work_note'}});
+      showToast('Note added.', 'ok');
+      closeDrawer(); load();
+    } catch (e) {
+      if (e.message !== 'session expired') showToast('Could not add note: ' + e.message, 'err');
+    }
+  });
+}
+
+if (TOKEN) boot();
+</script>
+</body>
+</html>
