@@ -142,10 +142,12 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
 <div id="drawer"></div>
 <div id="toastStack"></div>
 
+<script src="location-picker.js"></script>
 <script>
 const API = '';
 let TOKEN = localStorage.getItem('loc_token') || '';
 let TEAMS = [], ASSETS = [];
+let drawerLocationPicker = null, newWoLocationPicker = null;
 let activeQuickView = '';
 const STATUSES = ["Requested","Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
 const PRIORITIES = ["Highest","High","Medium","Low","Lowest"];
@@ -368,7 +370,6 @@ async function openWO(id){
   const priorityOpts = PRIORITIES.map(p=>`<option value="${p}" ${w.priority===p?'selected':''}>${p}</option>`).join('');
   const workTypeOpts = WORK_TYPES.map(t=>`<option value="${t}" ${w.work_type===t?'selected':''}>${t}</option>`).join('')
     + `<option value="" ${!w.work_type?'selected':''}>Other / blank</option>`;
-  const assetOpts = ASSETS.map(a=>`<option value="${a.id}" ${w.asset && w.asset.id===a.id?'selected':''}>${escapeHtml(a.name)}</option>`).join('');
   const notesHtml = (w.notes||[]).slice().reverse().map(n=>`<div class="note">${escapeHtml(n.note_text)}<div class="meta">${n.note_type} · ${new Date(n.created_at).toLocaleString()}</div></div>`).join('') || '<p style="font-size:12px;color:var(--ink-soft);">No notes yet.</p>';
   const histHtml = (w.history||[]).slice().reverse().map(h=>`<div class="hist">${h.event_type}: ${h.from_value||'—'} → ${h.to_value} (${new Date(h.changed_at).toLocaleString()})</div>`).join('');
   const attachmentsHtml = (w.attachments||[]).length
@@ -387,7 +388,7 @@ async function openWO(id){
       <label>Description</label>
       <textarea id="dDescription">${escapeHtml(w.description)}</textarea>
       <label>Location / asset</label>
-      <select id="dAsset">${assetOpts}</select>
+      <div id="dLocationPicker"></div>
       <label>Work type</label>
       <select id="dWorkType">${workTypeOpts}</select>
       <label>Priority</label>
@@ -431,6 +432,13 @@ async function openWO(id){
     <div class="section-title">Status history</div>
     ${histHtml}
   `);
+
+  drawerLocationPicker = LocationPicker.mount(document.getElementById('dLocationPicker'), {
+    treeUrl: '/locations/tree',
+    fetchOpts: { headers: { Authorization: 'Bearer ' + TOKEN } },
+    initial: w.asset ? { id: w.asset.id, name: w.asset.name } : null,
+    placeholder: 'Search or browse locations…',
+  });
 }
 
 async function withButtonLock(btn, fn){
@@ -448,9 +456,11 @@ async function withButtonLock(btn, fn){
 async function saveDetails(id){
   const btn = event.target;
   await withButtonLock(btn, async () => {
+    const assetId = drawerLocationPicker ? drawerLocationPicker.getValue() : null;
+    if (!assetId) { showToast('Choose a location before saving.', 'err'); return; }
     const payload = {
       description: document.getElementById('dDescription').value,
-      asset_id: parseInt(document.getElementById('dAsset').value),
+      asset_id: assetId,
       work_type: document.getElementById('dWorkType').value,
       priority: document.getElementById('dPriority').value,
     };
@@ -515,7 +525,6 @@ async function saveNote(id){
 }
 
 function openNewWO(){
-  const assetOpts = ASSETS.map(a=>`<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
   const priorityOpts = PRIORITIES.map(p=>`<option value="${p}">${p}</option>`).join('');
   openDrawer(`
     <button class="close-btn" onclick="closeDrawer()">×</button>
@@ -523,7 +532,7 @@ function openNewWO(){
     <label>Requester name</label><input id="nName">
     <label>Requester email</label><input id="nEmail" type="email">
     <label>Requester phone</label><input id="nPhone">
-    <label>Location / asset</label><select id="nAsset">${assetOpts}</select>
+    <label>Location / asset</label><div id="nLocationPicker"></div>
     <label>Work type</label>
     <select id="nType">
       <option value="NJ Maintenance">NJ Maintenance</option>
@@ -537,6 +546,11 @@ function openNewWO(){
     <div class="field-err" id="nErr"></div>
     <div class="drawer-actions"><button class="btn" onclick="createWO()">Create work order</button></div>
   `);
+  newWoLocationPicker = LocationPicker.mount(document.getElementById('nLocationPicker'), {
+    treeUrl: '/locations/tree',
+    fetchOpts: { headers: { Authorization: 'Bearer ' + TOKEN } },
+    placeholder: 'Search or browse locations…',
+  });
 }
 
 async function createWO(){
@@ -545,13 +559,15 @@ async function createWO(){
   errEl.textContent = '';
   const name = document.getElementById('nName').value.trim();
   const desc = document.getElementById('nDesc').value.trim();
+  const assetId = newWoLocationPicker ? newWoLocationPicker.getValue() : null;
   if (!name || !desc) { errEl.textContent = 'Requester name and description are required.'; return; }
+  if (!assetId) { errEl.textContent = 'Choose a location.'; return; }
   await withButtonLock(btn, async () => {
     const payload = {
       requester_name: name,
       requester_email: document.getElementById('nEmail').value || null,
       requester_phone: document.getElementById('nPhone').value || null,
-      asset_id: parseInt(document.getElementById('nAsset').value),
+      asset_id: assetId,
       work_type: document.getElementById('nType').value,
       priority: document.getElementById('nPriority').value,
       description: desc,

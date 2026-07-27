@@ -100,8 +100,7 @@ input[type=file]{font-size:13px;}
       <div class="field-err" id="rContactPrefErr"></div>
 
       <label>Location <span class="required-mark">*</span></label>
-      <input type="text" id="rLocationSearch" list="rLocationList" placeholder="Start typing your camp or area…" required autocomplete="off">
-      <datalist id="rLocationList"></datalist>
+      <div id="rLocationPicker"></div>
       <div class="field-err" id="rLocationErr"></div>
 
       <label>What kind of issue is this?</label>
@@ -157,6 +156,7 @@ input[type=file]{font-size:13px;}
   </div>
 </div>
 
+<script src="location-picker.js"></script>
 <script>
 // Criteria and colors match Work_Order_Priorties.pdf exactly, same text
 // already embedded in the existing LOC dashboards (PRIORITY_DEFS).
@@ -175,7 +175,7 @@ const CONTACT_PREFS = [
   {key:'text', label:'Text message'},
   {key:'both', label:'Both'},
 ];
-let ASSETS = [];
+let locationPicker = null;
 
 function refreshSelectedStyling(groupEl){
   groupEl.querySelectorAll('.priority-option').forEach(opt => {
@@ -184,14 +184,12 @@ function refreshSelectedStyling(groupEl){
 }
 
 async function boot(){
-  try {
-    const res = await fetch('/public/assets');
-    ASSETS = await res.json();
-  } catch (e) {
-    ASSETS = [];
-  }
-  const list = document.getElementById('rLocationList');
-  list.innerHTML = ASSETS.map(a => `<option value="${escapeHtml(a.name)}">`).join('');
+  const pickerEl = document.getElementById('rLocationPicker');
+  locationPicker = LocationPicker.mount(pickerEl, {
+    treeUrl: '/public/locations/tree',
+    placeholder: 'Start typing your camp or area…',
+    onChange: () => { document.getElementById('rLocationErr').textContent = ''; },
+  });
 
   const group = document.getElementById('rPriorityGroup');
   group.innerHTML = PRIORITIES.map((p, i) => `
@@ -219,11 +217,6 @@ function escapeHtml(s){
   return d.innerHTML;
 }
 
-function findAssetByName(name){
-  const norm = name.trim().toLowerCase();
-  return ASSETS.find(a => a.name.toLowerCase() === norm);
-}
-
 document.getElementById('woForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const errBanner = document.getElementById('formErr');
@@ -233,11 +226,10 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
   locErr.textContent = '';
   prefErr.textContent = '';
 
-  const locationName = document.getElementById('rLocationSearch').value;
-  const asset = findAssetByName(locationName);
-  if (!asset) {
+  const assetId = locationPicker ? locationPicker.getValue() : null;
+  if (!assetId) {
     locErr.textContent = 'Choose a location from the list.';
-    document.getElementById('rLocationSearch').focus();
+    document.getElementById('rLocationPicker').querySelector('.lp-search')?.focus();
     return;
   }
 
@@ -271,7 +263,7 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
   formData.set('requester_name', name);
   formData.set('requester_email', email);
   formData.set('requester_phone', phone);
-  formData.set('asset_id', asset.id);
+  formData.set('asset_id', assetId);
   formData.set('work_type', document.getElementById('rWorkType').value);
   formData.set('description', description);
   formData.set('priority', priorityInput ? priorityInput.value : 'Medium');
@@ -310,6 +302,7 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
 
 function resetForm(){
   document.getElementById('woForm').reset();
+  if (locationPicker) locationPicker.setValue(null);
   document.getElementById('formCard').style.display = 'block';
   document.getElementById('confirmCard').style.display = 'none';
   document.getElementById('submitBtn').disabled = false;
