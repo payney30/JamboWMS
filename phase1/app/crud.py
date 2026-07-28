@@ -72,10 +72,26 @@ def _next_wo_number(db: Session) -> str:
     return f"WO-{next_id}"
 
 
+def _validate_work_type(db: Session, work_type: str):
+    """Request types are admin-editable (PRD 4.5c) — this is now the only
+    validation for work_type on any creation/update path, LOC-manual-entry
+    included, since the old DB CheckConstraint was dropped in favor of
+    this table. Blank ('Other/not sure') stays valid without a
+    request_types row, matching existing behavior."""
+    if work_type == "":
+        return
+    exists = db.query(models.RequestType.id).filter(
+        models.RequestType.name == work_type, models.RequestType.is_active == True  # noqa: E712
+    ).first()
+    if not exists:
+        raise HTTPException(400, f"invalid or inactive request type: {work_type}")
+
+
 def create_work_order(db: Session, payload: schemas.WorkOrderCreate) -> models.WorkOrder:
     asset = db.get(models.Asset, payload.asset_id)
     if not asset:
         raise HTTPException(404, "asset not found")
+    _validate_work_type(db, payload.work_type)
 
     wo = models.WorkOrder(
         wo_number=_next_wo_number(db),
@@ -138,6 +154,7 @@ def update_work_order_fields(db: Session, wo: models.WorkOrder, payload: schemas
     if payload.description is not None:
         wo.description = payload.description
     if payload.work_type is not None:
+        _validate_work_type(db, payload.work_type)
         wo.work_type = payload.work_type
     if payload.asset_id is not None:
         asset = db.get(models.Asset, payload.asset_id)
@@ -510,3 +527,341 @@ def reset_password(db: Session, user: models.User) -> str:
     user.password_hash = hash_password(password)
     db.commit()
     return password
+
+
+# ============================================================
+# Admin configuration (PRD 4.5)
+# ============================================================
+
+def _log_asset_change(db: Session, asset_id: int, field: str, from_value, to_value,
+                       changed_by: int | None):
+    db.add(models.AssetChangeLog(
+        asset_id=asset_id, field_changed=field,
+        from_value=None if from_value is None else str(from_value),
+        to_value=None if to_value is None else str(to_value),
+        changed_by=changed_by,
+    ))
+
+
+def recompute_effective_groups(db: Session):
+    """Recompute assets.location_group (the cached, live-read display
+    value every existing query already uses) from the reporting_group_id
+    inheritance chain: a node's effective group is its own explicit
+    override if set, otherwise its parent's effective group.
+
+    Full-table pass rather than a targeted subtree cascade — the asset
+    count at this scale (low hundreds) makes a full recompute cheap, and
+    it's much harder to get wrong than partial-cascade logic tracking
+    "which descendants don't have their own override." Called after any
+    admin write that could change the result: reparenting, creating a
+    node, or changing a reporting_group_id assignment.
+    """
+    rows = db.query(models.Asset).order_by(models.Asset.id).all()
+    by_id = {a.id: a for a in rows}
+    group_names = {
+        g.id: g.name for g in db.query(models.ReportingGroup).all()
+    }
+    resolved: dict[int, str] = {}
+
+    def resolve(asset_id: int, _seen: set | None = None) -> str:
+        if asset_id in resolved:
+            return resolved[asset_id]
+        _seen = _seen or set()
+        if asset_id in _seen:
+            # A cycle slipped through (shouldn't happen — reparenting is
+            # cycle-checked — but fail safe rather than infinite-loop).
+            return "Unset"
+        _seen.add(asset_id)
+        a = by_id[asset_id]
+        if a.reporting_group_id and a.reporting_group_id in group_names:
+            value = group_names[a.reporting_group_id]
+        elif a.parent_id and a.parent_id in by_id:
+            value = resolve(a.parent_id, _seen)
+        else:
+            value = a.location_group or "Unset"  # top-level node with no override: keep current value
+        resolved[asset_id] = value
+        return value
+
+    for a in rows:
+        new_value = resolve(a.id)
+        if a.location_group != new_value:
+            a.location_group = new_value
+    db.commit()
+
+
+def _asset_descendant_ids(db: Session, asset_id: int) -> set[int]:
+    """All descendant ids of asset_id (not including itself), used for
+    both the reparent cycle-guard and cascade-deactivate."""
+    children_by_parent: dict[int, list[int]] = {}
+    for aid, pid in db.query(models.Asset.id, models.Asset.parent_id).all():
+        if pid is not None:
+            children_by_parent.setdefault(pid, []).append(aid)
+    out: set[int] = set()
+    stack = list(children_by_parent.get(asset_id, []))
+    while stack:
+        nid = stack.pop()
+        if nid in out:
+            continue
+        out.add(nid)
+        stack.extend(children_by_parent.get(nid, []))
+    return out
+
+
+def list_assets_admin(db: Session, include_inactive: bool = True) -> list[dict]:
+    """Flat, depth-annotated listing for the admin hierarchy screen (PRD
+    4.5a) — includes inactive nodes by default (admin needs to see/
+    restore them, unlike every picker-facing use of build_location_tree).
+    """
+    q = db.query(models.Asset)
+    if not include_inactive:
+        q = q.filter(models.Asset.is_active == True)  # noqa: E712
+    rows = q.order_by(models.Asset.sort_order, models.Asset.name).all()
+    by_id = {a.id: a for a in rows}
+    children_by_parent: dict[int | None, list] = {}
+    for a in rows:
+        parent_key = a.parent_id if (a.parent_id in by_id or a.parent_id is None) else None
+        children_by_parent.setdefault(parent_key, []).append(a)
+
+    out = []
+
+    def walk(a, depth):
+        out.append({
+            "id": a.id,
+            "name": a.name,
+            "parent_id": a.parent_id,
+            "parent_name": by_id[a.parent_id].name if a.parent_id in by_id else None,
+            "depth": depth,
+            "code": a.code,
+            "sort_order": a.sort_order,
+            "is_active": a.is_active,
+            "camp_letter": a.camp_letter,
+            "reporting_group_id": a.reporting_group_id,
+            "reporting_group_name": a.reporting_group.name if a.reporting_group else None,
+            "effective_reporting_group": a.location_group,
+        })
+        for c in children_by_parent.get(a.id, []):
+            walk(c, depth + 1)
+
+    for root in children_by_parent.get(None, []):
+        walk(root, 0)
+    return out
+
+
+def create_asset(db: Session, payload: schemas.AssetCreate, changed_by: int | None) -> models.Asset:
+    if payload.parent_id is not None and not db.get(models.Asset, payload.parent_id):
+        raise HTTPException(404, "parent location not found")
+    if payload.reporting_group_id is not None and not db.get(models.ReportingGroup, payload.reporting_group_id):
+        raise HTTPException(404, "reporting group not found")
+    if db.query(models.Asset).filter(models.Asset.name == payload.name).first():
+        raise HTTPException(400, "a location with this name already exists")
+
+    asset = models.Asset(
+        name=payload.name,
+        parent_id=payload.parent_id,
+        code=payload.code,
+        sort_order=payload.sort_order,
+        reporting_group_id=payload.reporting_group_id,
+        location_group="Unset",  # placeholder — recompute_effective_groups fills this in below
+        is_active=True,
+    )
+    db.add(asset)
+    db.flush()
+    _log_asset_change(db, asset.id, "created", None, payload.name, changed_by)
+    db.commit()
+    recompute_effective_groups(db)
+    db.refresh(asset)
+    return asset
+
+
+def update_asset(db: Session, asset: models.Asset, payload: schemas.AssetUpdate,
+                  changed_by: int | None) -> models.Asset:
+    data = payload.model_dump(exclude_unset=True, exclude={"cascade_deactivate"})
+
+    if "name" in data and data["name"] != asset.name:
+        dupe = db.query(models.Asset).filter(
+            models.Asset.name == data["name"], models.Asset.id != asset.id
+        ).first()
+        if dupe:
+            raise HTTPException(400, "a location with this name already exists")
+
+    if "parent_id" in data and data["parent_id"] != asset.parent_id:
+        new_parent_id = data["parent_id"]
+        if new_parent_id is not None:
+            if new_parent_id == asset.id:
+                raise HTTPException(400, "a location can't be its own parent")
+            if not db.get(models.Asset, new_parent_id):
+                raise HTTPException(404, "parent location not found")
+            if new_parent_id in _asset_descendant_ids(db, asset.id):
+                raise HTTPException(400, "can't move a location under its own descendant")
+
+    if "reporting_group_id" in data and data["reporting_group_id"] is not None:
+        if not db.get(models.ReportingGroup, data["reporting_group_id"]):
+            raise HTTPException(404, "reporting group not found")
+
+    # Deactivation with active children: warn (409) rather than silently
+    # cascading or blocking outright, per PRD 4.5's common design rules —
+    # unless the caller explicitly opted into cascading.
+    if data.get("is_active") is False and asset.is_active:
+        active_children = [
+            c for c in db.query(models.Asset).filter(models.Asset.parent_id == asset.id) if c.is_active
+        ]
+        if active_children and not payload.cascade_deactivate:
+            raise HTTPException(
+                409,
+                "this location has active child locations: "
+                + ", ".join(c.name for c in active_children)
+                + ". Pass cascade_deactivate=true to deactivate them too, or reassign them first.",
+            )
+
+    for field in ("name", "parent_id", "code", "sort_order", "is_active", "reporting_group_id"):
+        if field in data and data[field] != getattr(asset, field):
+            _log_asset_change(db, asset.id, field, getattr(asset, field), data[field], changed_by)
+            setattr(asset, field, data[field])
+
+    if data.get("is_active") is False and payload.cascade_deactivate:
+        for descendant_id in _asset_descendant_ids(db, asset.id):
+            child = by_id_or_get(db, descendant_id)
+            if child.is_active:
+                _log_asset_change(db, child.id, "is_active", True, False, changed_by)
+                child.is_active = False
+
+    db.commit()
+    recompute_effective_groups(db)
+    db.refresh(asset)
+    return asset
+
+
+def by_id_or_get(db: Session, asset_id: int) -> models.Asset:
+    return db.get(models.Asset, asset_id)
+
+
+def get_asset_change_log(db: Session, asset_id: int) -> list[models.AssetChangeLog]:
+    return (
+        db.query(models.AssetChangeLog)
+        .filter(models.AssetChangeLog.asset_id == asset_id)
+        .order_by(models.AssetChangeLog.changed_at.desc())
+        .all()
+    )
+
+
+def list_reporting_groups(db: Session, include_inactive: bool = True) -> list[models.ReportingGroup]:
+    q = db.query(models.ReportingGroup)
+    if not include_inactive:
+        q = q.filter(models.ReportingGroup.is_active == True)  # noqa: E712
+    return q.order_by(models.ReportingGroup.sort_order, models.ReportingGroup.name).all()
+
+
+def create_reporting_group(db: Session, payload: schemas.ReportingGroupCreate) -> models.ReportingGroup:
+    if db.query(models.ReportingGroup).filter(models.ReportingGroup.name == payload.name).first():
+        raise HTTPException(400, "a reporting group with this name already exists")
+    rg = models.ReportingGroup(name=payload.name, sort_order=payload.sort_order)
+    db.add(rg)
+    db.commit()
+    db.refresh(rg)
+    return rg
+
+
+def update_reporting_group(db: Session, rg: models.ReportingGroup,
+                            payload: schemas.ReportingGroupUpdate) -> models.ReportingGroup:
+    data = payload.model_dump(exclude_unset=True)
+    if "name" in data and data["name"] != rg.name:
+        if db.query(models.ReportingGroup).filter(
+            models.ReportingGroup.name == data["name"], models.ReportingGroup.id != rg.id
+        ).first():
+            raise HTTPException(400, "a reporting group with this name already exists")
+    for field, value in data.items():
+        setattr(rg, field, value)
+    db.commit()
+    # A rename changes the display string every assigned/inheriting asset
+    # shows — recompute so location_group reflects the new name immediately
+    # rather than waiting for an unrelated hierarchy edit to trigger it.
+    recompute_effective_groups(db)
+    db.refresh(rg)
+    return rg
+
+
+def list_request_types(db: Session, include_inactive: bool = True) -> list[models.RequestType]:
+    q = db.query(models.RequestType)
+    if not include_inactive:
+        q = q.filter(models.RequestType.is_active == True)  # noqa: E712
+    return q.order_by(models.RequestType.sort_order, models.RequestType.name).all()
+
+
+def create_request_type(db: Session, payload: schemas.RequestTypeCreate) -> models.RequestType:
+    if db.query(models.RequestType).filter(models.RequestType.name == payload.name).first():
+        raise HTTPException(400, "a request type with this name already exists")
+    rt = models.RequestType(name=payload.name, sort_order=payload.sort_order)
+    db.add(rt)
+    db.commit()
+    db.refresh(rt)
+    return rt
+
+
+def update_request_type(db: Session, rt: models.RequestType,
+                         payload: schemas.RequestTypeUpdate) -> models.RequestType:
+    """Renaming in place is allowed (matches PRD 4.5c's guidance for
+    simple typo fixes) — existing work_orders.work_type strings are NOT
+    retroactively updated, since that column isn't a FK; a rename here
+    only changes what the picker offers going forward. A real
+    reclassification should be a deactivate + add-new instead, left to
+    the admin's judgment rather than enforced here."""
+    data = payload.model_dump(exclude_unset=True)
+    if "name" in data and data["name"] != rt.name:
+        if db.query(models.RequestType).filter(
+            models.RequestType.name == data["name"], models.RequestType.id != rt.id
+        ).first():
+            raise HTTPException(400, "a request type with this name already exists")
+    for field, value in data.items():
+        setattr(rt, field, value)
+    db.commit()
+    db.refresh(rt)
+    return rt
+
+
+def list_teams_admin(db: Session, include_inactive: bool = True) -> list[models.Team]:
+    q = db.query(models.Team)
+    if not include_inactive:
+        q = q.filter(models.Team.is_active == True)  # noqa: E712
+    return q.order_by(models.Team.name).all()
+
+
+def create_team(db: Session, payload: schemas.TeamCreate) -> models.Team:
+    if db.query(models.Team).filter(models.Team.name == payload.name).first():
+        raise HTTPException(400, "a team with this name already exists")
+    team = models.Team(name=payload.name)
+    db.add(team)
+    db.commit()
+    db.refresh(team)
+    return team
+
+
+def update_team(db: Session, team: models.Team, payload: schemas.TeamUpdate) -> models.Team:
+    data = payload.model_dump(exclude_unset=True, exclude={"confirm_deactivate"})
+    if "name" in data and data["name"] != team.name:
+        if db.query(models.Team).filter(
+            models.Team.name == data["name"], models.Team.id != team.id
+        ).first():
+            raise HTTPException(400, "a team with this name already exists")
+
+    if data.get("is_active") is False and team.is_active:
+        open_wo_count = db.query(models.WorkOrder.id).filter(
+            models.WorkOrder.assigned_team_id == team.id,
+            ~models.WorkOrder.status.like("Closed%"),
+        ).count()
+        active_user_count = db.query(models.User.id).filter(
+            models.User.team_id == team.id, models.User.is_active == True  # noqa: E712
+        ).count()
+        if (open_wo_count or active_user_count) and not payload.confirm_deactivate:
+            raise HTTPException(
+                409,
+                f"this team still has {open_wo_count} open work order(s) and "
+                f"{active_user_count} active user(s) assigned. Resend with "
+                "confirm_deactivate=true to deactivate anyway — they'll stay pointed "
+                "at this team until manually reassigned.",
+            )
+
+    for field, value in data.items():
+        setattr(team, field, value)
+    db.commit()
+    db.refresh(team)
+    return team
