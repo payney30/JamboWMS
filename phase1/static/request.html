@@ -154,7 +154,7 @@ input[type=file]{font-size:13px;}
     <div class="confirm">
       <p style="color:var(--moss);font-weight:600;text-transform:uppercase;font-size:12px;letter-spacing:.08em;">Request received</p>
       <div class="wo-number" id="confirmNumber"></div>
-      <p>Save this number — you can use it with your email to check the status of your request below.</p>
+      <p>Save this number, or just remember the phone number you used — you can check status below with either.</p>
       <button class="btn btn-ghost" onclick="resetForm()" style="margin-top:10px;">Submit another request</button>
     </div>
   </div>
@@ -162,10 +162,9 @@ input[type=file]{font-size:13px;}
   <div class="card">
     <div class="status-toggle"><a onclick="toggleStatusLookup()" id="statusToggleLink">Already submitted a request? Check its status</a></div>
     <div id="statusLookup" style="display:none;margin-top:14px;">
-      <label>Work order number</label>
-      <input type="text" id="lkNumber" placeholder="WO-12345">
-      <label>Email used at submission</label>
-      <input type="email" id="lkEmail">
+      <label>Phone number used at submission</label>
+      <input type="tel" id="lkPhone" placeholder="555-0100" autocomplete="tel">
+      <p style="font-size:12px;color:var(--ink-soft);margin:4px 0 0;">This shows every request tied to that number — yours, or anyone's you're the point of contact for.</p>
       <button class="btn" style="margin-top:14px;" onclick="checkStatus()" id="lkBtn">Check status</button>
       <div id="statusResult"></div>
     </div>
@@ -368,29 +367,36 @@ function toggleStatusLookup(){
 async function checkStatus(){
   const resultEl = document.getElementById('statusResult');
   const btn = document.getElementById('lkBtn');
-  const wo_number = document.getElementById('lkNumber').value.trim();
-  const email = document.getElementById('lkEmail').value.trim();
-  if (!wo_number || !email) {
-    resultEl.innerHTML = '<div class="field-err">Enter both your work order number and the email you used.</div>';
+  const phone = document.getElementById('lkPhone').value.trim();
+  if (!phone) {
+    resultEl.innerHTML = '<div class="field-err">Enter the phone number you used when submitting.</div>';
     return;
   }
   btn.disabled = true;
   btn.textContent = 'Checking…';
   try {
-    const params = new URLSearchParams({wo_number, email});
+    const params = new URLSearchParams({phone});
     const res = await fetch('/public/work-orders/lookup?' + params.toString());
-    if (!res.ok) {
-      resultEl.innerHTML = '<div class="field-err">We couldn\'t find a matching work order. Double check the number and email.</div>';
+    if (res.status === 429) {
+      resultEl.innerHTML = '<div class="field-err">Too many lookups — please wait a few minutes and try again.</div>';
       return;
     }
-    const d = await res.json();
-    resultEl.innerHTML = `
-      <div class="status-line"><span>Work order</span><span>${escapeHtml(d.wo_number)}</span></div>
-      <div class="status-line"><span>Status</span><span>${escapeHtml(d.status)}</span></div>
-      <div class="status-line"><span>Priority</span><span>${escapeHtml(d.priority)}</span></div>
-      <div class="status-line"><span>Submitted</span><span>${new Date(d.created_at).toLocaleString()}</span></div>
-      ${d.closed_at ? `<div class="status-line"><span>Closed</span><span>${new Date(d.closed_at).toLocaleString()}</span></div>` : ''}
-    `;
+    if (!res.ok) {
+      resultEl.innerHTML = '<div class="field-err">We couldn\'t find any work orders for that phone number. Double check the number you used.</div>';
+      return;
+    }
+    const results = await res.json();
+    resultEl.innerHTML = results.map(d => `
+      <div class="status-result-card" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--khaki-line);">
+        <div class="status-line"><span>Work order</span><span>${escapeHtml(d.wo_number)}</span></div>
+        <div class="status-line"><span>Description</span><span>${escapeHtml(d.description)}</span></div>
+        <div class="status-line"><span>Status</span><span>${escapeHtml(d.status)}</span></div>
+        <div class="status-line"><span>Priority</span><span>${escapeHtml(d.priority)}</span></div>
+        <div class="status-line"><span>Submitted</span><span>${new Date(d.created_at).toLocaleString()}</span></div>
+        ${d.closed_at ? `<div class="status-line"><span>Closed</span><span>${new Date(d.closed_at).toLocaleString()}</span></div>` : ''}
+        ${d.note_to_requester ? `<div class="status-note" style="margin-top:8px;padding:8px 10px;background:var(--khaki-tint,#f4f1e8);border-radius:6px;font-size:13px;"><strong>Note from the LOC:</strong> ${escapeHtml(d.note_to_requester)}</div>` : ''}
+      </div>
+    `).join('');
   } catch (e) {
     resultEl.innerHTML = '<div class="field-err">Network error — try again.</div>';
   } finally {

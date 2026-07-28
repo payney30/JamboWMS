@@ -166,6 +166,14 @@ let drawerLocationPicker = null, newWoLocationPicker = null;
 let activeQuickView = '';
 let currentSort = {key: null, dir: 'asc'};
 let LAST_WOS = [];
+// Enhancement backlog Phase 1 (PRD §14#1, §14#2): who's logged in (needed
+// to tell "I hold this lock" apart from "someone else does"), and drawer
+// editing state — which WO is currently open, whether we hold its lock
+// (i.e. the drawer is editable vs. read-only), and whether there are
+// unsaved changes so closing/navigating away can prompt instead of
+// silently discarding.
+let CURRENT_USER = null;
+let drawerState = {woId: null, editable: false, dirty: false};
 const PRIORITY_ORDER = {"Highest":0,"High":1,"Medium":2,"Low":3,"Lowest":4};
 const STATUSES = ["Requested","Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
 const PRIORITIES = ["Highest","High","Medium","Low","Lowest"];
@@ -241,6 +249,7 @@ async function boot() {
   document.getElementById('loginBox').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   try {
+    CURRENT_USER = await api('/users/me');
     TEAMS = await api('/teams');
     ASSETS = await api('/assets');
   } catch (e) {
@@ -413,16 +422,25 @@ function renderKPIs(k){
 }
 
 function renderTable(wos){
-  document.getElementById('woTableBody').innerHTML = wos.map(w => `
+  document.getElementById('woTableBody').innerHTML = wos.map(w => {
+    // Enhancement backlog Phase 1 (PRD §14#1): lock icon + hover tooltip.
+    // w.locked_by is already null if the lock has gone stale (see
+    // WorkOrder.locked_by on the backend), so a stale lock just shows
+    // no icon at all rather than needing separate staleness handling here.
+    const lockIcon = w.locked_by
+      ? `<span class="lock-icon" title="Locked by ${escapeHtml(w.locked_by.name)} since ${new Date(w.locked_at).toLocaleTimeString()}" style="margin-right:4px;cursor:help;">🔒</span>`
+      : '';
+    return `
     <tr onclick="openWO(${w.id})">
-      <td>${w.wo_number}${w.external_ref ? `<div style="font-size:10px;color:var(--ink-soft);">Fiix #${escapeHtml(w.external_ref)}</div>` : ''}</td>
+      <td>${lockIcon}${w.wo_number}${w.external_ref ? `<div style="font-size:10px;color:var(--ink-soft);">Fiix #${escapeHtml(w.external_ref)}</div>` : ''}</td>
       <td><span class="chip chip-${w.priority}">${w.priority}</span></td>
       <td><span class="status-dot" style="background:${STATUS_COLOR[w.status]||'#999'}"></span>${w.status}</td>
       <td style="white-space:pre-wrap;">${escapeHtml((w.description||'').slice(0,70))}</td>
       <td>${w.asset ? escapeHtml(w.asset.name) : '—'}</td>
       <td>${w.assigned_team ? escapeHtml(w.assigned_team.name) : '—'}</td>
       <td>${new Date(w.created_at).toLocaleString()}</td>
-    </tr>`).join('') || '<tr class="empty-row"><td colspan="7">No work orders match the current filters.</td></tr>';
+    </tr>`;
+  }).join('') || '<tr class="empty-row"><td colspan="7">No work orders match the current filters.</td></tr>';
 }
 
 function escapeHtml(s){
@@ -436,12 +454,53 @@ function openDrawer(html){
   document.getElementById('drawer').classList.add('open');
   document.getElementById('drawerBackdrop').classList.add('open');
 }
-function closeDrawer(){
+
+// Enhancement backlog Phase 1 (PRD §14#2): mark the drawer dirty on any
+// field change. Called from oninput/onchange on every editable field.
+function markDirty(){ drawerState.dirty = true; }
+
+async function releaseCurrentLock(){
+  if (drawerState.editable && drawerState.woId) {
+    try { await api(`/work-orders/${drawerState.woId}/unlock`, {method:'POST'}); }
+    catch (e) { /* best-effort — a stale lock times out on its own regardless */ }
+  }
+}
+
+// Enhancement backlog Phase 1 (PRD §14#2): prompts to save or discard if
+// there are unsaved changes, instead of silently losing them, whenever
+// the drawer is closed (X button, backdrop click, or opening a different
+// WO). Also releases the edit lock (PRD §14#1) if we held one, so the WO
+// becomes available to others immediately rather than waiting out the
+// stale-lock timeout.
+async function closeDrawer(skipPrompt){
+  if (!skipPrompt && drawerState.editable && drawerState.dirty) {
+    const wantsSave = confirm('You have unsaved changes on this work order. Click OK to save them, or Cancel to discard and close.');
+    if (wantsSave) {
+      const saved = await saveDrawer();
+      if (!saved) return; // save failed — stay open, don't lose the edits
+      return; // saveDrawer() already closes on success
+    }
+  }
+  await releaseCurrentLock();
+  drawerState = {woId: null, editable: false, dirty: false};
   document.getElementById('drawer').classList.remove('open');
   document.getElementById('drawerBackdrop').classList.remove('open');
 }
 
+function lockBannerHtml(user, at){
+  return `<div class="lock-banner" style="background:#fdf3e0;border:1px solid #e8c789;border-radius:6px;padding:8px 10px;font-size:13px;margin-bottom:12px;">
+    🔒 Locked by ${escapeHtml(user.name)} since ${new Date(at).toLocaleTimeString()} — read-only until they save or close.
+  </div>`;
+}
+
 async function openWO(id){
+  // Closing whatever was open before (if anything) releases its lock —
+  // skipPrompt=false so unsaved changes on the PREVIOUS wo still prompt.
+  if (drawerState.woId && drawerState.woId !== id) {
+    await closeDrawer();
+    if (drawerState.dirty) return; // user cancelled the save-prompt flow; bail out of opening the new one
+  }
+
   let w;
   try {
     w = await api('/work-orders/' + id);
@@ -449,66 +508,109 @@ async function openWO(id){
     if (e.message !== 'session expired') showToast('Could not open work order: ' + e.message, 'err');
     return;
   }
+
+  drawerState = {woId: id, editable: false, dirty: false};
+  let lockBanner = '';
+
+  // Enhancement backlog Phase 1 (PRD §14#1): try to claim the edit lock.
+  // If someone else already holds it (per the detail we just fetched, or
+  // — rare race — discovered only when the lock call itself is rejected),
+  // fall back to a read-only view instead of erroring out.
+  if (w.locked_by && w.locked_by.id !== CURRENT_USER.id) {
+    lockBanner = lockBannerHtml(w.locked_by, w.locked_at);
+  } else {
+    try {
+      await api(`/work-orders/${id}/lock`, {method:'POST'});
+      drawerState.editable = true;
+    } catch (e) {
+      if (e.status === 409) {
+        lockBanner = `<div class="lock-banner" style="background:#fdf3e0;border:1px solid #e8c789;border-radius:6px;padding:8px 10px;font-size:13px;margin-bottom:12px;">🔒 ${escapeHtml(e.message)} Viewing read-only.</div>`;
+      } else if (e.message !== 'session expired') {
+        showToast('Could not lock work order for editing — opening read-only: ' + e.message, 'err');
+      }
+    }
+  }
+
+  renderWODrawer(w, lockBanner);
+}
+
+function renderWODrawer(w, lockBanner){
+  const editable = drawerState.editable;
+  const dis = editable ? '' : 'disabled';
   const teamOpts = TEAMS.map(t=>`<option value="${t.id}" ${w.assigned_team && w.assigned_team.id===t.id?'selected':''}>${escapeHtml(t.name)}</option>`).join('');
   const statusOpts = STATUSES.map(s=>`<option value="${s}" ${w.status===s?'selected':''}>${s}</option>`).join('');
   const priorityOpts = PRIORITIES.map(p=>`<option value="${p}" ${w.priority===p?'selected':''}>${p}</option>`).join('');
   const workTypeOpts = WORK_TYPES.map(t=>`<option value="${t}" ${w.work_type===t?'selected':''}>${t}</option>`).join('')
     + `<option value="" ${!w.work_type?'selected':''}>Other / blank</option>`;
   const notesHtml = (w.notes||[]).slice().reverse().map(n=>`<div class="note">${escapeHtml(n.note_text)}<div class="meta">${n.note_type} · ${new Date(n.created_at).toLocaleString()}</div></div>`).join('') || '<p style="font-size:12px;color:var(--ink-soft);">No notes yet.</p>';
-  const histHtml = (w.history||[]).slice().reverse().map(h=>`<div class="hist">${h.event_type}: ${h.from_value||'—'} → ${h.to_value} (${new Date(h.changed_at).toLocaleString()})</div>`).join('');
+  // Enhancement backlog Phase 1 (PRD §14#4, bundled in alongside the
+  // Phase 1 items since the data was already one property away): show
+  // who made each change, not just a bare event line.
+  const histHtml = (w.history||[]).slice().reverse().map(h=>`<div class="hist">${h.event_type}: ${h.from_value||'—'} → ${h.to_value}${h.changed_by_name ? ' · ' + escapeHtml(h.changed_by_name) : ''} (${new Date(h.changed_at).toLocaleString()})</div>`).join('');
   const attachmentsHtml = (w.attachments||[]).length
     ? `<div style="display:flex;gap:8px;flex-wrap:wrap;">` + (w.attachments||[]).map(a =>
         `<a href="${a.file_url}" target="_blank" rel="noopener"><img src="${a.file_url}" alt="attachment" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--khaki-line);"></a>`
       ).join('') + `</div>`
+    : '';
+  // Enhancement backlog Phase 1 (PRD §14#3, same "already have the data"
+  // rationale as history above): POC block at the top when the requester
+  // isn't the point of contact.
+  const pocHtml = (!w.poc_is_requester && (w.poc_name || w.poc_phone))
+    ? `<p style="font-size:12px;color:var(--ink-soft);margin:2px 0 0;"><strong>POC:</strong> ${escapeHtml(w.poc_name||'')} ${escapeHtml(w.poc_phone||'')}</p>`
     : '';
 
   openDrawer(`
     <button class="close-btn" onclick="closeDrawer()">×</button>
     <h2>${w.wo_number}${w.external_ref ? ` <span style="font-size:12px;font-weight:400;color:var(--ink-soft);">(Fiix #${escapeHtml(w.external_ref)})</span>` : ''}</h2>
     <p style="font-size:12px;color:var(--ink-soft);margin-top:0;">${escapeHtml(w.requester_name)} · ${escapeHtml(w.requester_email||'')} ${escapeHtml(w.requester_phone||'')}${w.notify_preference ? ' · prefers ' + escapeHtml(w.notify_preference) : ''}</p>
+    ${pocHtml}
+    ${lockBanner}
     ${attachmentsHtml}
 
     <div class="drawer-group">
       <label>Description</label>
-      <textarea id="dDescription">${escapeHtml(w.description)}</textarea>
+      <textarea id="dDescription" oninput="markDirty()" ${dis}>${escapeHtml(w.description)}</textarea>
       <label>Location / asset</label>
-      <div id="dLocationPicker"></div>
+      ${editable ? `<div id="dLocationPicker"></div>` : `<p style="margin:4px 0;">${escapeHtml(w.asset ? w.asset.name : '—')}</p>`}
       <label>Work type</label>
-      <select id="dWorkType">${workTypeOpts}</select>
+      <select id="dWorkType" onchange="markDirty()" ${dis}>${workTypeOpts}</select>
       <label>Priority</label>
-      <select id="dPriority">${priorityOpts}</select>
-      <div class="drawer-actions">
-        <button class="btn" onclick="saveDetails(${w.id})">Save details</button>
-      </div>
+      <select id="dPriority" onchange="markDirty()" ${dis}>${priorityOpts}</select>
     </div>
 
     <div class="drawer-group">
       <label>Status</label>
-      <select id="dStatus">${statusOpts}</select>
+      <select id="dStatus" onchange="markDirty()" ${dis}>${statusOpts}</select>
       <label>Status note (recommended when closing)</label>
-      <textarea id="dStatusNote" placeholder="What happened…"></textarea>
-      <div class="drawer-actions">
-        <button class="btn" onclick="saveStatus(${w.id})">Update status</button>
-      </div>
+      <textarea id="dStatusNote" placeholder="What happened…" oninput="markDirty()" ${dis}></textarea>
     </div>
 
     <div class="drawer-group">
       <label>Assign to team</label>
-      <select id="dTeam">${teamOpts}</select>
+      <select id="dTeam" onchange="markDirty()" ${dis}>${teamOpts}</select>
       <label>Reason (required if reassigning to a different team)</label>
-      <textarea id="dAssignNote" placeholder="Why is this moving teams…"></textarea>
+      <textarea id="dAssignNote" placeholder="Why is this moving teams…" oninput="markDirty()" ${dis}></textarea>
       <div class="field-err" id="dAssignErr"></div>
-      <div class="drawer-actions">
-        <button class="btn" onclick="saveAssign(${w.id})">Assign / reassign</button>
-      </div>
     </div>
 
     <div class="drawer-group">
-      <label>Add a note</label>
-      <textarea id="dNote" placeholder="Add a note…"></textarea>
-      <div class="drawer-actions">
-        <button class="btn" onclick="saveNote(${w.id})">Add note</button>
-      </div>
+      <!-- Enhancement backlog Phase 1 (PRD §14#5) -->
+      <label>Note to requestor <span style="font-weight:400;color:var(--ink-soft);">(visible to the requester when they check status)</span></label>
+      <textarea id="dNoteToRequester" placeholder="e.g. \u201cA tech is on the way, ETA 30 min.\u201d" oninput="markDirty()" ${dis}>${escapeHtml(w.note_to_requester||'')}</textarea>
+    </div>
+
+    <div class="drawer-group">
+      <label>Add an internal note</label>
+      <textarea id="dNote" placeholder="Add a note…" oninput="markDirty()" ${dis}></textarea>
+    </div>
+
+    <!-- Enhancement backlog Phase 1 (PRD §14#2): one Save action for
+         everything in the drawer, instead of one per section. -->
+    <div class="drawer-actions" style="margin-top:8px;">
+      ${editable
+        ? `<button class="btn" id="saveDrawerBtn" onclick="saveDrawer()">Save changes</button>
+           <button class="btn btn-ghost" onclick="closeDrawer()">Cancel</button>`
+        : `<button class="btn btn-ghost" onclick="closeDrawer()">Close</button>`}
     </div>
 
     <div class="section-title" style="margin-top:22px;">Notes</div>
@@ -517,95 +619,68 @@ async function openWO(id){
     ${histHtml}
   `);
 
-  drawerLocationPicker = LocationPicker.mount(document.getElementById('dLocationPicker'), {
+  drawerLocationPicker = editable ? LocationPicker.mount(document.getElementById('dLocationPicker'), {
     treeUrl: '/locations/tree',
     fetchOpts: { headers: { Authorization: 'Bearer ' + TOKEN } },
     initial: w.asset ? { id: w.asset.id, name: w.asset.name } : null,
     placeholder: 'Search or browse locations…',
-  });
+    onChange: markDirty,
+  }) : null;
+  // Read-only view still needs the WO's own asset id for... nothing,
+  // actually — saveDrawer() is unreachable when !editable (no Save
+  // button is rendered), so there's nothing to fall back to here.
 }
 
-async function withButtonLock(btn, fn){
-  if (!btn) { await fn(); return; }
-  btn.disabled = true;
-  const original = btn.textContent;
-  try {
-    await fn();
-  } finally {
-    btn.disabled = false;
-    btn.textContent = original;
-  }
-}
-
-async function saveDetails(id){
-  const btn = event.target;
-  await withButtonLock(btn, async () => {
-    const assetId = drawerLocationPicker ? drawerLocationPicker.getValue() : null;
-    if (!assetId) { showToast('Choose a location before saving.', 'err'); return; }
-    const payload = {
-      description: document.getElementById('dDescription').value,
-      asset_id: assetId,
-      work_type: document.getElementById('dWorkType').value,
-      priority: document.getElementById('dPriority').value,
-    };
-    try {
-      await api(`/work-orders/${id}`, {method:'PATCH', body:payload});
-      showToast('Details saved.', 'ok');
-      closeDrawer(); load();
-    } catch (e) {
-      if (e.message !== 'session expired') showToast('Could not save details: ' + e.message, 'err');
-    }
-  });
-}
-
-async function saveStatus(id){
-  const btn = event.target;
-  await withButtonLock(btn, async () => {
-    const status = document.getElementById('dStatus').value;
-    const note = document.getElementById('dStatusNote').value || null;
-    try {
-      await api(`/work-orders/${id}/status`, {method:'POST', body:{status, note}});
-      showToast('Status updated.', 'ok');
-      closeDrawer(); load();
-    } catch (e) {
-      if (e.message !== 'session expired') showToast('Could not update status: ' + e.message, 'err');
-    }
-  });
-}
-
-async function saveAssign(id){
-  const btn = event.target;
+// Enhancement backlog Phase 1 (PRD §14#2): single Save, one request,
+// one transaction on the backend (crud.save_work_order). Returns true on
+// success, false on failure, so closeDrawer()'s save-prompt flow knows
+// whether it's safe to actually close.
+async function saveDrawer(){
+  const id = drawerState.woId;
+  const btn = document.getElementById('saveDrawerBtn');
   document.getElementById('dAssignErr').textContent = '';
-  await withButtonLock(btn, async () => {
-    const team_id = parseInt(document.getElementById('dTeam').value);
-    const note = document.getElementById('dAssignNote').value || null;
-    try {
-      await api(`/work-orders/${id}/assign`, {method:'POST', body:{team_id, note}});
-      showToast('Assignment saved.', 'ok');
-      closeDrawer(); load();
-    } catch (e) {
-      if (e.status === 400) {
-        document.getElementById('dAssignErr').textContent = e.message;
-      } else if (e.message !== 'session expired') {
-        showToast('Could not save assignment: ' + e.message, 'err');
-      }
-    }
-  });
-}
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
-async function saveNote(id){
-  const btn = event.target;
-  await withButtonLock(btn, async () => {
-    const note_text = document.getElementById('dNote').value;
-    if (!note_text) { showToast('Write a note before saving.', 'err'); return; }
-    try {
-      await api(`/work-orders/${id}/notes`, {method:'POST', body:{note_text, note_type:'internal'}});
-      showToast('Note added.', 'ok');
-      closeDrawer(); load();
-    } catch (e) {
-      if (e.message !== 'session expired') showToast('Could not add note: ' + e.message, 'err');
+  const assetId = drawerLocationPicker ? drawerLocationPicker.getValue() : null;
+  if (!assetId) {
+    showToast('Choose a location before saving.', 'err');
+    if (btn) { btn.disabled = false; btn.textContent = 'Save changes'; }
+    return false;
+  }
+
+  const payload = {
+    description: document.getElementById('dDescription').value,
+    asset_id: assetId,
+    work_type: document.getElementById('dWorkType').value,
+    priority: document.getElementById('dPriority').value,
+    note_to_requester: document.getElementById('dNoteToRequester').value,
+    status: document.getElementById('dStatus').value,
+    status_note: document.getElementById('dStatusNote').value || null,
+    team_id: parseInt(document.getElementById('dTeam').value),
+    assign_note: document.getElementById('dAssignNote').value || null,
+    new_note_text: document.getElementById('dNote').value || null,
+    new_note_type: 'internal',
+  };
+
+  try {
+    await api(`/work-orders/${id}/save`, {method:'POST', body:payload});
+    showToast('Work order saved.', 'ok');
+    drawerState.dirty = false;
+    drawerState.editable = false; // /save already released the lock server-side
+    document.getElementById('drawer').classList.remove('open');
+    document.getElementById('drawerBackdrop').classList.remove('open');
+    drawerState = {woId: null, editable: false, dirty: false};
+    load();
+    return true;
+  } catch (e) {
+    if (e.status === 400 && /reason note is required/i.test(e.message)) {
+      document.getElementById('dAssignErr').textContent = e.message;
+    } else if (e.message !== 'session expired') {
+      showToast('Could not save: ' + e.message, 'err');
     }
-  });
+    if (btn) { btn.disabled = false; btn.textContent = 'Save changes'; }
+    return false;
+  }
 }
 
 function openNewWO(){
@@ -665,6 +740,18 @@ async function createWO(){
     }
   });
 }
+
+// Enhancement backlog Phase 1 (PRD §14#2): best-effort warning on tab
+// close/refresh with unsaved changes. Doesn't release the lock here —
+// browsers don't reliably run async code in beforeunload — so a closed
+// tab relies on the stale-lock timeout (models.LOCK_TIMEOUT_MINUTES) to
+// free the WO back up, same as a crashed browser would.
+window.addEventListener('beforeunload', (e) => {
+  if (drawerState.editable && drawerState.dirty) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
 
 if (TOKEN) boot();
 </script>
