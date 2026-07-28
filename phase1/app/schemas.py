@@ -228,3 +228,116 @@ class UserUpdate(BaseModel):
 
 class PasswordResetResponse(BaseModel):
     temporary_password: str
+
+
+# ---- Admin configuration (PRD 4.5) ----
+
+class ReportingGroupOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    sort_order: int
+    is_active: bool
+
+
+class ReportingGroupCreate(BaseModel):
+    name: str
+    sort_order: int = 0
+
+
+class ReportingGroupUpdate(BaseModel):
+    name: Optional[str] = None
+    sort_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class RequestTypeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    sort_order: int
+    is_active: bool
+
+
+class RequestTypeCreate(BaseModel):
+    name: str
+    sort_order: int = 0
+
+
+class RequestTypeUpdate(BaseModel):
+    name: Optional[str] = None
+    sort_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class TeamAdminOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    is_active: bool
+
+
+class TeamCreate(BaseModel):
+    name: str
+
+
+class TeamUpdate(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
+    # If deactivating a team that still has open WOs or active users
+    # assigned, the request is rejected with a 409 describing what's
+    # still attached unless this is set — same "warn, don't silently
+    # block or cascade" rule as AssetUpdate.cascade_deactivate.
+    confirm_deactivate: bool = False
+
+
+class AssetAdminOut(BaseModel):
+    """Flat row for the admin location-hierarchy screen — includes
+    inactive nodes and the reporting-group inheritance state (own
+    explicit override vs. inherited), unlike the lean AssetOut/
+    PublicAssetOut used by pickers. Built by crud.list_assets_admin, not
+    read directly off the ORM model (needs parent_name/depth for table
+    rendering), so this doesn't use from_attributes."""
+    id: int
+    name: str
+    parent_id: Optional[int] = None
+    parent_name: Optional[str] = None
+    depth: int = 0
+    code: Optional[str] = None
+    sort_order: int
+    is_active: bool
+    camp_letter: Optional[str] = None
+    reporting_group_id: Optional[int] = None  # this node's own override, if any
+    reporting_group_name: Optional[str] = None  # this node's own override's name, if any
+    effective_reporting_group: str  # resolved display value (own override, or inherited) — same as location_group
+
+
+class AssetCreate(BaseModel):
+    name: str
+    parent_id: Optional[int] = None
+    code: Optional[str] = None
+    sort_order: int = 0
+    reporting_group_id: Optional[int] = None
+
+
+class AssetUpdate(BaseModel):
+    name: Optional[str] = None
+    parent_id: Optional[int] = None
+    code: Optional[str] = None
+    sort_order: Optional[int] = None
+    is_active: Optional[bool] = None
+    reporting_group_id: Optional[int] = None
+    # If deactivating a node that has active children, the request is
+    # rejected with a 409 listing them unless this is set — mirrors the
+    # "warn, don't silently block or cascade" rule from PRD 4.5.
+    cascade_deactivate: bool = False
+
+
+class AssetChangeLogOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    field_changed: str
+    from_value: Optional[str]
+    to_value: Optional[str]
+    changed_by: Optional[int]
+    changed_at: dt.datetime
