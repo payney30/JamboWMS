@@ -122,8 +122,7 @@ async def submit_public_work_order(
         raise HTTPException(400, "poc_name and poc_phone are required when the requester is not the point of contact")
     if priority not in schemas.PRIORITIES:
         raise HTTPException(400, f"invalid priority: {priority}")
-    if work_type not in schemas.WORK_TYPES:
-        raise HTTPException(400, f"invalid work type: {work_type}")
+    crud._validate_work_type(db, work_type)  # request_types table (PRD 4.5c), not the old hardcoded tuple
     if notify_preference and notify_preference not in schemas.NOTIFY_PREFERENCES:
         raise HTTPException(400, f"invalid notify_preference: {notify_preference}")
     if notify_preference in ("text", "both") and not (requester_phone or "").strip():
