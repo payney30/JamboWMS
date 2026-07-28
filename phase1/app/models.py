@@ -58,17 +58,77 @@ class Asset(Base):
     __tablename__ = "assets"
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False, unique=True)
+    # Denormalized/cached DISPLAY value — the effective reporting group
+    # name for this node, kept in sync by crud.recompute_effective_groups
+    # whenever the hierarchy or a reporting_group_id assignment changes.
+    # Every existing consumer (dashboard scoping/breakdowns, triage
+    # filters) reads this column as a plain string exactly as before;
+    # what changed is *how* it gets set — admin-editable inheritance
+    # (see reporting_group_id below / PRD 4.5b) instead of a one-time
+    # value baked in at seed time.
     location_group = Column(String, nullable=False)
     camp_letter = Column(String, nullable=True)
     parent_id = Column(Integer, ForeignKey("assets.id"), nullable=True)
     code = Column(String, nullable=True)
     sort_order = Column(Integer, nullable=False, default=0)
     is_active = Column(Boolean, nullable=False, default=True)
+    # Explicit reporting-group override at this node (PRD 4.5b). Null
+    # means "inherit from the nearest ancestor with an explicit
+    # assignment" — location_group above is the resolved result of that
+    # inheritance walk, cached for query performance.
+    reporting_group_id = Column(Integer, ForeignKey("reporting_groups.id"), nullable=True)
 
     children = relationship(
         "Asset", backref=backref("parent", remote_side=[id]),
         order_by="Asset.sort_order",
     )
+    reporting_group = relationship("ReportingGroup")
+
+
+class ReportingGroup(Base):
+    """Admin-editable reporting-group catalog (PRD 4.5b) — e.g. 'Program
+    Areas', 'Base Camp Ops'. Assigned to Asset nodes via
+    Asset.reporting_group_id; see that column's docstring for the
+    inheritance model. Set once at the start of an event and read live —
+    no versioning/snapshotting, per PRD 4.5b."""
+    __tablename__ = "reporting_groups"
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False, unique=True)
+    sort_order = Column(Integer, nullable=False, default=0)
+    is_active = Column(Boolean, nullable=False, default=True)
+
+
+class RequestType(Base):
+    """Admin-editable request-type catalog (PRD 4.5c) — replaces the old
+    hardcoded work_type CheckConstraint/WORK_TYPES tuple. WorkOrder.work_type
+    stays a plain string column (not a FK) since it's read as a string in
+    several places already (dashboards, filters, the requester form's
+    'Other/blank' option) — new submissions are validated against
+    `SELECT name FROM request_types WHERE is_active` instead of a fixed
+    tuple. Blank string ('Other/not sure') stays a valid sentinel outside
+    this table, matching existing behavior."""
+    __tablename__ = "request_types"
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False, unique=True)
+    sort_order = Column(Integer, nullable=False, default=0)
+    is_active = Column(Boolean, nullable=False, default=True)
+
+
+class AssetChangeLog(Base):
+    """Audit trail for admin edits to the location hierarchy (PRD 4.5a).
+    Unlike wo_status_history (which tracks WorkOrder mutations),
+    hierarchy edits happen live during an actual event now rather than
+    once at seed time — a bad reparent or accidental deactivation could
+    silently misroute where WOs land on dashboards, so 'who changed what,
+    when' needs to be answerable without a manual DB dig."""
+    __tablename__ = "asset_change_log"
+    id = Column(Integer, primary_key=True)
+    asset_id = Column(Integer, ForeignKey("assets.id", ondelete="CASCADE"), nullable=False)
+    field_changed = Column(String, nullable=False)  # name | parent_id | code | sort_order | is_active | reporting_group_id
+    from_value = Column(String, nullable=True)
+    to_value = Column(String, nullable=True)
+    changed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    changed_at = Column(TIMESTAMP, default=now)
 
 
 class WorkOrder(Base):
@@ -117,10 +177,6 @@ class WorkOrder(Base):
     attachments = relationship("WOAttachment", cascade="all, delete-orphan", order_by="WOAttachment.uploaded_at")
 
     __table_args__ = (
-        CheckConstraint(
-            "work_type IN ('NJ IT','NJ Items/Parts','NJ Maintenance','NJ Transportation','')",
-            name="ck_wo_work_type",
-        ),
         CheckConstraint(
             "priority IN ('Highest','High','Medium','Low','Lowest')", name="ck_wo_priority"
         ),
