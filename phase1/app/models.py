@@ -15,6 +15,13 @@ def now():
     return dt.datetime.utcnow()
 
 
+# Enhancement backlog Phase 1 (PRD §14#1): how long a WO stays "locked" to
+# its opener with no save/heartbeat before it's treated as available again.
+# Guards against a crashed tab/browser permanently stranding a lock — no
+# admin intervention needed, it just goes stale on its own.
+LOCK_TIMEOUT_MINUTES = 15
+
+
 class Team(Base):
     __tablename__ = "teams"
     id = Column(Integer, primary_key=True)
@@ -168,13 +175,39 @@ class WorkOrder(Base):
     # actual email/SMS provider yet; see app/routers/public.py and the
     # README's "Known gaps" list.
     notify_preference = Column(String, nullable=True)
+    # Enhancement backlog Phase 1 (PRD §14#1) — WO editing lock. Set when a
+    # user opens this WO for edit (crud.acquire_lock), cleared on save/
+    # explicit unlock (crud.release_lock), or ignored once stale — see the
+    # `locked_by` property below, which is what every other part of the
+    # app should read instead of these raw columns.
+    locked_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    locked_at = Column(TIMESTAMP, nullable=True)
+    # Enhancement backlog Phase 1 (PRD §14#5) — LOC-authored note visible to
+    # the requester on the public status-lookup page (app/routers/public.py).
+    # Distinct from wo_notes, which are internal/instruction/work notes never
+    # shown to the requester.
+    note_to_requester = Column(Text, nullable=True)
 
     asset = relationship("Asset")
     assigned_team = relationship("Team")
-    assigned_person = relationship("User")
+    assigned_person = relationship("User", foreign_keys=[assigned_person_id])
     notes = relationship("WONote", back_populates="work_order", cascade="all, delete-orphan")
     history = relationship("WOStatusHistory", back_populates="work_order", cascade="all, delete-orphan")
     attachments = relationship("WOAttachment", cascade="all, delete-orphan", order_by="WOAttachment.uploaded_at")
+    # Named distinctly from locked_by_id so the `locked_by` property below
+    # (what everything else should actually read) doesn't collide with it.
+    _locked_by_rel = relationship("User", foreign_keys=[locked_by_id])
+
+    @property
+    def locked_by(self):
+        """The active lock holder, or None if unlocked or the lock has
+        gone stale (see LOCK_TIMEOUT_MINUTES). Read this everywhere
+        instead of locked_by_id/locked_at directly — a stale lock should
+        behave exactly like no lock at all."""
+        if self.locked_by_id and self.locked_at and \
+                (now() - self.locked_at) < dt.timedelta(minutes=LOCK_TIMEOUT_MINUTES):
+            return self._locked_by_rel
+        return None
 
     __table_args__ = (
         CheckConstraint(
@@ -227,6 +260,13 @@ class WOStatusHistory(Base):
     changed_at = Column(TIMESTAMP, default=now)
 
     work_order = relationship("WorkOrder", back_populates="history")
+    # Enhancement backlog Phase 1 (PRD §14#4): status history should show
+    # who made each change, not just their id.
+    changed_by_user = relationship("User", foreign_keys=[changed_by])
+
+    @property
+    def changed_by_name(self):
+        return self.changed_by_user.name if self.changed_by_user else None
 
     __table_args__ = (
         CheckConstraint(

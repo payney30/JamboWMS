@@ -137,10 +137,16 @@ def add_attachment(db: Session, wo: models.WorkOrder, file_url: str,
 
 
 def update_work_order_fields(db: Session, wo: models.WorkOrder, payload: schemas.WorkOrderUpdate,
-                              changed_by: int | None) -> models.WorkOrder:
-    """Non-status/team fields (description, work_type, location). Priority
-    changes DO get a history row since Section 6 of the PRD calls priority
-    changes out as reportable."""
+                              changed_by: int | None, commit: bool = True) -> models.WorkOrder:
+    """Non-status/team fields (description, work_type, location, the
+    requester-facing note). Priority changes DO get a history row since
+    Section 6 of the PRD calls priority changes out as reportable.
+
+    commit=False lets save_work_order (enhancement backlog Phase 1, PRD
+    §14#2) apply this alongside a status/assign/note change in one
+    transaction instead of its own — everything else keeps calling this
+    with the default commit=True and is unaffected.
+    """
     if payload.priority is not None and payload.priority != wo.priority:
         db.add(models.WOStatusHistory(
             work_order_id=wo.id,
@@ -161,14 +167,17 @@ def update_work_order_fields(db: Session, wo: models.WorkOrder, payload: schemas
         if not asset:
             raise HTTPException(404, "asset not found")
         wo.asset_id = payload.asset_id
+    if payload.note_to_requester is not None:
+        wo.note_to_requester = payload.note_to_requester or None
 
-    db.commit()
-    db.refresh(wo)
+    if commit:
+        db.commit()
+        db.refresh(wo)
     return wo
 
 
 def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.AssignRequest,
-                       changed_by: int | None) -> models.WorkOrder:
+                       changed_by: int | None, commit: bool = True) -> models.WorkOrder:
     team = db.get(models.Team, payload.team_id)
     if not team:
         raise HTTPException(404, "team not found")
@@ -206,13 +215,14 @@ def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Assign
             note_text=payload.note, note_type="internal",
         ))
 
-    db.commit()
-    db.refresh(wo)
+    if commit:
+        db.commit()
+        db.refresh(wo)
     return wo
 
 
 def change_status(db: Session, wo: models.WorkOrder, payload: schemas.StatusChangeRequest,
-                   changed_by: int | None) -> models.WorkOrder:
+                   changed_by: int | None, commit: bool = True) -> models.WorkOrder:
     if payload.status not in schemas.STATUSES:
         raise HTTPException(400, f"invalid status: {payload.status}")
 
@@ -235,21 +245,158 @@ def change_status(db: Session, wo: models.WorkOrder, payload: schemas.StatusChan
             note_text=payload.note, note_type=note_type,
         ))
 
-    db.commit()
-    db.refresh(wo)
+    if commit:
+        db.commit()
+        db.refresh(wo)
     return wo
 
 
 def add_note(db: Session, wo: models.WorkOrder, payload: schemas.NoteCreate,
-              author_id: int | None) -> models.WONote:
+              author_id: int | None, commit: bool = True) -> models.WONote:
     note = models.WONote(
         work_order_id=wo.id, author_id=author_id,
         note_text=payload.note_text, note_type=payload.note_type,
     )
     db.add(note)
-    db.commit()
-    db.refresh(note)
+    if commit:
+        db.commit()
+        db.refresh(note)
     return note
+
+
+# ---- Enhancement backlog Phase 1: WO locking (PRD §14#1) ----
+
+def acquire_lock(db: Session, wo: models.WorkOrder, user: models.User) -> models.WorkOrder:
+    """Called when a user opens a WO in the triage drawer. Succeeds
+    no-op if they already hold the lock (re-opening the same WO, or a
+    heartbeat/refresh). Raises 409 if someone else actively holds it —
+    the router surfaces who and since when so the frontend can fall back
+    to a read-only view instead of erroring out."""
+    holder = wo.locked_by
+    if holder and holder.id != user.id:
+        raise HTTPException(
+            409,
+            f"This work order is currently being edited by {holder.name}.",
+        )
+    wo.locked_by_id = user.id
+    wo.locked_at = models.now()
+    db.commit()
+    db.refresh(wo)
+    return wo
+
+
+def release_lock(db: Session, wo: models.WorkOrder, user: models.User,
+                  force: bool = False) -> models.WorkOrder:
+    """Called on save, on explicit close/cancel of the drawer, or by an
+    admin force-clearing a stuck lock (force=True). Releasing a lock you
+    don't hold (and aren't forcing) is a 403, not a silent no-op — that
+    would let anyone boot anyone else out of an edit."""
+    if wo.locked_by_id and wo.locked_by_id != user.id and not force:
+        raise HTTPException(403, "you don't hold the lock on this work order")
+    wo.locked_by_id = None
+    wo.locked_at = None
+    db.commit()
+    db.refresh(wo)
+    return wo
+
+
+# ---- Enhancement backlog Phase 1: combined save (PRD §14#2) ----
+
+def save_work_order(db: Session, wo: models.WorkOrder, payload: schemas.WorkOrderSaveRequest,
+                     changed_by: int | None) -> models.WorkOrder:
+    """One transaction covering every section of the WO detail drawer —
+    details, status, assignment, and a new note — instead of the four
+    separate save points the granular endpoints below still expose
+    (kept for API back-compat / tests, but the frontend now only calls
+    this). Per-field role permission checks happen in the router before
+    this is called; this function assumes the caller is authorized for
+    everything present in the payload.
+
+    Releases the lock at the end, on the assumption that a save means
+    the user is done editing — see app/routers/work_orders.py.
+    """
+    if any(v is not None for v in (
+        payload.description, payload.work_type, payload.priority,
+        payload.asset_id, payload.note_to_requester,
+    )):
+        update_work_order_fields(
+            db, wo,
+            schemas.WorkOrderUpdate(
+                description=payload.description,
+                work_type=payload.work_type,
+                priority=payload.priority,
+                asset_id=payload.asset_id,
+                note_to_requester=payload.note_to_requester,
+            ),
+            changed_by=changed_by, commit=False,
+        )
+
+    if payload.team_id is not None:
+        assign_work_order(
+            db, wo,
+            schemas.AssignRequest(
+                team_id=payload.team_id, person_id=payload.person_id, note=payload.assign_note,
+            ),
+            changed_by=changed_by, commit=False,
+        )
+
+    if payload.status is not None:
+        change_status(
+            db, wo,
+            schemas.StatusChangeRequest(status=payload.status, note=payload.status_note),
+            changed_by=changed_by, commit=False,
+        )
+
+    if payload.new_note_text:
+        add_note(
+            db, wo,
+            schemas.NoteCreate(note_text=payload.new_note_text, note_type=payload.new_note_type),
+            author_id=changed_by, commit=False,
+        )
+
+    # Save = done editing: release the lock in the same transaction as
+    # the changes it protected, so a rollback (e.g. the atomicity rule at
+    # the top of this file) can't leave the lock cleared but the edit lost.
+    wo.locked_by_id = None
+    wo.locked_at = None
+
+    db.commit()
+    db.refresh(wo)
+    return wo
+
+
+# ---- Enhancement backlog Phase 1: phone-anchored public lookup (PRD §13#4) ----
+
+def _digits_only(s: str) -> str:
+    return "".join(ch for ch in (s or "") if ch.isdigit())
+
+
+def lookup_work_orders_by_phone(db: Session, phone_digits: str) -> list[models.WorkOrder]:
+    """Matches on requester_phone OR poc_phone, comparing digits-only so
+    formatting differences (dashes/parens/spaces/leading '1') at
+    submission vs. lookup don't cause false negatives. Returns newest
+    first — most people checking status care about their most recent
+    submission.
+
+    Filters in Python rather than SQL (can't normalize digits-only in a
+    portable way across SQLite/Postgres without a dialect-specific
+    REGEXP_REPLACE). Fine at event scale (low thousands of WOs); if this
+    ever needs to scale further, store a precomputed digits-only phone
+    column and index it instead."""
+    candidates = (
+        db.query(models.WorkOrder)
+        .filter(
+            (models.WorkOrder.requester_phone.isnot(None)) |
+            (models.WorkOrder.poc_phone.isnot(None))
+        )
+        .order_by(models.WorkOrder.created_at.desc())
+        .all()
+    )
+    return [
+        wo for wo in candidates
+        if _digits_only(wo.requester_phone) == phone_digits
+        or _digits_only(wo.poc_phone) == phone_digits
+    ]
 
 
 def list_work_orders(db: Session, status=None, priority=None, team_id=None,

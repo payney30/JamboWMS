@@ -47,11 +47,20 @@ IP_WINDOW_SECONDS = 5 * 60
 PUBLIC_WO_MAX_SUBMISSIONS = 8
 PUBLIC_WO_WINDOW_SECONDS = 10 * 60
 
+# Enhancement backlog Phase 1 (PRD §13#4): the phone-anchored status
+# lookup has no second factor (see routers/public.py docstring), so it
+# gets its own, slightly more generous limiter than submissions — normal
+# use is "check status a few times," but this caps how fast someone could
+# try many phone numbers against the endpoint.
+PUBLIC_LOOKUP_MAX_ATTEMPTS = 20
+PUBLIC_LOOKUP_WINDOW_SECONDS = 10 * 60
+
 _lock = threading.Lock()
 _email_failures: dict[str, list[float]] = defaultdict(list)
 _email_locked_until: dict[str, float] = {}
 _ip_failures: dict[str, list[float]] = defaultdict(list)
 _public_wo_submissions: dict[str, list[float]] = defaultdict(list)
+_public_lookup_attempts: dict[str, list[float]] = defaultdict(list)
 
 
 def _prune(timestamps: list[float], window_seconds: float, now: float) -> list[float]:
@@ -128,6 +137,24 @@ def record_public_submission(ip: str) -> None:
         _public_wo_submissions[ip].append(time.time())
 
 
+def check_public_lookup_limit(ip: str) -> Optional[float]:
+    """Enhancement backlog Phase 1 (PRD §13#4). Returns seconds until the
+    caller may look up a WO by phone again, or None if clear."""
+    now = time.time()
+    with _lock:
+        recent = _prune(_public_lookup_attempts[ip], PUBLIC_LOOKUP_WINDOW_SECONDS, now)
+        _public_lookup_attempts[ip] = recent
+        if len(recent) >= PUBLIC_LOOKUP_MAX_ATTEMPTS:
+            oldest = min(recent)
+            return PUBLIC_LOOKUP_WINDOW_SECONDS - (now - oldest)
+    return None
+
+
+def record_public_lookup(ip: str) -> None:
+    with _lock:
+        _public_lookup_attempts[ip].append(time.time())
+
+
 def reset_all() -> None:
     """Test-only: clear all in-memory state between test cases."""
     with _lock:
@@ -135,3 +162,4 @@ def reset_all() -> None:
         _email_locked_until.clear()
         _ip_failures.clear()
         _public_wo_submissions.clear()
+        _public_lookup_attempts.clear()

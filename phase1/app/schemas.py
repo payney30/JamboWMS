@@ -10,6 +10,14 @@ STATUSES = (
 WORK_TYPES = ("NJ IT", "NJ Items/Parts", "NJ Maintenance", "NJ Transportation", "")
 NOTIFY_PREFERENCES = ("email", "text", "both")
 ROLES = ("loc", "tech", "leadership", "admin")
+# Techs work a request-to-close queue, not the LOC's triage states — they
+# can't move a WO back to "Requested" or hand-set "Assigned". Lives here
+# (not just app/routers/work_orders.py) so both the granular /status
+# endpoint and the combined /save endpoint (enhancement backlog Phase 1,
+# PRD §14#2) enforce the exact same rule from one place.
+TECH_ALLOWED_STATUSES = {
+    "Work In Progress", "On Hold", "Closed, Completed", "Closed, Incomplete",
+}
 
 
 class TeamOut(BaseModel):
@@ -71,6 +79,10 @@ class HistoryOut(BaseModel):
     from_value: Optional[str]
     to_value: str
     changed_by: Optional[int]
+    # Enhancement backlog Phase 1 (PRD §14#4) — resolved from
+    # WOStatusHistory.changed_by_name; None for system-generated rows
+    # (e.g. the initial "Requested" row, which has no changed_by).
+    changed_by_name: Optional[str] = None
     changed_at: dt.datetime
 
 
@@ -94,6 +106,8 @@ class WorkOrderUpdate(BaseModel):
     work_type: Optional[str] = None
     priority: Optional[str] = None
     asset_id: Optional[int] = None
+    # Enhancement backlog Phase 1 (PRD §14#5).
+    note_to_requester: Optional[str] = None
 
 
 class AssignRequest(BaseModel):
@@ -107,6 +121,42 @@ class StatusChangeRequest(BaseModel):
     note: Optional[str] = None
 
 
+class WorkOrderSaveRequest(BaseModel):
+    """Enhancement backlog Phase 1 (PRD §14#2): one combined payload
+    covering every kind of edit the WO detail drawer supports, so the
+    frontend has exactly one Save action instead of four. Every field is
+    optional — only the sections the user actually touched are included
+    and applied; see app/routers/work_orders.py:save_work_order for the
+    per-field permission checks and crud.save_work_order for the single
+    transaction that applies them.
+    """
+    # Details — loc/admin only
+    description: Optional[str] = None
+    work_type: Optional[str] = None
+    priority: Optional[str] = None
+    asset_id: Optional[int] = None
+    note_to_requester: Optional[str] = None
+    # Status change
+    status: Optional[str] = None
+    status_note: Optional[str] = None
+    # Assignment
+    team_id: Optional[int] = None
+    person_id: Optional[int] = None
+    assign_note: Optional[str] = None
+    # A new note to add, if any
+    new_note_text: Optional[str] = None
+    new_note_type: str = "internal"  # internal | instruction | work_note
+
+
+class LockOut(BaseModel):
+    """Response for POST /work-orders/{id}/lock and /unlock, and embedded
+    implicitly via WorkOrderListItem/WorkOrderDetail's locked_by/locked_at
+    fields (enhancement backlog Phase 1, PRD §14#1)."""
+    locked: bool
+    locked_by: Optional[UserOut] = None
+    locked_at: Optional[dt.datetime] = None
+
+
 class WorkOrderListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -118,6 +168,11 @@ class WorkOrderListItem(BaseModel):
     asset: AssetOut
     assigned_team: Optional[TeamOut] = None
     created_at: dt.datetime
+    # Enhancement backlog Phase 1 (PRD §14#1) — read from
+    # WorkOrder.locked_by, already None if the lock has gone stale.
+    # Populates the inbox lock icon + hover tooltip.
+    locked_by: Optional[UserOut] = None
+    locked_at: Optional[dt.datetime] = None
 
 
 class AttachmentOut(BaseModel):
@@ -139,6 +194,8 @@ class WorkOrderDetail(WorkOrderListItem):
     assigned_person: Optional[UserOut] = None
     updated_at: dt.datetime
     closed_at: Optional[dt.datetime]
+    # Enhancement backlog Phase 1 (PRD §14#5).
+    note_to_requester: Optional[str] = None
     notes: List[NoteOut] = []
     history: List[HistoryOut] = []
     attachments: List[AttachmentOut] = []
@@ -158,16 +215,23 @@ class PublicWorkOrderConfirmation(BaseModel):
 
 
 class PublicWorkOrderStatus(BaseModel):
-    """What a requester is allowed to see when looking up their own WO —
-    no internal notes, no assignment details, no requester PII beyond
-    what they already provided to look it up."""
+    """What a requester is allowed to see when looking up their own WO(s)
+    — no internal notes, no assignment details, no requester PII beyond
+    what they already provided to look it up. Enhancement backlog Phase 1
+    (PRD §13#4): lookup is now anchored on phone number and can return
+    more than one WO, so this also carries a short description/location
+    snippet so multiple results are distinguishable — and
+    note_to_requester (PRD §14#5), the one requester-facing field LOC can
+    set."""
     model_config = ConfigDict(from_attributes=True)
     wo_number: str
     status: str
     priority: str
     work_type: str
+    description: str
     created_at: dt.datetime
     closed_at: Optional[dt.datetime]
+    note_to_requester: Optional[str] = None
 
 
 class KPIOut(BaseModel):
