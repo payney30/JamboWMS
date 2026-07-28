@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>User Management — National Jamboree Work Orders</title>
+<title>Admin — National Jamboree Work Orders</title>
 <style>
 :root{
   --pine:#1C3829;
@@ -84,6 +84,22 @@ tr.inactive td{opacity:.5;}
 .toast{background:var(--pine);color:#fff;border-radius:8px;padding:10px 14px;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.2);}
 .toast.err{background:var(--hivis);}
 .toast.ok{background:var(--moss);}
+
+.tab-nav{display:flex;gap:4px;margin:22px 0 4px;flex-wrap:wrap;border-bottom:1px solid var(--khaki-line);}
+.tab-btn{background:none;border:none;padding:10px 16px;font-family:var(--font-body);font-size:13px;font-weight:600;
+  color:var(--ink-soft);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;}
+.tab-btn.active{color:var(--pine);border-bottom-color:var(--pine);}
+.tab-btn:hover{color:var(--pine);}
+.tab-panel{display:none;}
+.tab-panel.active{display:block;}
+.depth-indent{color:var(--ink-soft);font-family:var(--font-mono);}
+.override-chip{font-size:10px;text-transform:uppercase;letter-spacing:.04em;padding:1px 6px;border-radius:10px;margin-left:6px;background:#F1EDDF;color:var(--ink-soft);}
+.override-chip.own{background:var(--danger-bg);color:var(--hivis);}
+#drawer textarea{width:100%;padding:8px;border:1px solid var(--khaki-line);border-radius:6px;font-size:13px;font-family:var(--font-body);}
+.history-list{list-style:none;padding:0;margin:0;font-size:12px;}
+.history-list li{padding:8px 0;border-bottom:1px dashed var(--khaki-line);}
+.history-list .hfield{font-weight:700;}
+.history-list .hmeta{color:var(--ink-soft);}
 </style>
 </head>
 <body>
@@ -100,14 +116,23 @@ tr.inactive td{opacity:.5;}
   <div class="topbar">
     <div>
       <p class="brand-eyebrow">Admin &middot; National Jamboree Work Orders</p>
-      <h1 class="brand-title">User Management</h1>
+      <h1 class="brand-title" id="pageTitle">Admin</h1>
     </div>
-    <div class="topbar-actions">
-      <button class="btn" onclick="openNewUser()">+ New user</button>
+    <div class="topbar-actions" id="topbarActions">
+      <button class="btn" id="newBtn" onclick="openNewUser()">+ New user</button>
       <button class="btn btn-ghost" onclick="logout()" style="background:transparent;color:#fff;border-color:#fff;">Sign out</button>
     </div>
   </div>
 
+  <div class="tab-nav" id="tabNav">
+    <button class="tab-btn active" data-tab="users" onclick="switchTab('users')">Users</button>
+    <button class="tab-btn" data-tab="locations" onclick="switchTab('locations')">Locations</button>
+    <button class="tab-btn" data-tab="reportinggroups" onclick="switchTab('reportinggroups')">Reporting Groups</button>
+    <button class="tab-btn" data-tab="requesttypes" onclick="switchTab('requesttypes')">Request Types</button>
+    <button class="tab-btn" data-tab="teams" onclick="switchTab('teams')">Teams</button>
+  </div>
+
+  <div class="tab-panel active" id="panel-users">
   <div class="section-title">
     <span>Accounts</span>
     <span id="meLabel" style="font-family:var(--font-body);text-transform:none;letter-spacing:normal;"></span>
@@ -123,6 +148,47 @@ tr.inactive td{opacity:.5;}
     <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Team</th><th>Status</th><th>Actions</th></tr></thead>
     <tbody id="userTableBody"><tr class="empty-row"><td colspan="6">Loading…</td></tr></tbody>
   </table>
+  </div>
+
+  <div class="tab-panel" id="panel-locations">
+    <div class="section-title">
+      <span>Location Hierarchy</span>
+    </div>
+    <div class="filters">
+      <input id="locSearch" placeholder="Search locations…" oninput="renderLocations()">
+      <label class="check"><input type="checkbox" id="locInactive" checked onchange="loadLocations()"> Show deactivated</label>
+    </div>
+    <table style="margin-top:14px;">
+      <thead><tr><th>Location</th><th>Reporting Group</th><th>Code</th><th>Sort</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="locTableBody"><tr class="empty-row"><td colspan="6">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="tab-panel" id="panel-reportinggroups">
+    <div class="section-title"><span>Reporting Groups</span></div>
+    <div class="hint" style="margin-bottom:10px;">Assigned to locations on the Locations tab — a location without its own assignment inherits its nearest ancestor's group.</div>
+    <table>
+      <thead><tr><th>Name</th><th>Sort</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="rgTableBody"><tr class="empty-row"><td colspan="4">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="tab-panel" id="panel-requesttypes">
+    <div class="section-title"><span>Request Types</span></div>
+    <div class="hint" style="margin-bottom:10px;">Shown as work-type options on the requester form and LOC triage. Deactivating hides a type from new selections without touching existing work orders.</div>
+    <table>
+      <thead><tr><th>Name</th><th>Sort</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="rtTableBody"><tr class="empty-row"><td colspan="4">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="tab-panel" id="panel-teams">
+    <div class="section-title"><span>Assigned Groups (Teams)</span></div>
+    <table>
+      <thead><tr><th>Name</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="teamTableBody"><tr class="empty-row"><td colspan="3">Loading…</td></tr></tbody>
+    </table>
+  </div>
 </div>
 
 <div id="drawerBackdrop" onclick="closeDrawer()"></div>
@@ -133,6 +199,7 @@ tr.inactive td{opacity:.5;}
 const API = '';
 let TOKEN = localStorage.getItem('loc_token') || '';
 let ME = null, TEAMS = [], USERS = [];
+let LOCATIONS = [], REPORTING_GROUPS = [], REQUEST_TYPES = [], ADMIN_TEAMS = [];
 const ALL_ROLES = ["tech","leadership","loc","admin"];
 
 function escapeHtml(s){
@@ -211,6 +278,15 @@ async function boot() {
   document.getElementById('meLabel').textContent =
     ME.name + ' · ' + ME.role + (ME.role !== 'admin' ? ' (can manage tech & leadership accounts)' : '');
 
+  // Locations/Reporting Groups/Request Types/Teams are admin-only on the
+  // backend (403 for 'loc') — hide those tabs entirely for a 'loc' login
+  // rather than showing a tab that errors when clicked.
+  if (ME.role !== 'admin') {
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      if (btn.dataset.tab !== 'users') btn.style.display = 'none';
+    });
+  }
+
   try {
     TEAMS = await api('/teams');
   } catch (e) {
@@ -219,6 +295,27 @@ async function boot() {
   }
   populateFilterOptions();
   await load();
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tab));
+  const newBtn = document.getElementById('newBtn');
+  const actions = {
+    users: ['+ New user', openNewUser],
+    locations: ['+ New location', openNewLocation],
+    reportinggroups: ['+ New reporting group', openNewReportingGroup],
+    requesttypes: ['+ New request type', openNewRequestType],
+    teams: ['+ New team', openNewAdminTeam],
+  };
+  const [label, fn] = actions[tab];
+  newBtn.textContent = label;
+  newBtn.onclick = fn;
+
+  if (tab === 'locations' && !LOCATIONS.length) loadLocations();
+  if (tab === 'reportinggroups' && !REPORTING_GROUPS.length) loadReportingGroups();
+  if (tab === 'requesttypes' && !REQUEST_TYPES.length) loadRequestTypes();
+  if (tab === 'teams' && !ADMIN_TEAMS.length) loadAdminTeams();
 }
 
 function populateFilterOptions(){
@@ -417,6 +514,526 @@ async function doResetPassword(id){
     showToast('Could not reset password: ' + e.message, 'err');
   }
 }
+
+// ============================================================
+// Locations (PRD 4.5a)
+// ============================================================
+
+async function loadLocations() {
+  document.getElementById('locTableBody').innerHTML = '<tr class="empty-row"><td colspan="6">Loading…</td></tr>';
+  try {
+    const includeInactive = document.getElementById('locInactive').checked;
+    LOCATIONS = await api('/admin/assets?include_inactive=' + includeInactive);
+  } catch (e) {
+    showToast('Could not load locations: ' + e.message, 'err');
+    document.getElementById('locTableBody').innerHTML = '<tr class="empty-row"><td colspan="6">Could not load locations.</td></tr>';
+    return;
+  }
+  if (!REPORTING_GROUPS.length) {
+    try { REPORTING_GROUPS = await api('/admin/reporting-groups'); } catch (e) {}
+  }
+  renderLocations();
+}
+
+function renderLocations() {
+  const search = document.getElementById('locSearch').value.trim().toLowerCase();
+  let rows = LOCATIONS;
+  if (search) rows = rows.filter(a => a.name.toLowerCase().includes(search));
+  const tbody = document.getElementById('locTableBody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No locations match.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(a => {
+    const indent = '&nbsp;&nbsp;&nbsp;&nbsp;'.repeat(a.depth) + (a.depth ? '└ ' : '');
+    const chip = a.reporting_group_id
+      ? `<span class="override-chip own">own: ${escapeHtml(a.reporting_group_name)}</span>`
+      : `<span class="override-chip">inherited</span>`;
+    return `
+    <tr class="${a.is_active ? '' : 'inactive'}">
+      <td><span class="depth-indent">${indent}</span>${escapeHtml(a.name)}</td>
+      <td>${escapeHtml(a.effective_reporting_group)} ${chip}</td>
+      <td>${escapeHtml(a.code || '—')}</td>
+      <td>${a.sort_order}</td>
+      <td>${a.is_active ? 'Active' : 'Deactivated'}</td>
+      <td class="row-actions">
+        <button class="btn btn-ghost btn-sm" onclick="openEditLocation(${a.id})">Edit</button>
+        <button class="btn btn-ghost btn-sm" onclick="openLocationHistory(${a.id})">History</button>
+        ${a.is_active
+          ? `<button class="btn btn-danger btn-sm" onclick="deactivateLocation(${a.id})">Deactivate</button>`
+          : `<button class="btn btn-ghost btn-sm" onclick="reactivateLocation(${a.id})">Reactivate</button>`
+        }
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function locationParentOptions(selected) {
+  return '<option value="">No parent (top-level)</option>' + LOCATIONS.map(a =>
+    `<option value="${a.id}" ${String(a.id)===String(selected)?'selected':''}>${'—'.repeat(a.depth)} ${escapeHtml(a.name)}</option>`
+  ).join('');
+}
+function reportingGroupOptions(selected) {
+  return '<option value="">Inherit from parent</option>' + REPORTING_GROUPS.filter(g => g.is_active).map(g =>
+    `<option value="${g.id}" ${String(g.id)===String(selected)?'selected':''}>${escapeHtml(g.name)}</option>`
+  ).join('');
+}
+
+function openNewLocation() {
+  openDrawer(`
+    <button class="close-btn" onclick="closeDrawer()">×</button>
+    <h2>New location</h2>
+    <label>Name</label><input id="lName">
+    <label>Parent</label><select id="lParent">${locationParentOptions('')}</select>
+    <label>Code</label><input id="lCode">
+    <label>Sort order</label><input id="lSort" type="number" value="0">
+    <label>Reporting group</label><select id="lRG">${reportingGroupOptions('')}</select>
+    <div class="hint">Leave as "Inherit from parent" unless this location needs its own override — most locations should inherit.</div>
+    <div class="field-err" id="lErr"></div>
+    <div class="drawer-actions"><button class="btn" onclick="createLocation()">Create location</button></div>
+  `);
+}
+
+async function createLocation() {
+  const btn = event.target;
+  const errEl = document.getElementById('lErr');
+  errEl.textContent = '';
+  const name = document.getElementById('lName').value.trim();
+  if (!name) { errEl.textContent = 'Name is required.'; return; }
+  btn.disabled = true;
+  try {
+    const parent = document.getElementById('lParent').value;
+    const rg = document.getElementById('lRG').value;
+    await api('/admin/assets', {method:'POST', body:{
+      name,
+      parent_id: parent ? parseInt(parent) : null,
+      code: document.getElementById('lCode').value.trim() || null,
+      sort_order: parseInt(document.getElementById('lSort').value) || 0,
+      reporting_group_id: rg ? parseInt(rg) : null,
+    }});
+    showToast('Location created.', 'ok');
+    closeDrawer(); loadLocations();
+  } catch (e) {
+    errEl.textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
+function openEditLocation(id) {
+  const a = LOCATIONS.find(x => x.id === id);
+  if (!a) return;
+  openDrawer(`
+    <button class="close-btn" onclick="closeDrawer()">×</button>
+    <h2>${escapeHtml(a.name)}</h2>
+    <div class="hint">${a.parent_name ? 'Under ' + escapeHtml(a.parent_name) : 'Top-level location'}</div>
+    <label>Name</label><input id="eLName" value="${escapeHtml(a.name)}">
+    <label>Parent</label><select id="eLParent">${locationParentOptions(a.parent_id)}</select>
+    <label>Code</label><input id="eLCode" value="${escapeHtml(a.code || '')}">
+    <label>Sort order</label><input id="eLSort" type="number" value="${a.sort_order}">
+    <label>Reporting group</label><select id="eLRG">${reportingGroupOptions(a.reporting_group_id)}</select>
+    <div class="hint">Effective (resolved) group right now: <strong>${escapeHtml(a.effective_reporting_group)}</strong>. Changing this cascades to every descendant that doesn't have its own override.</div>
+    <div class="field-err" id="eLErr"></div>
+    <div class="drawer-actions"><button class="btn" onclick="saveEditLocation(${a.id})">Save changes</button></div>
+  `);
+}
+
+async function saveEditLocation(id) {
+  const btn = event.target;
+  const errEl = document.getElementById('eLErr');
+  errEl.textContent = '';
+  btn.disabled = true;
+  try {
+    const parent = document.getElementById('eLParent').value;
+    const rg = document.getElementById('eLRG').value;
+    await api(`/admin/assets/${id}`, {method:'PATCH', body:{
+      name: document.getElementById('eLName').value.trim(),
+      parent_id: parent ? parseInt(parent) : null,
+      code: document.getElementById('eLCode').value.trim() || null,
+      sort_order: parseInt(document.getElementById('eLSort').value) || 0,
+      reporting_group_id: rg ? parseInt(rg) : null,
+    }});
+    showToast('Saved.', 'ok');
+    closeDrawer(); loadLocations();
+  } catch (e) {
+    errEl.textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
+async function deactivateLocation(id, cascade) {
+  const a = LOCATIONS.find(x => x.id === id);
+  if (!a) return;
+  try {
+    await api(`/admin/assets/${id}`, {method:'PATCH', body:{is_active:false, cascade_deactivate: !!cascade}});
+    showToast('Location deactivated.', 'ok');
+    loadLocations();
+  } catch (e) {
+    if (e.status === 409) {
+      if (confirm(e.message + '\n\nDeactivate this location AND all of those children?')) {
+        deactivateLocation(id, true);
+      }
+      return;
+    }
+    showToast('Could not deactivate: ' + e.message, 'err');
+  }
+}
+
+async function reactivateLocation(id) {
+  try {
+    await api(`/admin/assets/${id}`, {method:'PATCH', body:{is_active:true}});
+    showToast('Location reactivated.', 'ok');
+    loadLocations();
+  } catch (e) {
+    showToast('Could not reactivate: ' + e.message, 'err');
+  }
+}
+
+async function openLocationHistory(id) {
+  const a = LOCATIONS.find(x => x.id === id);
+  openDrawer(`
+    <button class="close-btn" onclick="closeDrawer()">×</button>
+    <h2>${escapeHtml(a ? a.name : 'Location')} — history</h2>
+    <div id="histBody" class="hint">Loading…</div>
+  `);
+  try {
+    const entries = await api(`/admin/assets/${id}/history`);
+    const body = document.getElementById('histBody');
+    if (!entries.length) { body.textContent = 'No edits recorded yet.'; return; }
+    body.outerHTML = '<ul class="history-list" id="histBody">' + entries.map(e => `
+      <li>
+        <span class="hfield">${escapeHtml(e.field_changed)}</span>:
+        ${escapeHtml(e.from_value ?? '—')} → ${escapeHtml(e.to_value ?? '—')}
+        <div class="hmeta">${new Date(e.changed_at).toLocaleString()}</div>
+      </li>`).join('') + '</ul>';
+  } catch (e) {
+    document.getElementById('histBody').textContent = 'Could not load history: ' + e.message;
+  }
+}
+
+// ============================================================
+// Reporting Groups (PRD 4.5b)
+// ============================================================
+
+async function loadReportingGroups() {
+  document.getElementById('rgTableBody').innerHTML = '<tr class="empty-row"><td colspan="4">Loading…</td></tr>';
+  try {
+    REPORTING_GROUPS = await api('/admin/reporting-groups');
+  } catch (e) {
+    showToast('Could not load reporting groups: ' + e.message, 'err');
+    return;
+  }
+  renderReportingGroups();
+}
+
+function renderReportingGroups() {
+  const tbody = document.getElementById('rgTableBody');
+  if (!REPORTING_GROUPS.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No reporting groups yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = REPORTING_GROUPS.map(g => `
+    <tr class="${g.is_active ? '' : 'inactive'}">
+      <td>${escapeHtml(g.name)}</td>
+      <td>${g.sort_order}</td>
+      <td>${g.is_active ? 'Active' : 'Deactivated'}</td>
+      <td class="row-actions">
+        <button class="btn btn-ghost btn-sm" onclick="openEditReportingGroup(${g.id})">Edit</button>
+        ${g.is_active
+          ? `<button class="btn btn-danger btn-sm" onclick="toggleReportingGroup(${g.id}, false)">Deactivate</button>`
+          : `<button class="btn btn-ghost btn-sm" onclick="toggleReportingGroup(${g.id}, true)">Reactivate</button>`
+        }
+      </td>
+    </tr>`).join('');
+}
+
+function openNewReportingGroup() {
+  openDrawer(`
+    <button class="close-btn" onclick="closeDrawer()">×</button>
+    <h2>New reporting group</h2>
+    <label>Name</label><input id="rgName">
+    <label>Sort order</label><input id="rgSort" type="number" value="0">
+    <div class="field-err" id="rgErr"></div>
+    <div class="drawer-actions"><button class="btn" onclick="createReportingGroup()">Create</button></div>
+  `);
+}
+
+async function createReportingGroup() {
+  const btn = event.target;
+  const errEl = document.getElementById('rgErr');
+  errEl.textContent = '';
+  const name = document.getElementById('rgName').value.trim();
+  if (!name) { errEl.textContent = 'Name is required.'; return; }
+  btn.disabled = true;
+  try {
+    await api('/admin/reporting-groups', {method:'POST', body:{
+      name, sort_order: parseInt(document.getElementById('rgSort').value) || 0,
+    }});
+    showToast('Reporting group created.', 'ok');
+    closeDrawer(); loadReportingGroups();
+  } catch (e) {
+    errEl.textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
+function openEditReportingGroup(id) {
+  const g = REPORTING_GROUPS.find(x => x.id === id);
+  if (!g) return;
+  openDrawer(`
+    <button class="close-btn" onclick="closeDrawer()">×</button>
+    <h2>${escapeHtml(g.name)}</h2>
+    <label>Name</label><input id="eRgName" value="${escapeHtml(g.name)}">
+    <label>Sort order</label><input id="eRgSort" type="number" value="${g.sort_order}">
+    <div class="hint">Renaming updates the display everywhere this group is assigned or inherited.</div>
+    <div class="field-err" id="eRgErr"></div>
+    <div class="drawer-actions"><button class="btn" onclick="saveEditReportingGroup(${g.id})">Save changes</button></div>
+  `);
+}
+
+async function saveEditReportingGroup(id) {
+  const btn = event.target;
+  const errEl = document.getElementById('eRgErr');
+  errEl.textContent = '';
+  btn.disabled = true;
+  try {
+    await api(`/admin/reporting-groups/${id}`, {method:'PATCH', body:{
+      name: document.getElementById('eRgName').value.trim(),
+      sort_order: parseInt(document.getElementById('eRgSort').value) || 0,
+    }});
+    showToast('Saved.', 'ok');
+    closeDrawer(); loadReportingGroups(); LOCATIONS = []; // effective groups may have changed
+  } catch (e) {
+    errEl.textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
+async function toggleReportingGroup(id, makeActive) {
+  try {
+    await api(`/admin/reporting-groups/${id}`, {method:'PATCH', body:{is_active: makeActive}});
+    showToast(makeActive ? 'Reactivated.' : 'Deactivated.', 'ok');
+    loadReportingGroups();
+  } catch (e) {
+    showToast('Could not update: ' + e.message, 'err');
+  }
+}
+
+// ============================================================
+// Request Types (PRD 4.5c)
+// ============================================================
+
+async function loadRequestTypes() {
+  document.getElementById('rtTableBody').innerHTML = '<tr class="empty-row"><td colspan="4">Loading…</td></tr>';
+  try {
+    REQUEST_TYPES = await api('/admin/request-types');
+  } catch (e) {
+    showToast('Could not load request types: ' + e.message, 'err');
+    return;
+  }
+  renderRequestTypes();
+}
+
+function renderRequestTypes() {
+  const tbody = document.getElementById('rtTableBody');
+  if (!REQUEST_TYPES.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No request types yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = REQUEST_TYPES.map(t => `
+    <tr class="${t.is_active ? '' : 'inactive'}">
+      <td>${escapeHtml(t.name)}</td>
+      <td>${t.sort_order}</td>
+      <td>${t.is_active ? 'Active' : 'Deactivated'}</td>
+      <td class="row-actions">
+        <button class="btn btn-ghost btn-sm" onclick="openEditRequestType(${t.id})">Edit</button>
+        ${t.is_active
+          ? `<button class="btn btn-danger btn-sm" onclick="toggleRequestType(${t.id}, false)">Deactivate</button>`
+          : `<button class="btn btn-ghost btn-sm" onclick="toggleRequestType(${t.id}, true)">Reactivate</button>`
+        }
+      </td>
+    </tr>`).join('');
+}
+
+function openNewRequestType() {
+  openDrawer(`
+    <button class="close-btn" onclick="closeDrawer()">×</button>
+    <h2>New request type</h2>
+    <label>Name</label><input id="rtName" placeholder="e.g. NJ Security">
+    <label>Sort order</label><input id="rtSort" type="number" value="0">
+    <div class="field-err" id="rtErr"></div>
+    <div class="drawer-actions"><button class="btn" onclick="createRequestType()">Create</button></div>
+  `);
+}
+
+async function createRequestType() {
+  const btn = event.target;
+  const errEl = document.getElementById('rtErr');
+  errEl.textContent = '';
+  const name = document.getElementById('rtName').value.trim();
+  if (!name) { errEl.textContent = 'Name is required.'; return; }
+  btn.disabled = true;
+  try {
+    await api('/admin/request-types', {method:'POST', body:{
+      name, sort_order: parseInt(document.getElementById('rtSort').value) || 0,
+    }});
+    showToast('Request type created.', 'ok');
+    closeDrawer(); loadRequestTypes();
+  } catch (e) {
+    errEl.textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
+function openEditRequestType(id) {
+  const t = REQUEST_TYPES.find(x => x.id === id);
+  if (!t) return;
+  openDrawer(`
+    <button class="close-btn" onclick="closeDrawer()">×</button>
+    <h2>${escapeHtml(t.name)}</h2>
+    <label>Name</label><input id="eRtName" value="${escapeHtml(t.name)}">
+    <label>Sort order</label><input id="eRtSort" type="number" value="${t.sort_order}">
+    <div class="hint">Renaming doesn't change the work_type stored on existing work orders — only what's offered going forward. For a real reclassification, deactivate this and add a new type instead.</div>
+    <div class="field-err" id="eRtErr"></div>
+    <div class="drawer-actions"><button class="btn" onclick="saveEditRequestType(${t.id})">Save changes</button></div>
+  `);
+}
+
+async function saveEditRequestType(id) {
+  const btn = event.target;
+  const errEl = document.getElementById('eRtErr');
+  errEl.textContent = '';
+  btn.disabled = true;
+  try {
+    await api(`/admin/request-types/${id}`, {method:'PATCH', body:{
+      name: document.getElementById('eRtName').value.trim(),
+      sort_order: parseInt(document.getElementById('eRtSort').value) || 0,
+    }});
+    showToast('Saved.', 'ok');
+    closeDrawer(); loadRequestTypes();
+  } catch (e) {
+    errEl.textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
+async function toggleRequestType(id, makeActive) {
+  try {
+    await api(`/admin/request-types/${id}`, {method:'PATCH', body:{is_active: makeActive}});
+    showToast(makeActive ? 'Reactivated.' : 'Deactivated.', 'ok');
+    loadRequestTypes();
+  } catch (e) {
+    showToast('Could not update: ' + e.message, 'err');
+  }
+}
+
+// ============================================================
+// Teams (PRD 4.5d) — distinct from the Users tab's team FILTER dropdown
+// (TEAMS, active-only via /teams); this manages the team rows themselves.
+// ============================================================
+
+async function loadAdminTeams() {
+  document.getElementById('teamTableBody').innerHTML = '<tr class="empty-row"><td colspan="3">Loading…</td></tr>';
+  try {
+    ADMIN_TEAMS = await api('/admin/teams');
+  } catch (e) {
+    showToast('Could not load teams: ' + e.message, 'err');
+    return;
+  }
+  renderAdminTeams();
+}
+
+function renderAdminTeams() {
+  const tbody = document.getElementById('teamTableBody');
+  if (!ADMIN_TEAMS.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="3">No teams yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = ADMIN_TEAMS.map(t => `
+    <tr class="${t.is_active ? '' : 'inactive'}">
+      <td>${escapeHtml(t.name)}</td>
+      <td>${t.is_active ? 'Active' : 'Deactivated'}</td>
+      <td class="row-actions">
+        <button class="btn btn-ghost btn-sm" onclick="openEditAdminTeam(${t.id})">Edit</button>
+        ${t.is_active
+          ? `<button class="btn btn-danger btn-sm" onclick="deactivateAdminTeam(${t.id})">Deactivate</button>`
+          : `<button class="btn btn-ghost btn-sm" onclick="toggleAdminTeam(${t.id}, true)">Reactivate</button>`
+        }
+      </td>
+    </tr>`).join('');
+}
+
+function openNewAdminTeam() {
+  openDrawer(`
+    <button class="close-btn" onclick="closeDrawer()">×</button>
+    <h2>New team</h2>
+    <label>Name</label><input id="tName" placeholder="e.g. 2026 Jamboree Security">
+    <div class="field-err" id="tErr"></div>
+    <div class="drawer-actions"><button class="btn" onclick="createAdminTeam()">Create</button></div>
+  `);
+}
+
+async function createAdminTeam() {
+  const btn = event.target;
+  const errEl = document.getElementById('tErr');
+  errEl.textContent = '';
+  const name = document.getElementById('tName').value.trim();
+  if (!name) { errEl.textContent = 'Name is required.'; return; }
+  btn.disabled = true;
+  try {
+    await api('/admin/teams', {method:'POST', body:{name}});
+    showToast('Team created.', 'ok');
+    closeDrawer(); loadAdminTeams(); TEAMS = await api('/teams'); populateFilterOptions();
+  } catch (e) {
+    errEl.textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
+function openEditAdminTeam(id) {
+  const t = ADMIN_TEAMS.find(x => x.id === id);
+  if (!t) return;
+  openDrawer(`
+    <button class="close-btn" onclick="closeDrawer()">×</button>
+    <h2>${escapeHtml(t.name)}</h2>
+    <label>Name</label><input id="eTName" value="${escapeHtml(t.name)}">
+    <div class="field-err" id="eTErr"></div>
+    <div class="drawer-actions"><button class="btn" onclick="saveEditAdminTeam(${t.id})">Save changes</button></div>
+  `);
+}
+
+async function saveEditAdminTeam(id) {
+  const btn = event.target;
+  const errEl = document.getElementById('eTErr');
+  errEl.textContent = '';
+  btn.disabled = true;
+  try {
+    await api(`/admin/teams/${id}`, {method:'PATCH', body:{name: document.getElementById('eTName').value.trim()}});
+    showToast('Saved.', 'ok');
+    closeDrawer(); loadAdminTeams();
+  } catch (e) {
+    errEl.textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
+async function toggleAdminTeam(id, makeActive, confirmDeactivate) {
+  try {
+    await api(`/admin/teams/${id}`, {method:'PATCH', body:{
+      is_active: makeActive, confirm_deactivate: !!confirmDeactivate,
+    }});
+    showToast(makeActive ? 'Team reactivated.' : 'Team deactivated.', 'ok');
+    loadAdminTeams();
+  } catch (e) {
+    if (e.status === 409) {
+      if (confirm(e.message + '\n\nDeactivate anyway?')) {
+        toggleAdminTeam(id, makeActive, true);
+      }
+      return;
+    }
+    showToast('Could not update team: ' + e.message, 'err');
+  }
+}
+function deactivateAdminTeam(id) { toggleAdminTeam(id, false); }
 
 if (TOKEN) boot();
 </script>
