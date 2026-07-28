@@ -16,7 +16,7 @@ from typing import Optional
 
 from .. import crud, schemas, models
 from ..database import get_db
-from ..auth import require_roles
+from ..auth import require_roles, get_current_user
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -30,6 +30,16 @@ _LOC_MANAGEABLE_ROLES = {"tech", "leadership"}
 def _check_can_manage_role(actor: models.User, role: str):
     if actor.role != "admin" and role not in _LOC_MANAGEABLE_ROLES:
         raise HTTPException(403, "only an admin can create or modify admin/LOC accounts")
+
+
+@router.get("/me", response_model=schemas.UserOut)
+def get_me(user: models.User = Depends(get_current_user)):
+    """Any authenticated user (loc/tech/leadership/admin) can read their
+    own identity — used by the frontend (enhancement backlog Phase 1, PRD
+    §14#1) to tell whether *it* holds a WO's edit lock vs. someone else
+    does. Declared before the /{user_id} routes below so it isn't
+    swallowed by that path pattern."""
+    return user
 
 
 @router.get("", response_model=list[schemas.UserAdminOut])

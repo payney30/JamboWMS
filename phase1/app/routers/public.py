@@ -167,13 +167,39 @@ async def submit_public_work_order(
     return schemas.PublicWorkOrderConfirmation(wo_number=wo.wo_number)
 
 
-@router.get("/work-orders/lookup", response_model=schemas.PublicWorkOrderStatus)
-def lookup_public_work_order(wo_number: str, email: str, db: Session = Depends(get_db)):
-    """PRD 4.1's optional status-lookup page: check a WO by number + the
-    email it was submitted with, no login. Requires both to match and
-    returns the same 404 either way a mismatch happens, so this can't be
-    used to enumerate WO numbers or confirm an email was used to submit one."""
-    wo = db.query(models.WorkOrder).filter(models.WorkOrder.wo_number == wo_number.strip()).first()
-    if not wo or not wo.requester_email or wo.requester_email.strip().lower() != email.strip().lower():
-        raise HTTPException(404, "no matching work order found")
-    return wo
+@router.get("/work-orders/lookup", response_model=List[schemas.PublicWorkOrderStatus])
+def lookup_public_work_orders(phone: str, request: Request, db: Session = Depends(get_db)):
+    """Enhancement backlog Phase 1 (PRD §13#4): status lookup is now
+    anchored on phone number instead of a WO-number + email compound key
+    — either the original requester's phone or a delegated POC's phone
+    (WorkOrder.poc_phone) matches, and this returns every WO tied to that
+    number rather than requiring the requester to already know a specific
+    WO number. Digit-only matching (see crud._digits_only) so formatting
+    differences don't cause false negatives.
+
+    Trade-off worth noting: a phone number alone is now sufficient to see
+    every WO tied to it (no second factor like the old email pairing) —
+    that's the explicit intent of this enhancement (a POC who wasn't the
+    original submitter needs to be able to look things up with just their
+    own phone), but it does mean phone numbers are somewhat less "secret"
+    here than the old wo_number+email pair was. Rate-limited below for
+    basic abuse protection in place of a second factor.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    retry_after = rate_limit.check_public_lookup_limit(client_ip)
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many lookups from this connection. Please wait a few minutes and try again.",
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
+    rate_limit.record_public_lookup(client_ip)
+
+    digits = crud._digits_only(phone)
+    if len(digits) < 7:
+        raise HTTPException(400, "enter a valid phone number")
+
+    wos = crud.lookup_work_orders_by_phone(db, digits)
+    if not wos:
+        raise HTTPException(404, "no work orders found for that phone number")
+    return wos
