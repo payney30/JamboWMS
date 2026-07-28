@@ -134,36 +134,75 @@ def test_public_submission_skips_non_image_files_silently(client, asset, db):
     assert len(wo.attachments) == 0  # but the non-image file wasn't kept
 
 
-def test_public_lookup_returns_status_with_matching_email(client, asset):
-    create = client.post("/public/work-orders", data=_base_form(asset, requester_email="leader@example.com"))
+def test_public_lookup_returns_status_by_phone(client, asset):
+    create = client.post("/public/work-orders", data=_base_form(asset, requester_phone="555-0100"))
     wo_number = create.json()["wo_number"]
 
-    resp = client.get("/public/work-orders/lookup", params={"wo_number": wo_number, "email": "leader@example.com"})
+    resp = client.get("/public/work-orders/lookup", params={"phone": "555-0100"})
     assert resp.status_code == 200
     body = resp.json()
-    assert body["wo_number"] == wo_number
-    assert body["status"] == "Requested"
+    assert len(body) == 1
+    assert body[0]["wo_number"] == wo_number
+    assert body[0]["status"] == "Requested"
 
 
-def test_public_lookup_case_insensitive_email(client, asset):
-    create = client.post("/public/work-orders", data=_base_form(asset, requester_email="Leader@Example.com"))
-    wo_number = create.json()["wo_number"]
+def test_public_lookup_by_phone_ignores_formatting_differences(client, asset):
+    client.post("/public/work-orders", data=_base_form(asset, requester_phone="(555) 010-0099"))
 
-    resp = client.get("/public/work-orders/lookup", params={"wo_number": wo_number, "email": "leader@example.com"})
+    resp = client.get("/public/work-orders/lookup", params={"phone": "555-010-0099"})
     assert resp.status_code == 200
+    assert len(resp.json()) == 1
 
 
-def test_public_lookup_404_on_email_mismatch(client, asset):
-    create = client.post("/public/work-orders", data=_base_form(asset, requester_email="leader@example.com"))
+def test_public_lookup_by_phone_returns_all_matching_work_orders(client, asset):
+    client.post("/public/work-orders", data=_base_form(asset, requester_phone="555-0200"))
+    client.post("/public/work-orders", data=_base_form(asset, requester_phone="555-0200", description="Second issue"))
+    client.post("/public/work-orders", data=_base_form(asset, requester_phone="555-9999"))  # different phone
+
+    resp = client.get("/public/work-orders/lookup", params={"phone": "555-0200"})
+    assert resp.status_code == 200
+    assert len(resp.json()) == 2
+
+
+def test_public_lookup_by_phone_matches_poc_phone(client, asset):
+    """Enhancement backlog Phase 1 (PRD §13#4): a delegated POC can look
+    up a WO with their own phone number, not just the original requester's."""
+    resp = client.post(
+        "/public/work-orders",
+        data=_base_form(
+            asset,
+            poc_is_requester="false",
+            poc_name="Area Lead",
+            poc_phone="555-0300",
+        ),
+    )
+    assert resp.status_code == 201
+
+    lookup = client.get("/public/work-orders/lookup", params={"phone": "555-0300"})
+    assert lookup.status_code == 200
+    assert len(lookup.json()) == 1
+
+
+def test_public_lookup_404_on_unknown_phone(client, asset):
+    resp = client.get("/public/work-orders/lookup", params={"phone": "555-0000"})
+    assert resp.status_code == 404
+
+
+def test_public_lookup_rejects_too_short_phone(client, asset):
+    resp = client.get("/public/work-orders/lookup", params={"phone": "123"})
+    assert resp.status_code == 400
+
+
+def test_public_lookup_includes_note_to_requester(client, asset, db):
+    create = client.post("/public/work-orders", data=_base_form(asset, requester_phone="555-0400"))
     wo_number = create.json()["wo_number"]
+    wo = db.query(models.WorkOrder).filter(models.WorkOrder.wo_number == wo_number).first()
+    wo.note_to_requester = "A tech is on the way."
+    db.commit()
 
-    resp = client.get("/public/work-orders/lookup", params={"wo_number": wo_number, "email": "someone-else@example.com"})
-    assert resp.status_code == 404
-
-
-def test_public_lookup_404_on_unknown_wo_number(client, asset):
-    resp = client.get("/public/work-orders/lookup", params={"wo_number": "WO-99999999", "email": "nobody@example.com"})
-    assert resp.status_code == 404
+    resp = client.get("/public/work-orders/lookup", params={"phone": "555-0400"})
+    assert resp.status_code == 200
+    assert resp.json()[0]["note_to_requester"] == "A tech is on the way."
 
 
 def test_notify_preference_persists_and_is_visible_on_the_wo(client, asset, db):
