@@ -91,6 +91,28 @@ def client(SessionLocalTest):
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def _seed_request_types(SessionLocalTest):
+    """work_type validation (crud._validate_work_type, PRD 4.5c) now
+    checks the request_types table instead of the old hardcoded
+    WORK_TYPES tuple — seed the same four standard types every test
+    previously got for free from that tuple, so existing tests that pass
+    e.g. work_type='NJ Maintenance' keep working without every one of
+    them needing its own request_types fixture. Autouse + depends on
+    SessionLocalTest (not `db`) so this seeds before either the `db` or
+    `client` fixture is used, regardless of which the test declares.
+    """
+    session = SessionLocalTest()
+    try:
+        for i, name in enumerate(
+            ["NJ IT", "NJ Items/Parts", "NJ Maintenance", "NJ Transportation"]
+        ):
+            session.add(models.RequestType(name=name, sort_order=i))
+        session.commit()
+    finally:
+        session.close()
+
+
 @pytest.fixture()
 def team(db):
     t = models.Team(name="Maintenance Team")
