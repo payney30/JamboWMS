@@ -100,17 +100,28 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
 .toast.err{background:var(--hivis);}
 .toast.ok{background:var(--moss);}
 /* Enhancement backlog Phase 3 (PRD §14#12): print-to-PDF for a single
-   WO. Hides everything except the open drawer's content, then the
-   browser's own print dialog (every major browser offers "Save as PDF"
-   as a destination) does the rest — no PDF-generation library needed.
-   Editable form controls (textareas/selects/location picker) are hidden
-   on print — a printed textarea just looks like an empty box, not its
-   value — in favor of a plain-text .print-only summary block that's
-   normally hidden and only shown here. */
+   WO. Explicitly display:none every other top-level element (NOT
+   visibility:hidden — that hides content but leaves its layout space
+   behind, which is what caused the original bug: the full inbox table
+   in #app stayed full-height-but-invisible, and the browser paginated
+   that entire empty height into dozens of blank pages behind the
+   drawer). #drawer also gets its screen-only fixed/height/scroll styles
+   reset so it prints as normal in-flow content sized to what's actually
+   in it, not a 100%-tall fixed panel. */
 @media print {
-  body * { visibility: hidden; }
-  #drawer, #drawer * { visibility: visible; }
-  #drawer { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none; }
+  #loginBox, #app, #drawerBackdrop, #toastStack { display: none !important; }
+  #drawer {
+    display: block !important;
+    position: static !important;
+    top: auto !important; right: auto !important;
+    width: auto !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border: none !important;
+    transition: none !important;
+  }
   #drawer .close-btn, #drawer .drawer-actions, #drawer .drawer-group { display: none !important; }
   #drawer .print-only { display: block !important; }
 }
