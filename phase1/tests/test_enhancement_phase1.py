@@ -274,6 +274,24 @@ def test_note_to_requester_editable_via_patch(client, auth_headers, wo_payload):
     assert resp.json()["note_to_requester"] == "Parts on order."
 
 
+# ---- Enhancement backlog Phase 2 (PRD §14#9): notes icon in inbox ----
+
+def test_note_to_requester_appears_on_inbox_list(client, auth_headers, wo_payload):
+    wo = _create_wo(client, auth_headers, wo_payload)
+    client.patch(f"/work-orders/{wo['id']}", json={"note_to_requester": "On our way."}, headers=auth_headers)
+
+    list_resp = client.get("/work-orders", headers=auth_headers)
+    row = next(w for w in list_resp.json() if w["id"] == wo["id"])
+    assert row["note_to_requester"] == "On our way."
+
+
+def test_note_to_requester_absent_by_default_on_inbox_list(client, auth_headers, wo_payload):
+    wo = _create_wo(client, auth_headers, wo_payload)
+    list_resp = client.get("/work-orders", headers=auth_headers)
+    row = next(w for w in list_resp.json() if w["id"] == wo["id"])
+    assert row["note_to_requester"] is None
+
+
 # ---- Status history shows the author's name (PRD §14#4 — bundled in) ----
 
 def test_status_history_includes_changed_by_name(client, auth_headers, wo_payload, team):

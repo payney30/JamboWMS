@@ -205,6 +205,62 @@ def test_public_lookup_includes_note_to_requester(client, asset, db):
     assert resp.json()[0]["note_to_requester"] == "A tech is on the way."
 
 
+# ---- Enhancement backlog Phase 2 (PRD §13#5): free-text search scoped to phone ----
+
+def test_lookup_search_matches_description(client, asset):
+    client.post("/public/work-orders", data=_base_form(
+        asset, requester_phone="555-0500", description="Leaky faucet in the shower house"
+    ))
+    client.post("/public/work-orders", data=_base_form(
+        asset, requester_phone="555-0500", description="Wifi is down in the office"
+    ))
+
+    resp = client.get("/public/work-orders/lookup", params={"phone": "555-0500", "search": "faucet"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 1
+    assert "faucet" in body[0]["description"].lower()
+
+
+def test_lookup_search_matches_location(client, asset):
+    client.post("/public/work-orders", data=_base_form(asset, requester_phone="555-0600"))
+
+    resp = client.get("/public/work-orders/lookup", params={"phone": "555-0600", "search": asset.name[:4]})
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+
+def test_lookup_search_is_case_insensitive(client, asset):
+    client.post("/public/work-orders", data=_base_form(
+        asset, requester_phone="555-0700", description="LEAKY Faucet"
+    ))
+    resp = client.get("/public/work-orders/lookup", params={"phone": "555-0700", "search": "leaky"})
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+
+def test_lookup_search_scoped_within_phone_matches_only(client, asset):
+    """A search term that matches a WO on a DIFFERENT phone number must
+    not leak into these results — search narrows within the phone match,
+    it never widens beyond it."""
+    client.post("/public/work-orders", data=_base_form(
+        asset, requester_phone="555-0800", description="Broken generator"
+    ))
+    client.post("/public/work-orders", data=_base_form(
+        asset, requester_phone="555-0801", description="Broken generator"
+    ))
+
+    resp = client.get("/public/work-orders/lookup", params={"phone": "555-0800", "search": "generator"})
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+
+def test_lookup_search_404_when_no_match_within_phone(client, asset):
+    client.post("/public/work-orders", data=_base_form(asset, requester_phone="555-0900"))
+    resp = client.get("/public/work-orders/lookup", params={"phone": "555-0900", "search": "nonexistent-term-xyz"})
+    assert resp.status_code == 404
+
+
 def test_notify_preference_persists_and_is_visible_on_the_wo(client, asset, db):
     resp = client.post(
         "/public/work-orders",
