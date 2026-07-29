@@ -317,9 +317,9 @@ class WOStatusHistory(Base):
 
 
 class WOAttachment(Base):
-    """Photos attached at submission via the public requester form
-    (app/routers/public.py). uploaded_by is null for public submissions
-    since there's no authenticated user in that flow."""
+    """Photos or PDFs attached at submission via the public requester
+    form (app/routers/public.py). uploaded_by is null for public
+    submissions since there's no authenticated user in that flow."""
     __tablename__ = "wo_attachments"
     id = Column(Integer, primary_key=True)
     work_order_id = Column(Integer, ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False)
