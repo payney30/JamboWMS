@@ -261,6 +261,78 @@ def test_lookup_search_404_when_no_match_within_phone(client, asset):
     assert resp.status_code == 404
 
 
+# ---- Bug fix (PRD §14#20): public request-types endpoint ----
+# The Submit WO form's "kind of issue" dropdown used to hardcode a fixed
+# set of work-type strings. Request types are admin-editable
+# (PRD 4.5c) — if an admin's active list ever diverges from that
+# hardcoded guess, every submission using one of the stale values fails
+# with a 400. This endpoint is the fix: both the dropdown and the
+# validator now read from the same source of truth.
+
+def test_public_request_types_returns_active_names(client, db):
+    from app import models
+    db.add(models.RequestType(name="Custom Type A", sort_order=10, is_active=True))
+    db.add(models.RequestType(name="Custom Type B", sort_order=11, is_active=True))
+    db.add(models.RequestType(name="Retired Type", sort_order=12, is_active=False))
+    db.commit()
+
+    resp = client.get("/public/request-types")
+    assert resp.status_code == 200
+    names = resp.json()
+    assert "Custom Type A" in names
+    assert "Custom Type B" in names
+    assert "Retired Type" not in names  # inactive types are excluded
+    # the four standard seeded types (see conftest._seed_request_types)
+    # are also present, since this endpoint returns everything active
+    assert "NJ Maintenance" in names
+
+
+def test_submission_fails_if_admin_deactivates_a_hardcoded_type(client, asset, db):
+    """Reproduces the actual bug: every test gets the four standard
+    request types seeded automatically (see conftest._seed_request_types)
+    — which is exactly why this drift risk went unnoticed. This test
+    explicitly simulates an admin deactivating one of them (a real,
+    existing admin feature, PRD 4.5c) to prove the failure mode a
+    hardcoded frontend dropdown is exposed to: a submission using that
+    now-inactive name gets rejected. Fetching /public/request-types
+    dynamically (the fix) avoids this because it only ever offers
+    currently-active names in the first place."""
+    from app import models
+    rt = db.query(models.RequestType).filter_by(name="NJ Maintenance").first()
+    rt.is_active = False
+    db.commit()
+
+    resp = client.post(
+        "/public/work-orders",
+        data=_base_form(asset, work_type="NJ Maintenance"),
+    )
+    assert resp.status_code == 400
+    assert "invalid or inactive request type" in resp.json()["detail"]
+
+    # And confirm the fix's other half: the public endpoint no longer
+    # offers that name, so a form built from it wouldn't present this
+    # choice to begin with.
+    types_resp = client.get("/public/request-types")
+    assert "NJ Maintenance" not in types_resp.json()
+
+
+def test_submission_succeeds_with_currently_active_type(client, asset, db):
+    from app import models
+    db.add(models.RequestType(name="Facilities", sort_order=0, is_active=True))
+    db.commit()
+
+    resp = client.post("/public/work-orders", data=_base_form(asset, work_type="Facilities"))
+    assert resp.status_code == 201
+
+
+def test_submission_with_blank_work_type_always_succeeds(client, asset):
+    """The 'Other / not sure' sentinel (blank string) is valid
+    regardless of the request_types table's state — the fail-open path
+    if the dropdown's fetch fails entirely."""
+    resp = client.post("/public/work-orders", data=_base_form(asset, work_type=""))
+    assert resp.status_code == 201
+
+
 def test_notify_preference_persists_and_is_visible_on_the_wo(client, asset, db):
     resp = client.post(
         "/public/work-orders",
