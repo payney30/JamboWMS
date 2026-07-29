@@ -125,19 +125,14 @@ input[type=file]{font-size:13px;}
       <div id="rLocationPicker"></div>
       <div class="field-err" id="rLocationErr"></div>
 
-      <!-- Enhancement backlog Phase 3 (PRD §13#3): now required — a
-           disabled placeholder option forces an active choice (which can
-           still legitimately be "Other / not sure", that's fine; it just
-           can't be skipped by accident). See submit handler below for
-           the sentinel-value translation. -->
+      <!-- Enhancement backlog Phase 3 (PRD §13#3): required. Bug fix
+           (PRD §14#20): options are now populated dynamically in boot()
+           from the same admin-editable request-types list the backend
+           validates against — see the note there for why a hardcoded
+           list broke real submissions. -->
       <label>What kind of issue is this? <span class="required-mark">*</span></label>
       <select id="rWorkType" required>
         <option value="" disabled selected>Select an issue type…</option>
-        <option value="NJ Maintenance">Maintenance (repairs, facilities)</option>
-        <option value="NJ Items/Parts">Items / parts request</option>
-        <option value="NJ IT">IT</option>
-        <option value="NJ Transportation">Transportation</option>
-        <option value="other">Other / not sure</option>
       </select>
 
       <!-- Enhancement backlog Phase 3 (PRD §13#2): hover tooltip via the
@@ -245,6 +240,27 @@ async function boot(){
     const settings = await fetch('/public/settings').then(r => r.json());
     APP_TIMEZONE = settings.timezone || 'UTC';
   } catch (err) { /* keep the UTC fallback */ }
+
+  // Bug fix (PRD §14#20): fetch the live, admin-editable request-types
+  // list instead of a hardcoded set that can silently drift out of sync
+  // with what the backend actually validates against — see
+  // app/routers/public.py:get_public_request_types for the full story.
+  try {
+    const types = await fetch('/public/request-types').then(r => r.json());
+    const select = document.getElementById('rWorkType');
+    types.forEach(name => {
+      select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`);
+    });
+    select.insertAdjacentHTML('beforeend', `<option value="other">Other / not sure</option>`);
+  } catch (err) {
+    console.error('Request types failed to load:', err);
+    // Fail open: still let people submit even if this fetch fails —
+    // "Other / not sure" always validates regardless of the
+    // request_types table's state.
+    document.getElementById('rWorkType').insertAdjacentHTML(
+      'beforeend', `<option value="other">Other / not sure</option>`
+    );
+  }
 
   try {
     const pickerEl = document.getElementById('rLocationPicker');
