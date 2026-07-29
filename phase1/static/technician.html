@@ -48,6 +48,7 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
 .stat .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-soft);margin-top:5px;}
 
 .section-title{font-family:var(--font-display);text-transform:uppercase;letter-spacing:.06em;font-size:13px;color:var(--ink-soft);margin:22px 0 10px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.section-title .hint{font-family:var(--font-body);text-transform:none;letter-spacing:normal;font-size:11px;color:var(--ink-soft);opacity:.75;}
 .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
 .filters select,.filters input{padding:10px;border:1px solid var(--khaki-line);border-radius:6px;font-size:14px;background:var(--canvas-panel);}
 .filters input{flex:1;min-width:160px;}
@@ -99,6 +100,30 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
 @media (min-width:640px){
   .wrap{padding:28px 24px 60px;}
 }
+
+/* Enhancement backlog Phase 12 (PRD §16#1): print-to-PDF for a single
+   WO, same approach as the LOC triage drawer (§14#12, fixed in §14#18)
+   — display:none on the other top-level sections (NOT visibility:hidden,
+   which leaves layout space behind and causes dozens of blank pages),
+   plus resetting the drawer's screen-only fixed/height/scroll styles. */
+@media print {
+  #loginBox, #app, #drawerBackdrop, #toastStack { display: none !important; }
+  #drawer {
+    display: block !important;
+    position: static !important;
+    top: auto !important; right: auto !important;
+    width: auto !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border: none !important;
+    transition: none !important;
+  }
+  #drawer .close-btn, #drawer .drawer-actions, #drawer select, #drawer textarea { display: none !important; }
+  #drawer .print-only { display: block !important; }
+}
+.print-only { display: none; }
 </style>
 </head>
 <body>
@@ -135,9 +160,15 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
     <select id="fPriority" onchange="load()"><option value="">All priorities</option></select>
     <input id="fSearch" placeholder="Search description or WO#…" oninput="debouncedLoad()">
   </div>
+  <!-- Enhancement backlog Phase 12 (PRD §16#5): filter the queue by
+       exact location, using the same hierarchical LocationPicker
+       component (maintained in Admin) as data entry uses elsewhere. -->
+  <div style="margin-top:10px;max-width:360px;">
+    <div id="fLocationPicker"></div>
+  </div>
   <div class="chips" id="quickViews"></div>
 
-  <div class="section-title">Queue</div>
+  <div class="section-title"><span>Queue <span class="hint" id="queueCount"></span></span></div>
   <div class="cards" id="woCards"><div class="empty-state">Loading…</div></div>
 </div>
 
@@ -145,10 +176,14 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
 <div id="drawer"></div>
 <div id="toastStack"></div>
 
+<script src="location-picker.js"></script>
 <script>
 const API = '';
 let TOKEN = localStorage.getItem('tech_token') || '';
 let ME = null, TEAMS = [];
+// Enhancement backlog Phase 12 (PRD §16#5): set by the LocationPicker
+// filter's onChange; null means no location filter applied.
+let locationFilterAssetId = null;
 // Enhancement backlog Phase 4 (PRD §15#1): same pattern as index.html —
 // admin-configured display time zone, fetched from the no-auth public
 // settings endpoint so this screen agrees with LOC triage and the
@@ -280,6 +315,21 @@ async function boot() {
 
   populateFilterOptions();
   renderQuickViews();
+
+  // Enhancement backlog Phase 12 (PRD §16#5). Best-effort — if the
+  // location tree fails to load, the filter just isn't offered rather
+  // than blocking the rest of the queue from loading.
+  try {
+    LocationPicker.mount(document.getElementById('fLocationPicker'), {
+      treeUrl: '/locations/tree',
+      fetchOpts: { headers: { Authorization: 'Bearer ' + TOKEN } },
+      placeholder: 'Filter by location…',
+      onChange: (assetId) => { locationFilterAssetId = assetId; load(); },
+    });
+  } catch (e) {
+    console.error('Location filter failed to load:', e);
+  }
+
   await load();
 }
 
@@ -326,6 +376,7 @@ async function load() {
   if (status) params.set('status', status);
   if (priority) params.set('priority', priority);
   if (search) params.set('search', search);
+  if (locationFilterAssetId) params.set('asset_id', locationFilterAssetId);
   params.set('limit', '200');
 
   let wos;
@@ -363,6 +414,13 @@ function renderStats(wos){
 }
 
 function renderCards(wos){
+  // Enhancement backlog Phase 12 (PRD §16#4): count next to "Queue",
+  // aligned immediately beside the heading text (not pushed to the far
+  // right — .section-title's flex/space-between would do that if this
+  // were a separate flex-item sibling, so it's nested inside the same
+  // <span> as "Queue" instead).
+  const countEl = document.getElementById('queueCount');
+  if (countEl) countEl.textContent = `(${wos.length})`;
   const wrap = document.getElementById('woCards');
   if (!wos.length) {
     wrap.innerHTML = '<div class="empty-state">Nothing here right now.</div>';
@@ -384,12 +442,26 @@ function renderCards(wos){
   `).join('');
 }
 
+// Enhancement backlog Phase 12 (PRD §16#1): unsaved-changes tracking,
+// same pattern as the LOC triage drawer (and the same bug-fixed
+// discard-confirmation wording — see PRD §14#14 for why "OK to save /
+// Cancel to discard" was wrong; this never had that bug since it's new,
+// but stays consistent with the corrected LOC version from day one).
+let drawerState = {woId: null, dirty: false};
+function markDirty(){ drawerState.dirty = true; }
+
 function openDrawer(html){
   document.getElementById('drawer').innerHTML = html;
   document.getElementById('drawer').classList.add('open');
   document.getElementById('drawerBackdrop').classList.add('open');
 }
-function closeDrawer(){
+
+function closeDrawer(skipPrompt){
+  if (!skipPrompt && drawerState.dirty) {
+    const wantsDiscard = confirm('Discard your unsaved changes to this work order?');
+    if (!wantsDiscard) return; // stay open, no side effects
+  }
+  drawerState = {woId: null, dirty: false};
   document.getElementById('drawer').classList.remove('open');
   document.getElementById('drawerBackdrop').classList.remove('open');
 }
@@ -402,19 +474,59 @@ async function openDetail(id){
     if (e.message !== 'session expired') showToast('Could not load work order: ' + e.message, 'err');
     return;
   }
+  drawerState = {woId: id, dirty: false};
 
   const statusOpts = TECH_STATUSES.map(s => `<option value="${s}" ${s===w.status?'selected':''}>${s}</option>`).join('');
   const teamOpts = TEAMS.filter(t => t.id !== w.assigned_team.id)
     .map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
 
-  const notesHtml = (w.notes.length ? w.notes : []).slice().reverse().map(n => `
-    <div class="note">${escapeHtml(n.note_text)}
+  // Enhancement backlog Phase 12 (PRD §16#3): label who a note is from
+  // — specifically flag LOC/admin-authored notes so it's clear which
+  // ones are LOC guidance vs. another tech's own update. Notes were
+  // already shown (read-only, no edit UI ever existed for the list —
+  // only the "Add a work note" box below adds new ones), this just
+  // makes the LOC-authored ones visually obvious rather than identical
+  // to any other note.
+  const notesHtml = (w.notes.length ? w.notes : []).slice().reverse().map(n => {
+    const isLoc = n.author && (n.author.role === 'loc' || n.author.role === 'admin');
+    const badge = isLoc ? '<span style="background:var(--pine);color:#fff;font-size:9px;padding:1px 5px;border-radius:3px;margin-right:5px;">LOC</span>' : '';
+    return `<div class="note">${badge}${escapeHtml(n.note_text)}
       <div class="meta">${n.note_type} &middot; ${n.author ? escapeHtml(n.author.name) : 'system'} &middot; ${fmtDateTime(n.created_at)}</div>
-    </div>`).join('') || '<div class="empty-state" style="padding:10px 0;">No notes yet.</div>';
+    </div>`;
+  }).join('') || '<div class="empty-state" style="padding:10px 0;">No notes yet.</div>';
 
   const histHtml = w.history.slice().reverse().map(h => `
     <div class="hist">${h.event_type}: ${h.from_value ? escapeHtml(h.from_value) + ' → ' : ''}${escapeHtml(h.to_value)} &middot; ${fmtDateTime(h.changed_at)}</div>
   `).join('') || '<div class="empty-state" style="padding:10px 0;">No history yet.</div>';
+
+  // Enhancement backlog Phase 12 (PRD §16#2): submitted photos/PDFs,
+  // same rendering (including the broken-image fallback, §14#29) as the
+  // LOC triage drawer — technicians previously had no way to see
+  // attachments at all from this screen.
+  const attachmentsHtml = (w.attachments||[]).length
+    ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;">` + (w.attachments||[]).map(a => {
+        const isPdf = /\.pdf($|\?)/i.test(a.file_url);
+        if (isPdf) {
+          return `<a href="${a.file_url}" target="_blank" rel="noopener" style="width:64px;height:64px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:9px;color:var(--ink-soft);text-decoration:none;">📄<span>PDF</span></a>`;
+        }
+        return `<a href="${a.file_url}" target="_blank" rel="noopener" style="position:relative;width:64px;height:64px;display:block;">
+          <img src="${a.file_url}" alt="attachment" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--khaki-line);" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+          <span style="display:none;width:64px;height:64px;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:8px;color:var(--ink-soft);text-align:center;padding:2px;box-sizing:border-box;">🖼️<span>Can't preview</span></span>
+        </a>`;
+      }).join('') + `</div>`
+    : '';
+
+  // Enhancement backlog Phase 12 (PRD §16#2): print-only plain-text
+  // summary, same reasoning as the LOC drawer — a printed <select> just
+  // shows an empty box, not its value.
+  const printOnlyHtml = `
+    <div class="print-only">
+      <p><strong>Location:</strong> ${escapeHtml(w.asset ? w.asset.name : '—')}</p>
+      <p><strong>Work type:</strong> ${escapeHtml(w.work_type || '—')} &nbsp; <strong>Priority:</strong> ${escapeHtml(w.priority)}</p>
+      <p><strong>Status:</strong> ${escapeHtml(w.status)} &nbsp; <strong>Team:</strong> ${escapeHtml(w.assigned_team ? w.assigned_team.name : '—')}</p>
+      <p><strong>Description:</strong><br>${escapeHtml(w.description)}</p>
+      <p style="font-size:11px;color:#666;">Printed ${fmtDateTime(new Date().toISOString())}</p>
+    </div>`;
 
   openDrawer(`
     <button class="close-btn" onclick="closeDrawer()">×</button>
@@ -422,35 +534,36 @@ async function openDetail(id){
     <div class="sub">${escapeHtml(w.work_type || 'No work type')} &middot; <span class="chip chip-${w.priority}">${w.priority}</span></div>
 
     <div class="readonly-block"><strong>${escapeHtml(w.asset ? w.asset.name : 'No location')}</strong><br>${escapeHtml(w.description)}</div>
+    ${attachmentsHtml}
+    ${printOnlyHtml}
 
     <div class="drawer-group">
       <label>Status</label>
-      <select id="dStatus">${statusOpts}</select>
+      <select id="dStatus" onchange="markDirty()">${statusOpts}</select>
       <label>Note (required when closing)</label>
-      <textarea id="dStatusNote" placeholder="What did you do…"></textarea>
+      <textarea id="dStatusNote" placeholder="What did you do…" oninput="markDirty()"></textarea>
       <div class="field-err" id="dStatusErr"></div>
-      <div class="drawer-actions">
-        <button class="btn" onclick="saveStatus(${w.id})">Update status</button>
-      </div>
     </div>
 
     <div class="drawer-group">
       <label>Reassign — wrong team? Send it to the right one</label>
-      <select id="dTeam"><option value="">Choose a team…</option>${teamOpts}</select>
-      <label>Reason (required)</label>
-      <textarea id="dAssignNote" placeholder="Why is this moving teams…"></textarea>
+      <select id="dTeam" onchange="markDirty()"><option value="">Choose a team…</option>${teamOpts}</select>
+      <label>Reason (required if reassigning)</label>
+      <textarea id="dAssignNote" placeholder="Why is this moving teams…" oninput="markDirty()"></textarea>
       <div class="field-err" id="dAssignErr"></div>
-      <div class="drawer-actions">
-        <button class="btn btn-ghost" onclick="saveAssign(${w.id})">Reassign</button>
-      </div>
     </div>
 
     <div class="drawer-group">
       <label>Add a work note</label>
-      <textarea id="dNote" placeholder="Progress update, blocker, parts needed…"></textarea>
-      <div class="drawer-actions">
-        <button class="btn btn-ghost" onclick="saveNote(${w.id})">Add note</button>
-      </div>
+      <textarea id="dNote" placeholder="Progress update, blocker, parts needed…" oninput="markDirty()"></textarea>
+    </div>
+
+    <!-- Enhancement backlog Phase 12 (PRD §16#1): single Save action,
+         same as the LOC triage drawer, instead of one button per section. -->
+    <div class="drawer-actions" style="margin-top:8px;">
+      <button class="btn" id="saveDrawerBtn" onclick="saveDrawer()">Save changes</button>
+      <button class="btn btn-ghost" onclick="closeDrawer()">Cancel</button>
+      <button class="btn btn-ghost" onclick="window.print()">Print / Save as PDF</button>
     </div>
 
     <div class="section-title" style="margin-top:20px;">Notes</div>
@@ -460,71 +573,56 @@ async function openDetail(id){
   `);
 }
 
-async function withButtonLock(btn, fn){
-  if (!btn) { await fn(); return; }
+async function saveDrawer(){
+  const id = drawerState.woId;
+  const btn = document.getElementById('saveDrawerBtn');
+  document.getElementById('dStatusErr').textContent = '';
+  document.getElementById('dAssignErr').textContent = '';
   btn.disabled = true;
-  const original = btn.textContent;
-  try {
-    await fn();
-  } finally {
-    btn.disabled = false;
-    btn.textContent = original;
+  btn.textContent = 'Saving…';
+
+  const status = document.getElementById('dStatus').value;
+  const statusNote = document.getElementById('dStatusNote').value || null;
+  if (status.startsWith('Closed') && !statusNote) {
+    document.getElementById('dStatusErr').textContent = 'A note is required when closing.';
+    btn.disabled = false; btn.textContent = 'Save changes';
+    return;
   }
-}
 
-async function saveStatus(id){
-  const btn = event.target;
-  const errEl = document.getElementById('dStatusErr');
-  errEl.textContent = '';
-  await withButtonLock(btn, async () => {
-    const status = document.getElementById('dStatus').value;
-    const note = document.getElementById('dStatusNote').value || null;
-    if (status.startsWith('Closed') && !note) {
-      errEl.textContent = 'Add a note describing what was done before closing.';
-      return;
-    }
-    try {
-      await api(`/work-orders/${id}/status`, {method:'POST', body:{status, note}});
-      showToast('Status updated.', 'ok');
-      closeDrawer(); load();
-    } catch (e) {
-      if (e.message !== 'session expired') errEl.textContent = e.message;
-    }
-  });
-}
+  const teamVal = document.getElementById('dTeam').value;
+  const assignNote = document.getElementById('dAssignNote').value || null;
+  if (teamVal && !assignNote) {
+    document.getElementById('dAssignErr').textContent = 'A reason is required when reassigning.';
+    btn.disabled = false; btn.textContent = 'Save changes';
+    return;
+  }
 
-async function saveAssign(id){
-  const btn = event.target;
-  const errEl = document.getElementById('dAssignErr');
-  errEl.textContent = '';
-  await withButtonLock(btn, async () => {
-    const teamVal = document.getElementById('dTeam').value;
-    const note = document.getElementById('dAssignNote').value || null;
-    if (!teamVal) { errEl.textContent = 'Choose a team to send it to.'; return; }
-    if (!note) { errEl.textContent = 'A reason is required when reassigning.'; return; }
-    try {
-      await api(`/work-orders/${id}/assign`, {method:'POST', body:{team_id: parseInt(teamVal), note}});
-      showToast('Reassigned.', 'ok');
-      closeDrawer(); load();
-    } catch (e) {
-      if (e.message !== 'session expired') errEl.textContent = e.message;
-    }
-  });
-}
+  const payload = {
+    status,
+    status_note: statusNote,
+    new_note_text: document.getElementById('dNote').value || null,
+    new_note_type: 'work_note',
+  };
+  // Only include team_id if the tech actually picked one — reassignment
+  // here is an optional "wrong team, send it to the right one" action,
+  // not a default resend of the current team (unlike the status field,
+  // which always reflects a real current value either way).
+  if (teamVal) {
+    payload.team_id = parseInt(teamVal, 10);
+    payload.assign_note = assignNote;
+  }
 
-async function saveNote(id){
-  const btn = event.target;
-  await withButtonLock(btn, async () => {
-    const note_text = document.getElementById('dNote').value;
-    if (!note_text) { showToast('Write a note before saving.', 'err'); return; }
-    try {
-      await api(`/work-orders/${id}/notes`, {method:'POST', body:{note_text, note_type:'work_note'}});
-      showToast('Note added.', 'ok');
-      closeDrawer(); load();
-    } catch (e) {
-      if (e.message !== 'session expired') showToast('Could not add note: ' + e.message, 'err');
-    }
-  });
+  try {
+    await api(`/work-orders/${id}/save`, {method:'POST', body:payload});
+    showToast('Work order saved.', 'ok');
+    drawerState.dirty = false;
+    closeDrawer(true);
+    load();
+  } catch (e) {
+    if (e.message !== 'session expired') showToast('Could not save: ' + e.message, 'err');
+    btn.disabled = false;
+    btn.textContent = 'Save changes';
+  }
 }
 
 if (TOKEN) boot();
