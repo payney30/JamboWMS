@@ -237,6 +237,13 @@ class WONote(Base):
     work_order = relationship("WorkOrder", back_populates="notes")
     author = relationship("User")
 
+    @property
+    def author_name(self):
+        """Enhancement backlog Phase 3 (PRD §14#15): show who wrote a
+        note, not just its type/timestamp — same pattern as
+        WOStatusHistory.changed_by_name."""
+        return self.author.name if self.author else None
+
     __table_args__ = (
         CheckConstraint(
             "note_type IN ('internal','instruction','work_note')", name="ck_note_type"
