@@ -31,3 +31,25 @@ def test_asset_id_filter_combines_with_team_scope_for_techs(
     resp = client.get("/work-orders", params={"asset_id": asset.id}, headers=tech_auth_headers)
     assert resp.status_code == 200
     assert any(w["id"] == wo["id"] for w in resp.json())
+
+
+# ---- Enhancement backlog Phase 13 (PRD §14#37): read-only reporting-groups ----
+
+def test_reporting_groups_readable_by_loc(client, auth_headers, db):
+    from app import models
+    db.add(models.ReportingGroup(name="Test Group", sort_order=0, is_active=True))
+    db.add(models.ReportingGroup(name="Inactive Group", sort_order=1, is_active=False))
+    db.commit()
+
+    resp = client.get("/reporting-groups", headers=auth_headers)
+    assert resp.status_code == 200
+    names = [g["name"] for g in resp.json()]
+    assert "Test Group" in names
+    assert "Inactive Group" not in names  # inactive excluded
+
+
+def test_reporting_groups_readable_by_tech(client, tech_auth_headers):
+    """Any authenticated role can read this — unlike the full CRUD admin
+    endpoint at /admin/reporting-groups, which stays admin-only."""
+    resp = client.get("/reporting-groups", headers=tech_auth_headers)
+    assert resp.status_code == 200
