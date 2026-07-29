@@ -77,6 +77,8 @@ def list_work_orders(
     opened_today: bool = False,
     closed_today: bool = False,
     handled_by: Optional[int] = None,  # PRD §14#17: "work orders I've handled"
+    approaching_deadline: bool = False,  # PRD §14#10
+    past_deadline: bool = False,  # PRD §14#10
     limit: int = Query(100, le=500),
     offset: int = 0,
     db: Session = Depends(get_db),
@@ -92,6 +94,7 @@ def list_work_orders(
         work_type=work_type, location_group=location_group, search=search,
         exclude_closed=exclude_closed, closed_only=closed_only, priority_in=priority_list,
         opened_today=opened_today, closed_today=closed_today, handled_by=handled_by,
+        approaching_deadline=approaching_deadline, past_deadline=past_deadline,
         limit=limit, offset=offset,
     )
 
