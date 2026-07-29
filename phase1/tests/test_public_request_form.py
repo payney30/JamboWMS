@@ -122,16 +122,32 @@ def test_public_submission_with_photo_attachment(client, asset, db):
     assert wo.attachments[0].file_url.startswith("/uploads/")
 
 
-def test_public_submission_skips_non_image_files_silently(client, asset, db):
+def test_public_submission_with_pdf_attachment(client, asset, db):
+    """Enhancement backlog Phase 6 (PRD §13#9): PDFs are now an allowed
+    attachment type alongside photos (e.g. a packing list or formal
+    transportation request)."""
     fake_pdf = io.BytesIO(b"%PDF-1.4 not really a pdf")
     resp = client.post(
         "/public/work-orders",
         data=_base_form(asset),
         files={"files": ("doc.pdf", fake_pdf, "application/pdf")},
     )
+    assert resp.status_code == 201
+    wo = db.query(models.WorkOrder).filter(models.WorkOrder.wo_number == resp.json()["wo_number"]).first()
+    assert len(wo.attachments) == 1
+    assert wo.attachments[0].file_url.endswith(".pdf")
+
+
+def test_public_submission_skips_disallowed_file_types_silently(client, asset, db):
+    fake_doc = io.BytesIO(b"not an allowed type")
+    resp = client.post(
+        "/public/work-orders",
+        data=_base_form(asset),
+        files={"files": ("doc.docx", fake_doc, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
     assert resp.status_code == 201  # submission still succeeds
     wo = db.query(models.WorkOrder).filter(models.WorkOrder.wo_number == resp.json()["wo_number"]).first()
-    assert len(wo.attachments) == 0  # but the non-image file wasn't kept
+    assert len(wo.attachments) == 0  # but the disallowed file wasn't kept
 
 
 def test_public_lookup_returns_status_by_phone(client, asset):
@@ -152,6 +168,23 @@ def test_public_lookup_by_phone_ignores_formatting_differences(client, asset):
     resp = client.get("/public/work-orders/lookup", params={"phone": "555-010-0099"})
     assert resp.status_code == 200
     assert len(resp.json()) == 1
+
+
+def test_public_lookup_matches_dashed_stored_with_plain_digit_search(client, asset):
+    """PRD §13#10: a requester should be able to search with either
+    xxx-xxx-xxxx or a bare 10-digit string, regardless of how the
+    number was originally stored — both directions."""
+    client.post("/public/work-orders", data=_base_form(asset, requester_phone="555-010-0100"))
+    plain = client.get("/public/work-orders/lookup", params={"phone": "5550100100"})
+    assert plain.status_code == 200
+    assert len(plain.json()) == 1
+
+
+def test_public_lookup_matches_plain_stored_with_dashed_search(client, asset):
+    client.post("/public/work-orders", data=_base_form(asset, requester_phone="5550200200"))
+    dashed = client.get("/public/work-orders/lookup", params={"phone": "555-020-0200"})
+    assert dashed.status_code == 200
+    assert len(dashed.json()) == 1
 
 
 def test_public_lookup_by_phone_returns_all_matching_work_orders(client, asset):
