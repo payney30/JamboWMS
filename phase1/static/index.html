@@ -360,7 +360,7 @@ function renderQuickViews(){
 function applyQuickView(key){
   activeQuickView = key;
   renderQuickViews();
-  if (['','HighestHighOpen','Closed','OpenActive','OpenedToday','ClosedToday'].includes(key)) {
+  if (['','HighestHighOpen','Closed','OpenActive','OpenedToday','ClosedToday','ApproachingDeadline','PastDeadline'].includes(key)) {
     document.getElementById('fStatus').value = '';
     document.getElementById('fPriority').value = '';
   } else {
@@ -413,6 +413,10 @@ async function load() {
     params.set('opened_today', 'true');
   } else if (activeQuickView === 'ClosedToday') {
     params.set('closed_today', 'true');
+  } else if (activeQuickView === 'ApproachingDeadline') {
+    params.set('approaching_deadline', 'true');
+  } else if (activeQuickView === 'PastDeadline') {
+    params.set('past_deadline', 'true');
   } else if (status) {
     params.set('status', status);
   }
@@ -530,6 +534,9 @@ function renderKPIs(k){
     {num:k.completion_rate+'%', lbl:'Completion Rate', key:null},
     {num:k.opened_today, lbl:'Opened Today', key:'OpenedToday'},
     {num:k.closed_today, lbl:'Closed Today', key:'ClosedToday'},
+    // Enhancement backlog Phase 5 (PRD §14#10).
+    {num:k.approaching_deadline, lbl:'Approaching Deadline', key:'ApproachingDeadline'},
+    {num:k.past_deadline, lbl:'Past Deadline', key:'PastDeadline'},
   ];
   document.getElementById('kpiRow').innerHTML = items.map(i => {
     const clickable = i.key !== null;
@@ -555,9 +562,24 @@ function renderTable(wos){
     const noteIcon = w.note_to_requester
       ? `<span class="note-icon" title="Note to requestor: ${escapeHtml(w.note_to_requester)}" style="margin-right:4px;cursor:help;">📝</span>`
       : '';
+    // Enhancement backlog Phase 5 (PRD §14#10): due-date warning flag.
+    // Computed client-side from sla_warn_at/sla_deadline against "now"
+    // (rather than trusting a server-computed boolean that'd go stale
+    // the moment the clock ticks past it) — refreshes whenever the
+    // inbox reloads. Not shown for closed WOs; a resolved WO has no
+    // pending deadline.
+    let deadlineIcon = '';
+    if (w.sla_deadline && !w.status.startsWith('Closed')) {
+      const nowMs = Date.now();
+      if (nowMs >= new Date(w.sla_deadline).getTime()) {
+        deadlineIcon = `<span class="deadline-icon" title="Past due — target was ${fmtDateTime(w.sla_deadline)}" style="margin-right:4px;color:#B3261E;cursor:help;">⚠</span>`;
+      } else if (w.sla_warn_at && nowMs >= new Date(w.sla_warn_at).getTime()) {
+        deadlineIcon = `<span class="deadline-icon" title="Approaching deadline — due ${fmtDateTime(w.sla_deadline)}" style="margin-right:4px;color:#B08900;cursor:help;">⚠</span>`;
+      }
+    }
     return `
     <tr onclick="openWO(${w.id})" title="${escapeHtml(w.description||'')}">
-      <td>${lockIcon}${noteIcon}${w.wo_number}${w.external_ref ? `<div style="font-size:10px;color:var(--ink-soft);">Fiix #${escapeHtml(w.external_ref)}</div>` : ''}</td>
+      <td>${deadlineIcon}${lockIcon}${noteIcon}${w.wo_number}${w.external_ref ? `<div style="font-size:10px;color:var(--ink-soft);">Fiix #${escapeHtml(w.external_ref)}</div>` : ''}</td>
       <td><span class="chip chip-${w.priority}">${w.priority}</span></td>
       <td><span class="status-dot" style="background:${STATUS_COLOR[w.status]||'#999'}"></span>${w.status}</td>
       <td style="white-space:pre-wrap;">${escapeHtml((w.description||'').slice(0,70))}</td>
