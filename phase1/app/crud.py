@@ -8,6 +8,7 @@ mutation later, ask "does this need a history row?" before wiring it up.
 """
 import datetime as dt
 import secrets
+from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case, or_ as sql_or
 from fastapi import HTTPException
@@ -473,6 +474,46 @@ def _deadline_clause(past: bool):
     return sql_or(*clauses)
 
 
+def _today_bounds_utc(db: Session) -> tuple[dt.datetime, dt.datetime]:
+    """Bug fix (PRD §14#24): "today" for Opened Today / Closed Today (and
+    anywhere else a single-day boundary matters) means midnight-to-
+    midnight in the admin-configured display time zone
+    (DEFAULT_TIMEZONE / the `timezone` setting), not the server
+    process's own local date — `dt.date.today()` on a server running in
+    UTC can disagree with what the site actually considers "today" by
+    several hours right around local midnight (e.g. something closed at
+    9pm Eastern is already "tomorrow" in UTC). All stored timestamps are
+    UTC, so this returns UTC bounds for `col >= start AND col < end`
+    comparisons — a DB-side `func.date(col) == ...` doesn't know about
+    time zones at all and was the source of that mismatch.
+    """
+    tz = ZoneInfo(get_setting(db, "timezone", DEFAULT_TIMEZONE))
+    now_local = dt.datetime.now(tz)
+    start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_local = start_local + dt.timedelta(days=1)
+    to_utc_naive = lambda d: d.astimezone(dt.timezone.utc).replace(tzinfo=None)
+    return to_utc_naive(start_local), to_utc_naive(end_local)
+
+
+def _closed_today_clause(db: Session):
+    """Bug fix (PRD §14#24): shared by list_work_orders' closed_today
+    filter and get_kpis' closed_today count, so the KPI tile's number and
+    what clicking it actually shows always agree — same pattern as
+    _deadline_clause. Counts a WO as "closed today" based on its CURRENT
+    state (status still Closed% and closed_at within today's bounds),
+    not on how many status-change events happened today. The previous
+    KPI implementation counted status_change history *events* instead,
+    which overcounts relative to current state whenever a WO was closed
+    and then reopened the same day — the KPI showed 5, the filtered list
+    (correctly, by current state) showed 1."""
+    start, end = _today_bounds_utc(db)
+    return (
+        models.WorkOrder.status.like("Closed%"),
+        models.WorkOrder.closed_at >= start,
+        models.WorkOrder.closed_at < end,
+    )
+
+
 def list_work_orders(db: Session, status=None, priority=None, team_id=None,
                       work_type=None, location_group=None, search=None,
                       exclude_closed=False, closed_only=False, priority_in=None,
@@ -529,12 +570,10 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
     if priority_in:
         q = q.filter(models.WorkOrder.priority.in_(priority_in))
     if opened_today:
-        q = q.filter(func.date(models.WorkOrder.created_at) == dt.date.today())
+        start, end = _today_bounds_utc(db)
+        q = q.filter(models.WorkOrder.created_at >= start, models.WorkOrder.created_at < end)
     if closed_today:
-        q = q.filter(
-            models.WorkOrder.status.like("Closed%"),
-            func.date(models.WorkOrder.closed_at) == dt.date.today(),
-        )
+        q = q.filter(*_closed_today_clause(db))
     if approaching_deadline or past_deadline:
         # Enhancement backlog Phase 5 (PRD §14#10): "approaching" and
         # "past" deadline filter tiles. Only meaningful for open WOs — a
@@ -604,19 +643,25 @@ def get_kpis(db: Session, scope: str = "main", **filters) -> dict:
         models.WorkOrder.priority.in_(["Highest", "High"]),
     ).count()
 
-    today = dt.date.today()
-    opened_today = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
-        func.date(models.WorkOrder.created_at) == today
+    # Enhancement backlog Phase 11 (PRD §14#25): count of WOs still
+    # sitting in the initial "Requested" state — not yet triaged/
+    # assigned to a team at all.
+    requested = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
+        models.WorkOrder.status == "Requested"
     ).count()
 
-    closed_today_q = db.query(models.WOStatusHistory.id).join(
-        models.WorkOrder, models.WOStatusHistory.work_order_id == models.WorkOrder.id
-    ).filter(
-        models.WOStatusHistory.event_type == "status_change",
-        models.WOStatusHistory.to_value.like("Closed%"),
-        func.date(models.WOStatusHistory.changed_at) == today,
-    )
-    closed_today = _apply_filters(db, closed_today_q, scope, **filters).count()
+    start, end = _today_bounds_utc(db)
+    opened_today = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
+        models.WorkOrder.created_at >= start, models.WorkOrder.created_at < end
+    ).count()
+
+    # Bug fix (PRD §14#24): counts current-state closed-today WOs (same
+    # clause list_work_orders' closed_today filter uses), not
+    # status-change history events — see _closed_today_clause's
+    # docstring for why those disagreed (KPI showed 5, list showed 1).
+    closed_today = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
+        *_closed_today_clause(db)
+    ).count()
 
     # Enhancement backlog Phase 5 (PRD §14#10): counts backing the
     # "Approaching deadline" / "Past deadline" KPI tiles — same predicate
@@ -632,6 +677,7 @@ def get_kpis(db: Session, scope: str = "main", **filters) -> dict:
     return {
         "total": total, "open": open_, "closed": closed,
         "highest_high_open": highest_high_open,
+        "requested": requested,
         "completion_rate": rate, "opened_today": opened_today,
         "closed_today": closed_today,
         "approaching_deadline": approaching_deadline,

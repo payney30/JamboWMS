@@ -258,6 +258,8 @@ class KPIOut(BaseModel):
     open: int
     closed: int
     highest_high_open: int
+    # Enhancement backlog Phase 11 (PRD §14#25).
+    requested: int
     completion_rate: float
     opened_today: int
     closed_today: int
