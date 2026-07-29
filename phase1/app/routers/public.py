@@ -168,7 +168,8 @@ async def submit_public_work_order(
 
 
 @router.get("/work-orders/lookup", response_model=List[schemas.PublicWorkOrderStatus])
-def lookup_public_work_orders(phone: str, request: Request, db: Session = Depends(get_db)):
+def lookup_public_work_orders(phone: str, request: Request, search: Optional[str] = None,
+                               db: Session = Depends(get_db)):
     """Enhancement backlog Phase 1 (PRD §13#4): status lookup is now
     anchored on phone number instead of a WO-number + email compound key
     — either the original requester's phone or a delegated POC's phone
@@ -176,6 +177,12 @@ def lookup_public_work_orders(phone: str, request: Request, db: Session = Depend
     number rather than requiring the requester to already know a specific
     WO number. Digit-only matching (see crud._digits_only) so formatting
     differences don't cause false negatives.
+
+    Enhancement backlog Phase 2 (PRD §13#5): `search`, if given, further
+    narrows those results to WOs whose description or location contains
+    the given text — replaces the old "search by exact WO number" idea
+    with something a requester can actually use without already knowing
+    a WO number.
 
     Trade-off worth noting: a phone number alone is now sufficient to see
     every WO tied to it (no second factor like the old email pairing) —
@@ -199,7 +206,7 @@ def lookup_public_work_orders(phone: str, request: Request, db: Session = Depend
     if len(digits) < 7:
         raise HTTPException(400, "enter a valid phone number")
 
-    wos = crud.lookup_work_orders_by_phone(db, digits)
+    wos = crud.lookup_work_orders_by_phone(db, digits, search=search)
     if not wos:
         raise HTTPException(404, "no work orders found for that phone number")
     return wos
