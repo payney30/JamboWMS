@@ -27,6 +27,27 @@ def test_wo_numbers_increment_numerically(client, auth_headers, wo_payload):
     assert int(wo2["wo_number"]) == int(wo1["wo_number"]) + 1
 
 
+def test_wo_number_generation_survives_legacy_prefixed_data(client, auth_headers, wo_payload, db):
+    """Bug fix (PRD §14#21): a database that already has "WO-"-prefixed
+    work orders from before the prefix-removal fix (§14#13) was deployed
+    must not break new-WO creation. This is a real scenario for any
+    previously-used deployment, not a hypothetical — creating a WO used
+    to 500 outright with this data present, because the prior fix for
+    §14#19 used a SQL CAST that only fails on Postgres (SQLite tolerates
+    it silently, which is why the test suite didn't catch it the first
+    time). See app/crud.py:_next_wo_number for the full story."""
+    from app import models
+    db.add(models.WorkOrder(
+        wo_number="WO-99999", requester_name="Legacy", asset_id=wo_payload["asset_id"],
+        work_type="", description="pre-existing legacy WO", priority="Medium", status="Requested",
+    ))
+    db.commit()
+
+    resp = client.post("/work-orders", json=wo_payload, headers=auth_headers)
+    assert resp.status_code == 201
+    assert resp.json()["wo_number"].isdigit()
+
+
 # ---- "Handled by" search (PRD §14#17) ----
 
 def test_handled_by_finds_wo_via_status_change(client, auth_headers, loc_user, wo_payload, team):
