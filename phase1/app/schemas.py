@@ -1,6 +1,45 @@
 import datetime as dt
-from typing import Optional, List
-from pydantic import BaseModel, ConfigDict
+from typing import Optional, List, Annotated
+from pydantic import BaseModel, ConfigDict, PlainSerializer
+
+# Bug fix (PRD §14#36): every datetime stored in this app is naive UTC
+# (see models.now(), which returns dt.datetime.utcnow() with no tzinfo
+# attached). Pydantic's default serialization of a naive datetime just
+# calls .isoformat() on it, which produces a string with NO timezone
+# marker at all — e.g. "2026-07-29T20:48:00.123456", not
+# "...+00:00" or "...Z". Per the JS spec, `new Date(...)` on a
+# date-time string with no timezone marker parses it as the BROWSER'S
+# OWN LOCAL time, not UTC. That silently shifted every date comparison
+# and every displayed timestamp in the frontend by the browser's UTC
+# offset — e.g. a WO created at 20:48 UTC (16:48 Eastern) displayed as
+# "20:48" even after the admin-configurable-timezone feature (§15#1)
+# was built, because that feature reformats whatever `new Date(iso)`
+# already (mis)parsed, and a naive string never gave it a real UTC
+# instant to start from in the first place.
+#
+# This was actually caught early — see tests/test_timestamp_serialization.py,
+# which was written specifically to pin this bug and already assumed a
+# `UTCDateTime` type would exist — but the actual schema fix was never
+# applied; the tests were left failing rather than acted on. Confirmed
+# in production (7/29/26): displayed timestamps were exactly the local
+# UTC offset ahead of actual local time, matching this exact failure
+# mode.
+#
+# Fixed here, once, as a reusable annotated type — every API-facing
+# schema field below uses UTCDateTime instead of a bare dt.datetime, so
+# the JSON that goes out always carries an explicit UTC marker
+# (isoformat() on a tz-aware datetime appends "+00:00" automatically).
+# Internal representation is untouched (still naive dt.datetime.utcnow()
+# everywhere in crud.py/models.py) — this only affects what's
+# serialized on the way out, so none of the many naive-datetime
+# comparisons elsewhere in the codebase needed to change.
+def _serialize_utc(v: dt.datetime) -> str:
+    if v.tzinfo is None:
+        v = v.replace(tzinfo=dt.timezone.utc)
+    return v.isoformat()
+
+
+UTCDateTime = Annotated[dt.datetime, PlainSerializer(_serialize_utc, return_type=str)]
 
 PRIORITIES = ("Highest", "High", "Medium", "Low", "Lowest")
 STATUSES = (
@@ -64,7 +103,7 @@ class NoteOut(BaseModel):
     note_text: str
     note_type: str
     author: Optional[UserOut] = None
-    created_at: dt.datetime
+    created_at: UTCDateTime
 
 
 class NoteCreate(BaseModel):
@@ -83,7 +122,7 @@ class HistoryOut(BaseModel):
     # WOStatusHistory.changed_by_name; None for system-generated rows
     # (e.g. the initial "Requested" row, which has no changed_by).
     changed_by_name: Optional[str] = None
-    changed_at: dt.datetime
+    changed_at: UTCDateTime
 
 
 class WorkOrderCreate(BaseModel):
@@ -154,7 +193,7 @@ class LockOut(BaseModel):
     fields (enhancement backlog Phase 1, PRD §14#1)."""
     locked: bool
     locked_by: Optional[UserOut] = None
-    locked_at: Optional[dt.datetime] = None
+    locked_at: Optional[UTCDateTime] = None
 
 
 class WorkOrderListItem(BaseModel):
@@ -167,12 +206,12 @@ class WorkOrderListItem(BaseModel):
     description: str
     asset: AssetOut
     assigned_team: Optional[TeamOut] = None
-    created_at: dt.datetime
+    created_at: UTCDateTime
     # Enhancement backlog Phase 1 (PRD §14#1) — read from
     # WorkOrder.locked_by, already None if the lock has gone stale.
     # Populates the inbox lock icon + hover tooltip.
     locked_by: Optional[UserOut] = None
-    locked_at: Optional[dt.datetime] = None
+    locked_at: Optional[UTCDateTime] = None
     # Enhancement backlog Phase 2 (PRD §14#9) — populates the inbox notes
     # icon + hover preview when a "Note to Requestor" has been set.
     note_to_requester: Optional[str] = None
@@ -180,15 +219,15 @@ class WorkOrderListItem(BaseModel):
     # WorkOrder.sla_warn_at / sla_deadline. Frontend compares against
     # "now" to decide the yellow/red deadline flag; skipped entirely for
     # closed WOs client-side.
-    sla_warn_at: Optional[dt.datetime] = None
-    sla_deadline: Optional[dt.datetime] = None
+    sla_warn_at: Optional[UTCDateTime] = None
+    sla_deadline: Optional[UTCDateTime] = None
 
 
 class AttachmentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     file_url: str
-    uploaded_at: dt.datetime
+    uploaded_at: UTCDateTime
 
 
 class WorkOrderDetail(WorkOrderListItem):
@@ -201,13 +240,13 @@ class WorkOrderDetail(WorkOrderListItem):
     notify_preference: Optional[str] = None
     work_type: str
     assigned_person: Optional[UserOut] = None
-    updated_at: dt.datetime
-    closed_at: Optional[dt.datetime]
+    updated_at: UTCDateTime
+    closed_at: Optional[UTCDateTime]
     # Enhancement backlog Phase 1 (PRD §14#5).
     note_to_requester: Optional[str] = None
     # Enhancement backlog Phase 5 (PRD §14#10).
-    sla_warn_at: Optional[dt.datetime] = None
-    sla_deadline: Optional[dt.datetime] = None
+    sla_warn_at: Optional[UTCDateTime] = None
+    sla_deadline: Optional[UTCDateTime] = None
     notes: List[NoteOut] = []
     history: List[HistoryOut] = []
     attachments: List[AttachmentOut] = []
@@ -247,8 +286,8 @@ class PublicWorkOrderStatus(BaseModel):
     priority: str
     work_type: str
     description: str
-    created_at: dt.datetime
-    closed_at: Optional[dt.datetime]
+    created_at: UTCDateTime
+    closed_at: Optional[UTCDateTime]
     note_to_requester: Optional[str] = None
     assigned_team: Optional[TeamOut] = None
 
@@ -287,7 +326,7 @@ class UserAdminOut(BaseModel):
     role: str
     team: Optional[TeamOut] = None
     is_active: bool
-    created_at: dt.datetime
+    created_at: UTCDateTime
 
 
 class UserCreate(BaseModel):
@@ -428,7 +467,7 @@ class AssetChangeLogOut(BaseModel):
     from_value: Optional[str]
     to_value: Optional[str]
     changed_by: Optional[int]
-    changed_at: dt.datetime
+    changed_at: UTCDateTime
 
 
 # ---- Enhancement backlog Phase 4: admin-configurable settings (PRD §15#1) ----
