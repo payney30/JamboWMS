@@ -515,7 +515,7 @@ def _closed_today_clause(db: Session):
 
 
 def list_work_orders(db: Session, status=None, priority=None, team_id=None,
-                      work_type=None, location_group=None, search=None,
+                      work_type=None, location_group=None, asset_id=None, search=None,
                       exclude_closed=False, closed_only=False, priority_in=None,
                       opened_today=False, closed_today=False, handled_by=None,
                       approaching_deadline=False, past_deadline=False,
@@ -531,6 +531,13 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
         q = q.filter(models.WorkOrder.work_type == work_type)
     if location_group:
         q = q.join(models.Asset).filter(models.Asset.location_group == location_group)
+    # Enhancement backlog Phase 12 (PRD §16#5): exact-location filter for
+    # the technician queue, using the same hierarchical LocationPicker
+    # component (a single leaf-asset selection) already used for data
+    # entry elsewhere — distinct from location_group above, which only
+    # covers the broad top-level branches.
+    if asset_id:
+        q = q.filter(models.WorkOrder.asset_id == asset_id)
     if search:
         like = f"%{search}%"
         q = q.filter(
