@@ -292,7 +292,17 @@ def test_note_to_requester_absent_by_default_on_inbox_list(client, auth_headers,
     assert row["note_to_requester"] is None
 
 
-# ---- Status history shows the author's name (PRD §14#4 — bundled in) ----
+# ---- Enhancement backlog Phase 3 (PRD §14#15): note author name ----
+
+def test_note_includes_author_name(client, auth_headers, wo_payload):
+    wo = _create_wo(client, auth_headers, wo_payload)
+    resp = client.post(
+        f"/work-orders/{wo['id']}/notes",
+        json={"note_text": "Checked on it.", "note_type": "internal"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201
+    assert resp.json()["author"]["name"] == "Admin User"
 
 def test_status_history_includes_changed_by_name(client, auth_headers, wo_payload, team):
     wo = _create_wo(client, auth_headers, wo_payload)
