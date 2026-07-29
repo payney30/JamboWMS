@@ -176,6 +176,12 @@ class WorkOrderListItem(BaseModel):
     # Enhancement backlog Phase 2 (PRD §14#9) — populates the inbox notes
     # icon + hover preview when a "Note to Requestor" has been set.
     note_to_requester: Optional[str] = None
+    # Enhancement backlog Phase 5 (PRD §14#10) — read from
+    # WorkOrder.sla_warn_at / sla_deadline. Frontend compares against
+    # "now" to decide the yellow/red deadline flag; skipped entirely for
+    # closed WOs client-side.
+    sla_warn_at: Optional[dt.datetime] = None
+    sla_deadline: Optional[dt.datetime] = None
 
 
 class AttachmentOut(BaseModel):
@@ -199,6 +205,9 @@ class WorkOrderDetail(WorkOrderListItem):
     closed_at: Optional[dt.datetime]
     # Enhancement backlog Phase 1 (PRD §14#5).
     note_to_requester: Optional[str] = None
+    # Enhancement backlog Phase 5 (PRD §14#10).
+    sla_warn_at: Optional[dt.datetime] = None
+    sla_deadline: Optional[dt.datetime] = None
     notes: List[NoteOut] = []
     history: List[HistoryOut] = []
     attachments: List[AttachmentOut] = []
@@ -245,6 +254,9 @@ class KPIOut(BaseModel):
     completion_rate: float
     opened_today: int
     closed_today: int
+    # Enhancement backlog Phase 5 (PRD §14#10).
+    approaching_deadline: int
+    past_deadline: int
 
 
 class BreakdownOut(BaseModel):

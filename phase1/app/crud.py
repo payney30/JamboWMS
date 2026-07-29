@@ -9,7 +9,7 @@ mutation later, ask "does this need a history row?" before wiring it up.
 import datetime as dt
 import secrets
 from sqlalchemy.orm import Session
-from sqlalchemy import func, case, cast, Integer
+from sqlalchemy import func, case, cast, Integer, or_ as sql_or
 from fastapi import HTTPException
 from . import models, schemas
 from .auth import hash_password
@@ -432,10 +432,33 @@ def lookup_work_orders_by_phone(db: Session, phone_digits: str, search: str | No
     return matches
 
 
+def _deadline_clause(past: bool):
+    """Enhancement backlog Phase 5 (PRD §14#10). Shared between
+    list_work_orders and get_kpis so the inbox filter and its KPI-tile
+    count always agree. See list_work_orders for why this is built as
+    per-priority datetime comparisons rather than SQL INTERVAL math."""
+    now_ = dt.datetime.utcnow()
+    if past:
+        clauses = [
+            (models.WorkOrder.priority == p) &
+            (models.WorkOrder.created_at <= now_ - dt.timedelta(hours=hours))
+            for p, hours in models.SLA_HOURS.items()
+        ]
+    else:
+        clauses = [
+            (models.WorkOrder.priority == p) &
+            (models.WorkOrder.created_at <= now_ - dt.timedelta(hours=hours * 0.75)) &
+            (models.WorkOrder.created_at > now_ - dt.timedelta(hours=hours))
+            for p, hours in models.SLA_HOURS.items()
+        ]
+    return sql_or(*clauses)
+
+
 def list_work_orders(db: Session, status=None, priority=None, team_id=None,
                       work_type=None, location_group=None, search=None,
                       exclude_closed=False, closed_only=False, priority_in=None,
                       opened_today=False, closed_today=False, handled_by=None,
+                      approaching_deadline=False, past_deadline=False,
                       limit=100, offset=0):
     q = db.query(models.WorkOrder)
     if status:
@@ -493,6 +516,13 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
             models.WorkOrder.status.like("Closed%"),
             func.date(models.WorkOrder.closed_at) == dt.date.today(),
         )
+    if approaching_deadline or past_deadline:
+        # Enhancement backlog Phase 5 (PRD §14#10): "approaching" and
+        # "past" deadline filter tiles. Only meaningful for open WOs — a
+        # closed WO's deadline is moot, so both filters imply
+        # exclude_closed.
+        q = q.filter(~models.WorkOrder.status.like("Closed%"))
+        q = q.filter(_deadline_clause(past=bool(past_deadline)))
     # PRD 4.2: inbox sorts highest-priority first, oldest first within a
     # priority tier — matches the old dashboard's "needing attention" table.
     return (
@@ -569,11 +599,24 @@ def get_kpis(db: Session, scope: str = "main", **filters) -> dict:
     )
     closed_today = _apply_filters(db, closed_today_q, scope, **filters).count()
 
+    # Enhancement backlog Phase 5 (PRD §14#10): counts backing the
+    # "Approaching deadline" / "Past deadline" KPI tiles — same predicate
+    # as the matching list_work_orders filters, so clicking a tile's
+    # count and what actually loads always agree.
+    approaching_deadline = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
+        ~models.WorkOrder.status.like("Closed%"), _deadline_clause(past=False)
+    ).count()
+    past_deadline = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
+        ~models.WorkOrder.status.like("Closed%"), _deadline_clause(past=True)
+    ).count()
+
     return {
         "total": total, "open": open_, "closed": closed,
         "highest_high_open": highest_high_open,
         "completion_rate": rate, "opened_today": opened_today,
         "closed_today": closed_today,
+        "approaching_deadline": approaching_deadline,
+        "past_deadline": past_deadline,
     }
 
 

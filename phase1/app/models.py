@@ -21,6 +21,18 @@ def now():
 # admin intervention needed, it just goes stale on its own.
 LOCK_TIMEOUT_MINUTES = 15
 
+# Enhancement backlog Phase 5 (PRD §14#10): action-target windows per
+# priority, straight from PRD §7 / Work_Order_Priorties.pdf (Highest/
+# High/Medium/Low/Lowest → 2/6/24/48/72-hour targets). Used to compute
+# each WorkOrder's sla_warn_at (75% elapsed) and sla_deadline (100%).
+SLA_HOURS = {
+    "Highest": 2,
+    "High": 6,
+    "Medium": 24,
+    "Low": 48,
+    "Lowest": 72,
+}
+
 
 class Team(Base):
     __tablename__ = "teams"
@@ -208,6 +220,27 @@ class WorkOrder(Base):
                 (now() - self.locked_at) < dt.timedelta(minutes=LOCK_TIMEOUT_MINUTES):
             return self._locked_by_rel
         return None
+
+    @property
+    def sla_deadline(self):
+        """Enhancement backlog Phase 5 (PRD §14#10): created_at + the
+        priority's full action-target window (SLA_HOURS). Meaningful for
+        open WOs; still computed for closed ones (harmless — the
+        frontend just doesn't render a flag once status starts with
+        'Closed')."""
+        hours = SLA_HOURS.get(self.priority)
+        if hours is None or not self.created_at:
+            return None
+        return self.created_at + dt.timedelta(hours=hours)
+
+    @property
+    def sla_warn_at(self):
+        """75% of the way through the SLA window — the "approaching
+        deadline" threshold."""
+        hours = SLA_HOURS.get(self.priority)
+        if hours is None or not self.created_at:
+            return None
+        return self.created_at + dt.timedelta(hours=hours * 0.75)
 
     __table_args__ = (
         CheckConstraint(
