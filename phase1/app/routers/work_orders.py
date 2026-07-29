@@ -70,6 +70,7 @@ def list_work_orders(
     team_id: Optional[int] = None,
     work_type: Optional[str] = None,
     location_group: Optional[str] = None,
+    asset_id: Optional[int] = None,  # PRD §16#5: technician queue location filter
     search: Optional[str] = None,
     exclude_closed: bool = False,
     closed_only: bool = False,
@@ -91,7 +92,7 @@ def list_work_orders(
     priority_list = [p.strip() for p in priority_in.split(",")] if priority_in else None
     return crud.list_work_orders(
         db, status=status, priority=priority, team_id=team_id,
-        work_type=work_type, location_group=location_group, search=search,
+        work_type=work_type, location_group=location_group, asset_id=asset_id, search=search,
         exclude_closed=exclude_closed, closed_only=closed_only, priority_in=priority_list,
         opened_today=opened_today, closed_today=closed_today, handled_by=handled_by,
         approaching_deadline=approaching_deadline, past_deadline=past_deadline,
