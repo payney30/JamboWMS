@@ -371,7 +371,7 @@ def _digits_only(s: str) -> str:
     return "".join(ch for ch in (s or "") if ch.isdigit())
 
 
-def lookup_work_orders_by_phone(db: Session, phone_digits: str) -> list[models.WorkOrder]:
+def lookup_work_orders_by_phone(db: Session, phone_digits: str, search: str | None = None) -> list[models.WorkOrder]:
     """Matches on requester_phone OR poc_phone, comparing digits-only so
     formatting differences (dashes/parens/spaces/leading '1') at
     submission vs. lookup don't cause false negatives. Returns newest
@@ -382,7 +382,15 @@ def lookup_work_orders_by_phone(db: Session, phone_digits: str) -> list[models.W
     portable way across SQLite/Postgres without a dialect-specific
     REGEXP_REPLACE). Fine at event scale (low thousands of WOs); if this
     ever needs to scale further, store a precomputed digits-only phone
-    column and index it instead."""
+    column and index it instead.
+
+    Enhancement backlog Phase 2 (PRD §13#5): `search`, if given, further
+    narrows to WOs whose description OR location (asset name) contains
+    the text (case-insensitive substring) — lets a requester with several
+    open WOs on the same phone number find "the shower house one" without
+    knowing a WO number. Applied client-side on the already phone-matched
+    set (small, per-person list), not as a separate SQL query.
+    """
     candidates = (
         db.query(models.WorkOrder)
         .filter(
@@ -392,11 +400,19 @@ def lookup_work_orders_by_phone(db: Session, phone_digits: str) -> list[models.W
         .order_by(models.WorkOrder.created_at.desc())
         .all()
     )
-    return [
+    matches = [
         wo for wo in candidates
         if _digits_only(wo.requester_phone) == phone_digits
         or _digits_only(wo.poc_phone) == phone_digits
     ]
+    if search:
+        needle = search.strip().lower()
+        matches = [
+            wo for wo in matches
+            if needle in (wo.description or "").lower()
+            or (wo.asset and needle in wo.asset.name.lower())
+        ]
+    return matches
 
 
 def list_work_orders(db: Session, status=None, priority=None, team_id=None,

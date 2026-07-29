@@ -173,6 +173,9 @@ class WorkOrderListItem(BaseModel):
     # Populates the inbox lock icon + hover tooltip.
     locked_by: Optional[UserOut] = None
     locked_at: Optional[dt.datetime] = None
+    # Enhancement backlog Phase 2 (PRD §14#9) — populates the inbox notes
+    # icon + hover preview when a "Note to Requestor" has been set.
+    note_to_requester: Optional[str] = None
 
 
 class AttachmentOut(BaseModel):
