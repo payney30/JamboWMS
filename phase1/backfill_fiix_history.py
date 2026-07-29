@@ -243,10 +243,16 @@ def backfill(db, records: list[dict]) -> dict:
 
 def _next_wo_number(db) -> str:
     """Mirrors app/crud.py's numbering so backfilled and live-created WOs
-    never collide — both key off the same auto-incrementing id."""
-    last = db.query(models.WorkOrder).order_by(models.WorkOrder.id.desc()).first()
-    next_id = (last.id + 1) if last else 10001
-    return f"WO-{next_id}"
+    never collide — both key off the same "highest wo_number issued"
+    logic. Enhancement backlog Phase 4 (PRD §14#13): no "WO-" prefix
+    anymore. Bug fix (PRD §14#19): derives from the highest *issued*
+    wo_number (cast to int), not the raw row id — see crud.py's
+    docstring for why those aren't the same thing. Keep this in sync
+    with crud._next_wo_number."""
+    from sqlalchemy import func, cast, Integer
+    highest = db.query(func.max(cast(models.WorkOrder.wo_number, Integer))).scalar()
+    next_id = (highest + 1) if highest else 10001
+    return str(max(next_id, 10001))
 
 
 if __name__ == "__main__":
