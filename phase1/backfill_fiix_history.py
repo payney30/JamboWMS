@@ -245,13 +245,18 @@ def _next_wo_number(db) -> str:
     """Mirrors app/crud.py's numbering so backfilled and live-created WOs
     never collide — both key off the same "highest wo_number issued"
     logic. Enhancement backlog Phase 4 (PRD §14#13): no "WO-" prefix
-    anymore. Bug fix (PRD §14#19): derives from the highest *issued*
-    wo_number (cast to int), not the raw row id — see crud.py's
-    docstring for why those aren't the same thing. Keep this in sync
-    with crud._next_wo_number."""
-    from sqlalchemy import func, cast, Integer
-    highest = db.query(func.max(cast(models.WorkOrder.wo_number, Integer))).scalar()
-    next_id = (highest + 1) if highest else 10001
+    anymore. Bug fix (PRD §14#21): computes the max in Python (strip
+    non-digits, parse as int) rather than a SQL CAST — a CAST throws a
+    hard error on Postgres for any pre-existing non-numeric wo_number
+    value (e.g. legacy "WO-10001" rows), which a backfill run against a
+    real, previously-used database is exactly likely to have. Keep this
+    in sync with crud._next_wo_number."""
+    numbers = [
+        int(digits)
+        for (raw,) in db.query(models.WorkOrder.wo_number).all()
+        if (digits := "".join(ch for ch in (raw or "") if ch.isdigit()))
+    ]
+    next_id = (max(numbers) + 1) if numbers else 10001
     return str(max(next_id, 10001))
 
 
