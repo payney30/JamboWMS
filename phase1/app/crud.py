@@ -9,7 +9,7 @@ mutation later, ask "does this need a history row?" before wiring it up.
 import datetime as dt
 import secrets
 from sqlalchemy.orm import Session
-from sqlalchemy import func, case, cast, Integer, or_ as sql_or
+from sqlalchemy import func, case, or_ as sql_or
 from fastapi import HTTPException
 from . import models, schemas
 from .auth import hash_password
@@ -70,8 +70,7 @@ def _next_wo_number(db: Session) -> str:
     """Enhancement backlog Phase 4 (PRD §14#13): bare, unpadded WO
     numbers — no "WO-" prefix. Each number is already unique on its own;
     the prefix added nothing but made search/sort harder (see §14#16,
-    the numeric-sort fix that depends on this). Since the system isn't
-    live yet, there's no in-flight "WO-xxxxx" numbers to migrate.
+    the numeric-sort fix that depends on this).
 
     Bug fix (PRD §14#19), found while making the above change: this used
     to derive the next number from the most-recent row's raw database
@@ -81,11 +80,31 @@ def _next_wo_number(db: Session) -> str:
     permanently diverges from the second WO onward, since `id` starts
     counting from 1 like any other table's primary key. The result: the
     second work order ever created would get wo_number "2", not "10002".
-    Fixed by deriving the next number from the highest wo_number actually
-    issued so far (cast to int), not from the row id.
+
+    Bug fix (PRD §14#21): the previous fix for #19 computed the max via
+    `MAX(CAST(wo_number AS INTEGER))` in SQL. That's fine on SQLite
+    (which just silently returns 0 for a non-numeric string like
+    "WO-10001") but throws a hard "invalid input syntax for integer"
+    error on Postgres for that exact same value — and any database that
+    already has pre-existing "WO-"-prefixed work orders from before the
+    §14#13 prefix-removal fix was deployed (i.e., any real,
+    previously-used deployment) has exactly that sitting in it. Result:
+    every single new submission 500'd, since this function runs on every
+    WO creation and the query itself failed outright before ever
+    reaching application code. SQLite's leniency is exactly why the test
+    suite never caught this — tests never exercised a real Postgres
+    dialect. Fixed by computing the max in Python instead: strip
+    non-digit characters from each existing wo_number (handles
+    "WO-10001", "10001", or anything else without erroring) and take the
+    max there, rather than asking the database to CAST a column that may
+    contain non-numeric legacy text.
     """
-    highest = db.query(func.max(cast(models.WorkOrder.wo_number, Integer))).scalar()
-    next_id = (highest + 1) if highest else 10001
+    numbers = [
+        int(digits)
+        for (raw,) in db.query(models.WorkOrder.wo_number).all()
+        if (digits := "".join(ch for ch in (raw or "") if ch.isdigit()))
+    ]
+    next_id = (max(numbers) + 1) if numbers else 10001
     return str(max(next_id, 10001))
 
 
