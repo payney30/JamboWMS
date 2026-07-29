@@ -430,9 +430,14 @@ function renderTable(wos){
     const lockIcon = w.locked_by
       ? `<span class="lock-icon" title="Locked by ${escapeHtml(w.locked_by.name)} since ${new Date(w.locked_at).toLocaleTimeString()}" style="margin-right:4px;cursor:help;">🔒</span>`
       : '';
+    // Enhancement backlog Phase 2 (PRD §14#9): notes icon + hover preview
+    // when this WO has a requester-facing note set.
+    const noteIcon = w.note_to_requester
+      ? `<span class="note-icon" title="Note to requestor: ${escapeHtml(w.note_to_requester)}" style="margin-right:4px;cursor:help;">📝</span>`
+      : '';
     return `
     <tr onclick="openWO(${w.id})">
-      <td>${lockIcon}${w.wo_number}${w.external_ref ? `<div style="font-size:10px;color:var(--ink-soft);">Fiix #${escapeHtml(w.external_ref)}</div>` : ''}</td>
+      <td>${lockIcon}${noteIcon}${w.wo_number}${w.external_ref ? `<div style="font-size:10px;color:var(--ink-soft);">Fiix #${escapeHtml(w.external_ref)}</div>` : ''}</td>
       <td><span class="chip chip-${w.priority}">${w.priority}</span></td>
       <td><span class="status-dot" style="background:${STATUS_COLOR[w.status]||'#999'}"></span>${w.status}</td>
       <td style="white-space:pre-wrap;">${escapeHtml((w.description||'').slice(0,70))}</td>
@@ -466,20 +471,26 @@ async function releaseCurrentLock(){
   }
 }
 
-// Enhancement backlog Phase 1 (PRD §14#2): prompts to save or discard if
-// there are unsaved changes, instead of silently losing them, whenever
-// the drawer is closed (X button, backdrop click, or opening a different
-// WO). Also releases the edit lock (PRD §14#1) if we held one, so the WO
-// becomes available to others immediately rather than waiting out the
-// stale-lock timeout.
+// Enhancement backlog Phase 1 (PRD §14#2) — hotfix (PRD §14#14): this used
+// to ask "OK to save, Cancel to discard," which is backwards when the
+// user got here by clicking a button literally labeled "Cancel" — they've
+// already told us they want to discard, not been asked whether to save.
+// Worse, choosing "OK" on that old wording ran saveDrawer(), and if that
+// save failed validation (e.g. no location set), the drawer just silently
+// stayed open with a toast easy to miss, so it looked like "Cancel doesn't
+// work" and needed a second attempt. Now there's exactly one question —
+// "discard or keep editing?" — and Save is reached only via the explicit
+// Save button, never implicitly through this dialog.
+//
+// Applies whenever the drawer is closed with unsaved changes (X button,
+// backdrop click, Cancel button, or opening a different WO). Also
+// releases the edit lock (PRD §14#1) if we held one, so the WO becomes
+// available to others immediately rather than waiting out the stale-lock
+// timeout.
 async function closeDrawer(skipPrompt){
   if (!skipPrompt && drawerState.editable && drawerState.dirty) {
-    const wantsSave = confirm('You have unsaved changes on this work order. Click OK to save them, or Cancel to discard and close.');
-    if (wantsSave) {
-      const saved = await saveDrawer();
-      if (!saved) return; // save failed — stay open, don't lose the edits
-      return; // saveDrawer() already closes on success
-    }
+    const wantsDiscard = confirm('Discard your unsaved changes to this work order?');
+    if (!wantsDiscard) return; // stay open, exactly as-is — no save attempt, no side effects
   }
   await releaseCurrentLock();
   drawerState = {woId: null, editable: false, dirty: false};
