@@ -42,7 +42,7 @@ def test_public_submission_creates_a_work_order(client, asset, db):
     resp = client.post("/public/work-orders", data=_base_form(asset))
     assert resp.status_code == 201
     wo_number = resp.json()["wo_number"]
-    assert wo_number.startswith("WO-")
+    assert wo_number.isdigit()  # no more "WO-" prefix, see PRD §14#13
 
     wo = db.query(models.WorkOrder).filter(models.WorkOrder.wo_number == wo_number).first()
     assert wo is not None
@@ -93,7 +93,7 @@ def test_honeypot_returns_fake_success_without_creating_a_record(client, asset, 
     before = db.query(models.WorkOrder).count()
     resp = client.post("/public/work-orders", data=_base_form(asset, website="http://spam.example"))
     assert resp.status_code == 201
-    assert resp.json()["wo_number"] == "WO-00000"
+    assert resp.json()["wo_number"] == "00000"
     after = db.query(models.WorkOrder).count()
     assert after == before  # nothing was actually created
 

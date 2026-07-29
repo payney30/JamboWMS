@@ -282,7 +282,7 @@ def test_deactivate_team_with_open_wo_requires_confirm(client, auth_headers, db,
     db.commit()
     db.refresh(team)
     wo = models.WorkOrder(
-        wo_number="WO-90001", requester_name="X", asset_id=asset.id,
+        wo_number="90001", requester_name="X", asset_id=asset.id,
         description="test", priority="Medium", status="Assigned", assigned_team_id=team.id,
     )
     db.add(wo)
