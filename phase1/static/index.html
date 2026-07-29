@@ -99,6 +99,22 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
 .toast{background:var(--pine);color:#fff;border-radius:8px;padding:10px 14px;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.2);}
 .toast.err{background:var(--hivis);}
 .toast.ok{background:var(--moss);}
+/* Enhancement backlog Phase 3 (PRD §14#12): print-to-PDF for a single
+   WO. Hides everything except the open drawer's content, then the
+   browser's own print dialog (every major browser offers "Save as PDF"
+   as a destination) does the rest — no PDF-generation library needed.
+   Editable form controls (textareas/selects/location picker) are hidden
+   on print — a printed textarea just looks like an empty box, not its
+   value — in favor of a plain-text .print-only summary block that's
+   normally hidden and only shown here. */
+@media print {
+  body * { visibility: hidden; }
+  #drawer, #drawer * { visibility: visible; }
+  #drawer { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none; }
+  #drawer .close-btn, #drawer .drawer-actions, #drawer .drawer-group { display: none !important; }
+  #drawer .print-only { display: block !important; }
+}
+.print-only { display: none; }
 </style>
 </head>
 <body>
@@ -134,6 +150,9 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
     <select id="fTeam" onchange="load()"><option value="">All Teams</option></select>
     <input id="fSearch" placeholder="Search description or WO#…" oninput="debouncedLoad()">
     <button class="btn btn-ghost" onclick="clearFilters()">Clear filters</button>
+    <!-- Enhancement backlog Phase 3 (PRD §14#12): exports exactly what's
+         currently filtered/sorted in the inbox, not a full unfiltered dump. -->
+    <button class="btn btn-ghost" onclick="exportInboxCsv()">Export CSV</button>
     <button class="btn" onclick="openNewWO()">+ New WO</button>
   </div>
   <div class="chips" id="quickViews"></div>
@@ -363,6 +382,43 @@ async function load() {
   renderTable(sortWOs(wos));
 }
 
+// Enhancement backlog Phase 3 (PRD §14#12): exports the CURRENT
+// filtered + sorted inbox view (LAST_WOS run through the same sortWOs()
+// used to render the table), not a raw full-table dump — so what's
+// downloaded matches what's on screen when the button is clicked.
+function csvEscape(v){
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function exportInboxCsv(){
+  const rows = sortWOs(LAST_WOS);
+  if (!rows.length) { showToast('Nothing to export — no work orders match the current filters.', 'err'); return; }
+  const headers = ['WO Number', 'Fiix #', 'Priority', 'Status', 'Description', 'Location', 'Team', 'Created At'];
+  const lines = [headers.map(csvEscape).join(',')];
+  for (const w of rows) {
+    lines.push([
+      w.wo_number,
+      w.external_ref || '',
+      w.priority,
+      w.status,
+      w.description || '',
+      w.asset ? w.asset.name : '',
+      w.assigned_team ? w.assigned_team.name : '',
+      new Date(w.created_at).toLocaleString(),
+    ].map(csvEscape).join(','));
+  }
+  const blob = new Blob([lines.join('\n')], {type: 'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `work-orders-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 function sortValue(w, key){
   switch(key){
     case 'wo_number': return w.wo_number || '';
@@ -436,7 +492,7 @@ function renderTable(wos){
       ? `<span class="note-icon" title="Note to requestor: ${escapeHtml(w.note_to_requester)}" style="margin-right:4px;cursor:help;">📝</span>`
       : '';
     return `
-    <tr onclick="openWO(${w.id})">
+    <tr onclick="openWO(${w.id})" title="${escapeHtml(w.description||'')}">
       <td>${lockIcon}${noteIcon}${w.wo_number}${w.external_ref ? `<div style="font-size:10px;color:var(--ink-soft);">Fiix #${escapeHtml(w.external_ref)}</div>` : ''}</td>
       <td><span class="chip chip-${w.priority}">${w.priority}</span></td>
       <td><span class="status-dot" style="background:${STATUS_COLOR[w.status]||'#999'}"></span>${w.status}</td>
@@ -553,7 +609,10 @@ function renderWODrawer(w, lockBanner){
   const priorityOpts = PRIORITIES.map(p=>`<option value="${p}" ${w.priority===p?'selected':''}>${p}</option>`).join('');
   const workTypeOpts = WORK_TYPES.map(t=>`<option value="${t}" ${w.work_type===t?'selected':''}>${t}</option>`).join('')
     + `<option value="" ${!w.work_type?'selected':''}>Other / blank</option>`;
-  const notesHtml = (w.notes||[]).slice().reverse().map(n=>`<div class="note">${escapeHtml(n.note_text)}<div class="meta">${n.note_type} · ${new Date(n.created_at).toLocaleString()}</div></div>`).join('') || '<p style="font-size:12px;color:var(--ink-soft);">No notes yet.</p>';
+  // Enhancement backlog Phase 3 (PRD §14#15): show who wrote each note,
+  // not just its type and timestamp. author is null for system-authored
+  // notes (rare, but possible), so this degrades gracefully.
+  const notesHtml = (w.notes||[]).slice().reverse().map(n=>`<div class="note">${escapeHtml(n.note_text)}<div class="meta">${n.note_type}${n.author ? ' · ' + escapeHtml(n.author.name) : ''} · ${new Date(n.created_at).toLocaleString()}</div></div>`).join('') || '<p style="font-size:12px;color:var(--ink-soft);">No notes yet.</p>';
   // Enhancement backlog Phase 1 (PRD §14#4, bundled in alongside the
   // Phase 1 items since the data was already one property away): show
   // who made each change, not just a bare event line.
@@ -570,6 +629,20 @@ function renderWODrawer(w, lockBanner){
     ? `<p style="font-size:12px;color:var(--ink-soft);margin:2px 0 0;"><strong>POC:</strong> ${escapeHtml(w.poc_name||'')} ${escapeHtml(w.poc_phone||'')}</p>`
     : '';
 
+  // Enhancement backlog Phase 3 (PRD §14#12): plain-text summary shown
+  // only when printing (see the .print-only / @media print CSS) — the
+  // editable form controls above get hidden on print instead, since a
+  // printed textarea/select just shows an empty box, not its value.
+  const printOnlyHtml = `
+    <div class="print-only">
+      <p><strong>Location:</strong> ${escapeHtml(w.asset ? w.asset.name : '—')}</p>
+      <p><strong>Work type:</strong> ${escapeHtml(w.work_type || '—')} &nbsp; <strong>Priority:</strong> ${escapeHtml(w.priority)}</p>
+      <p><strong>Status:</strong> ${escapeHtml(w.status)} &nbsp; <strong>Team:</strong> ${escapeHtml(w.assigned_team ? w.assigned_team.name : '—')}</p>
+      <p><strong>Description:</strong><br>${escapeHtml(w.description)}</p>
+      ${w.note_to_requester ? `<p><strong>Note to requestor:</strong><br>${escapeHtml(w.note_to_requester)}</p>` : ''}
+      <p style="font-size:11px;color:#666;">Printed ${new Date().toLocaleString()}</p>
+    </div>`;
+
   openDrawer(`
     <button class="close-btn" onclick="closeDrawer()">×</button>
     <h2>${w.wo_number}${w.external_ref ? ` <span style="font-size:12px;font-weight:400;color:var(--ink-soft);">(Fiix #${escapeHtml(w.external_ref)})</span>` : ''}</h2>
@@ -577,6 +650,7 @@ function renderWODrawer(w, lockBanner){
     ${pocHtml}
     ${lockBanner}
     ${attachmentsHtml}
+    ${printOnlyHtml}
 
     <div class="drawer-group">
       <label>Description</label>
@@ -622,6 +696,7 @@ function renderWODrawer(w, lockBanner){
         ? `<button class="btn" id="saveDrawerBtn" onclick="saveDrawer()">Save changes</button>
            <button class="btn btn-ghost" onclick="closeDrawer()">Cancel</button>`
         : `<button class="btn btn-ghost" onclick="closeDrawer()">Close</button>`}
+      <button class="btn btn-ghost" onclick="window.print()">Print / Save as PDF</button>
     </div>
 
     <div class="section-title" style="margin-top:22px;">Notes</div>

@@ -92,15 +92,21 @@ input[type=file]{font-size:13px;}
 
   <div class="card" id="formCard">
     <form id="woForm" autocomplete="on">
-      <label>Your name <span class="required-mark">*</span></label>
+      <!-- Enhancement backlog Phase 3 (PRD §13#1): relabeled from "Your
+           name" / "Contact email" for clarity about whose info this is. -->
+      <label>Requester Name <span class="required-mark">*</span></label>
       <input type="text" id="rName" required autocomplete="name">
 
-      <label>Contact email <span class="required-mark">*</span></label>
+      <label>Requester Email <span class="required-mark">*</span></label>
       <input type="email" id="rEmail" required autocomplete="email" placeholder="so we can send a confirmation">
       <div class="hint">You'll need this to check your request's status later.</div>
 
+      <!-- Enhancement backlog Phase 3 (PRD §13#8): auto-format as typed —
+           formatPhoneAsTyped() strips non-digits and re-inserts dashes,
+           so it doesn't matter whether the requester types the dashes
+           themselves. -->
       <label>Contact phone <span class="required-mark">*</span></label>
-      <input type="tel" id="rPhone" required autocomplete="tel">
+      <input type="tel" id="rPhone" required autocomplete="tel" placeholder="555-010-0100" oninput="formatPhoneAsTyped(event)">
       <div class="hint">We may call or text this number with updates or questions.</div>
 
       <label>Are you the point of contact for this location/area? <span class="required-mark">*</span></label>
@@ -110,7 +116,7 @@ input[type=file]{font-size:13px;}
         <input type="text" id="pocName" autocomplete="off">
 
         <label>Point of contact's phone <span class="required-mark">*</span></label>
-        <input type="tel" id="pocPhone" autocomplete="off">
+        <input type="tel" id="pocPhone" autocomplete="off" placeholder="555-010-0100" oninput="formatPhoneAsTyped(event)">
         <div class="hint">We'll call or text the point of contact too, in addition to you.</div>
       </div>
       <div class="field-err" id="rPocErr"></div>
@@ -119,16 +125,26 @@ input[type=file]{font-size:13px;}
       <div id="rLocationPicker"></div>
       <div class="field-err" id="rLocationErr"></div>
 
-      <label>What kind of issue is this?</label>
-      <select id="rWorkType">
+      <!-- Enhancement backlog Phase 3 (PRD §13#3): now required — a
+           disabled placeholder option forces an active choice (which can
+           still legitimately be "Other / not sure", that's fine; it just
+           can't be skipped by accident). See submit handler below for
+           the sentinel-value translation. -->
+      <label>What kind of issue is this? <span class="required-mark">*</span></label>
+      <select id="rWorkType" required>
+        <option value="" disabled selected>Select an issue type…</option>
         <option value="NJ Maintenance">Maintenance (repairs, facilities)</option>
         <option value="NJ Items/Parts">Items / parts request</option>
         <option value="NJ IT">IT</option>
         <option value="NJ Transportation">Transportation</option>
-        <option value="">Other / not sure</option>
+        <option value="other">Other / not sure</option>
       </select>
 
-      <label>Describe the issue <span class="required-mark">*</span></label>
+      <!-- Enhancement backlog Phase 3 (PRD §13#2): hover tooltip via the
+           native title attribute on the ⓘ icon — no extra CSS/JS needed,
+           works with keyboard/screen readers too. Copy explains what we
+           actually want in the description field. -->
+      <label>Describe the issue <span class="required-mark">*</span> <span class="tooltip-icon" tabindex="0" title="Tell us: exactly what's wrong, anything that makes it urgent or unsafe, and what (if anything) you've already tried. Example: &quot;Sink in Latrine 4B is clogged and overflowing onto the floor.&quot; The more specific, the faster we can route the right team." style="cursor:help;color:var(--ink-soft);">ⓘ</span></label>
       <textarea id="rDescription" required placeholder="What's going on, and where exactly?"></textarea>
 
       <label>Priority <span class="required-mark">*</span></label>
@@ -163,7 +179,7 @@ input[type=file]{font-size:13px;}
     <div class="status-toggle"><a onclick="toggleStatusLookup()" id="statusToggleLink">Already submitted a request? Check its status</a></div>
     <div id="statusLookup" style="display:none;margin-top:14px;">
       <label>Phone number used at submission</label>
-      <input type="tel" id="lkPhone" placeholder="555-0100" autocomplete="tel">
+      <input type="tel" id="lkPhone" placeholder="555-0100" autocomplete="tel" oninput="formatPhoneAsTyped(event)">
       <p style="font-size:12px;color:var(--ink-soft);margin:4px 0 0;">This shows every request tied to that number — yours, or anyone's you're the point of contact for.</p>
       <label style="margin-top:10px;">Search by description or location <span style="font-weight:400;color:var(--ink-soft);">(optional — narrow down if you have several)</span></label>
       <input type="text" id="lkSearch" placeholder="e.g. &quot;shower house&quot; or &quot;leak&quot;">
@@ -265,6 +281,20 @@ function escapeHtml(s){
   return d.innerHTML;
 }
 
+// Enhancement backlog Phase 3 (PRD §13#8): reformats a phone input to
+// xxx-xxx-xxxx as the person types, regardless of whether they type the
+// dashes themselves (or paste a bare 10-digit number). Simple left-to-
+// right mask — doesn't try to preserve cursor position for mid-string
+// edits, which is an acceptable trade-off for a field people almost
+// always type start-to-finish rather than editing in the middle of.
+function formatPhoneAsTyped(e){
+  const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+  let out = digits;
+  if (digits.length > 6) out = `${digits.slice(0,3)}-${digits.slice(3,6)}-${digits.slice(6)}`;
+  else if (digits.length > 3) out = `${digits.slice(0,3)}-${digits.slice(3)}`;
+  e.target.value = out;
+}
+
 document.getElementById('woForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const errBanner = document.getElementById('formErr');
@@ -291,6 +321,21 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
     return;
   }
 
+  // Enhancement backlog Phase 3 (PRD §13#3): work type is now required —
+  // the placeholder option's value is "" and is `disabled`, so a real
+  // browser can't submit it, but we double-check here too (bots,
+  // odd browsers, etc.) rather than trust the DOM attribute alone.
+  const workTypeRaw = document.getElementById('rWorkType').value;
+  if (!workTypeRaw) {
+    errBanner.textContent = 'Please select what kind of issue this is.';
+    errBanner.style.display = 'block';
+    return;
+  }
+  // "Other / not sure" uses a sentinel value in the UI (so it's
+  // distinguishable from the unselected placeholder) but still means
+  // "no specific type" to the backend, same as before this change.
+  const workType = workTypeRaw === 'other' ? '' : workTypeRaw;
+
   const pocIsRequester = (document.querySelector('input[name="rPoc"]:checked')?.value || 'yes') === 'yes';
   const pocName = document.getElementById('pocName').value.trim();
   const pocPhone = document.getElementById('pocPhone').value.trim();
@@ -312,7 +357,7 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
   formData.set('poc_name', pocIsRequester ? '' : pocName);
   formData.set('poc_phone', pocIsRequester ? '' : pocPhone);
   formData.set('asset_id', assetId);
-  formData.set('work_type', document.getElementById('rWorkType').value);
+  formData.set('work_type', workType);
   formData.set('description', description);
   formData.set('priority', priorityInput ? priorityInput.value : 'Medium');
   formData.set('website', document.getElementById('rWebsite').value); // honeypot
