@@ -172,7 +172,7 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
   </div>
   <div class="chips" id="quickViews"></div>
 
-  <div class="section-title">Inbox</div>
+  <div class="section-title">Inbox <span class="hint" id="inboxCount"></span></div>
   <table>
     <thead><tr>
       <th class="sortable" onclick="setSort('wo_number')">WO# <span class="sort-icon" id="sortIcon-wo_number"></span></th>
@@ -381,8 +381,13 @@ function clearFilters(){
 let debounceTimer;
 function debouncedLoad(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(load, 300); }
 
-async function load() {
-  document.getElementById('woTableBody').innerHTML = '<tr class="loading-row"><td colspan="7">Loading…</td></tr>';
+async function load(quiet) {
+  // Enhancement backlog Phase 11 (PRD §14#30): `quiet` skips the
+  // "Loading…" placeholder — used by the background auto-refresh below
+  // so it doesn't flash the table every 30s while someone's reading it.
+  if (!quiet) {
+    document.getElementById('woTableBody').innerHTML = '<tr class="loading-row"><td colspan="7">Loading…</td></tr>';
+  }
 
   const params = new URLSearchParams();
   const status = document.getElementById('fStatus').value;
@@ -528,6 +533,8 @@ function setSort(key){
 function renderKPIs(k){
   const items = [
     {num:k.total, lbl:'Total', key:''},
+    // Enhancement backlog Phase 11 (PRD §14#25).
+    {num:k.requested, lbl:'Requested', key:'Requested'},
     {num:k.open, lbl:'Open / Active', key:'OpenActive'},
     {num:k.highest_high_open, lbl:'Highest+High Open', key:'HighestHighOpen'},
     {num:k.closed, lbl:'Closed', key:'Closed'},
@@ -549,6 +556,11 @@ function renderKPIs(k){
 }
 
 function renderTable(wos){
+  // Enhancement backlog Phase 11 (PRD §14#26): count next to the Inbox
+  // heading, kept in sync with whatever's currently filtered — updates
+  // every time the table re-renders (filter change, sort, initial load).
+  const countEl = document.getElementById('inboxCount');
+  if (countEl) countEl.textContent = `(${wos.length})`;
   document.getElementById('woTableBody').innerHTML = wos.map(w => {
     // Enhancement backlog Phase 1 (PRD §14#1): lock icon + hover tooltip.
     // w.locked_by is already null if the lock has gone stale (see
@@ -690,7 +702,20 @@ async function openWO(id){
 function renderWODrawer(w, lockBanner){
   const editable = drawerState.editable;
   const dis = editable ? '' : 'disabled';
-  const teamOpts = TEAMS.map(t=>`<option value="${t.id}" ${w.assigned_team && w.assigned_team.id===t.id?'selected':''}>${escapeHtml(t.name)}</option>`).join('');
+  // Bug fix (PRD §14#28): a <select> with no option marked `selected`
+  // defaults to the browser picking the FIRST option — since this used
+  // to list only real teams, an unassigned WO (w.assigned_team === null,
+  // e.g. anything still in "Requested") silently showed whatever team
+  // happened to be first (reported as always showing "Warehouse"). Worse
+  // than cosmetic: saveDrawer() always sends whatever the dropdown shows
+  // as team_id, so editing ANY field on an unassigned WO and hitting
+  // Save would silently assign it to that team too. Fixed by adding an
+  // explicit blank/"Unassigned" option that's selected whenever there's
+  // no real assignment — parseInt('') is NaN, which JSON.stringify
+  // serializes as null, so saving without touching this field now
+  // correctly sends no team_id instead of a phantom real one.
+  const teamOpts = `<option value="" ${!w.assigned_team?'selected':''}>— Unassigned —</option>` +
+    TEAMS.map(t=>`<option value="${t.id}" ${w.assigned_team && w.assigned_team.id===t.id?'selected':''}>${escapeHtml(t.name)}</option>`).join('');
   const statusOpts = STATUSES.map(s=>`<option value="${s}" ${w.status===s?'selected':''}>${s}</option>`).join('');
   const priorityOpts = PRIORITIES.map(p=>`<option value="${p}" ${w.priority===p?'selected':''}>${p}</option>`).join('');
   const workTypeOpts = WORK_TYPES.map(t=>`<option value="${t}" ${w.work_type===t?'selected':''}>${t}</option>`).join('')
@@ -709,9 +734,20 @@ function renderWODrawer(w, lockBanner){
   const attachmentsHtml = (w.attachments||[]).length
     ? `<div style="display:flex;gap:8px;flex-wrap:wrap;">` + (w.attachments||[]).map(a => {
         const isPdf = /\.pdf($|\?)/i.test(a.file_url);
-        return isPdf
-          ? `<a href="${a.file_url}" target="_blank" rel="noopener" style="width:72px;height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#f4f1e8;font-size:10px;color:var(--ink-soft);text-decoration:none;">📄<span>PDF</span></a>`
-          : `<a href="${a.file_url}" target="_blank" rel="noopener"><img src="${a.file_url}" alt="attachment" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--khaki-line);"></a>`;
+        if (isPdf) {
+          return `<a href="${a.file_url}" target="_blank" rel="noopener" style="width:72px;height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#f4f1e8;font-size:10px;color:var(--ink-soft);text-decoration:none;">📄<span>PDF</span></a>`;
+        }
+        // Bug fix (PRD §14#29): a photo that fails to render as an <img>
+        // — either because it's HEIC (iPhone default; most desktop
+        // browsers can't display it inline even though it's an allowed
+        // upload type) or because the file itself is missing — used to
+        // just show a broken-image icon with no indication of what went
+        // wrong or that it's still clickable. onerror now swaps to a
+        // fallback tile so it's obviously still a link, not a dead end.
+        return `<a href="${a.file_url}" target="_blank" rel="noopener" style="position:relative;width:72px;height:72px;display:block;">
+          <img src="${a.file_url}" alt="attachment" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--khaki-line);" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+          <span style="display:none;width:72px;height:72px;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#f4f1e8;font-size:9px;color:var(--ink-soft);text-align:center;padding:2px;box-sizing:border-box;">🖼️<span>Can't preview — tap to open</span></span>
+        </a>`;
       }).join('') + `</div>`
     : '';
   // Enhancement backlog Phase 1 (PRD §14#3, same "already have the data"
@@ -790,6 +826,11 @@ function renderWODrawer(w, lockBanner){
         : `<button class="btn btn-ghost" onclick="closeDrawer()">Close</button>`}
       <button class="btn btn-ghost" onclick="window.print()">Print / Save as PDF</button>
     </div>
+
+    <!-- Enhancement backlog Phase 11 (PRD §14#27): visual separation
+         between the edit form/actions above and the read-only Notes /
+         Status history below. -->
+    <hr style="border:none;border-top:1px solid var(--khaki-line);margin:20px 0 0;">
 
     <div class="section-title" style="margin-top:22px;">Notes</div>
     ${notesHtml}
@@ -930,6 +971,24 @@ window.addEventListener('beforeunload', (e) => {
     e.returnValue = '';
   }
 });
+
+// Enhancement backlog Phase 11 (PRD §14#30): "how do we ensure the
+// dashboard refreshes for all users after a save?" — there's no push
+// mechanism (WebSocket/SSE) in this app, so the practical answer is
+// polling: quietly re-fetch the inbox + KPIs on an interval so one
+// person's save shows up for everyone else without a manual reload.
+// Skipped while the edit drawer is open — a background table refresh
+// serves no purpose behind an open drawer and would just be visual
+// noise (it doesn't touch drawer state, so it wouldn't corrupt an
+// in-progress edit either way, but there's nothing useful to show).
+// 30s balances "reasonably fresh" against not hammering the server —
+// tune AUTO_REFRESH_MS if that trade-off needs to move.
+const AUTO_REFRESH_MS = 30000;
+setInterval(() => {
+  if (!TOKEN) return;
+  if (document.getElementById('drawer').classList.contains('open')) return;
+  load(/* quiet */ true);
+}, AUTO_REFRESH_MS);
 
 if (TOKEN) boot();
 </script>

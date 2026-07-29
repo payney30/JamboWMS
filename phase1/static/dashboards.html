@@ -223,7 +223,7 @@ async function load(){
 
 function renderStats(k){
   const items = [
-    {num:k.total, lbl:'Total'}, {num:k.open, lbl:'Open / Active'},
+    {num:k.total, lbl:'Total'}, {num:k.requested, lbl:'Requested'}, {num:k.open, lbl:'Open / Active'},
     {num:k.highest_high_open, lbl:'Highest+High Open'}, {num:k.closed, lbl:'Closed'},
     {num:k.completion_rate+'%', lbl:'Completion Rate'}, {num:k.opened_today, lbl:'Opened Today'}, {num:k.closed_today, lbl:'Closed Today'},
   ];
