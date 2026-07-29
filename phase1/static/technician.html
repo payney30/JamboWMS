@@ -149,6 +149,19 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
 const API = '';
 let TOKEN = localStorage.getItem('tech_token') || '';
 let ME = null, TEAMS = [];
+// Enhancement backlog Phase 4 (PRD §15#1): same pattern as index.html —
+// admin-configured display time zone, fetched from the no-auth public
+// settings endpoint so this screen agrees with LOC triage and the
+// Submit WO page on the same clock.
+let APP_TIMEZONE = 'UTC';
+function fmtDateTime(iso){
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-US', {timeZone: APP_TIMEZONE});
+}
+function fmtDate(iso){
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-US', {timeZone: APP_TIMEZONE});
+}
 let activeQuickView = '';
 let scopeTeamId = null; // the team whose queue we're viewing
 const TECH_STATUSES = ["Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
@@ -244,6 +257,10 @@ async function boot() {
     showToast('Could not load teams: ' + e.message, 'err');
     return;
   }
+  try {
+    const settings = await fetch('/public/settings').then(r => r.json());
+    APP_TIMEZONE = settings.timezone || 'UTC';
+  } catch (e) { /* keep the UTC fallback */ }
 
   if (ME.role === 'tech') {
     scopeTeamId = ME.team ? ME.team.id : null;
@@ -361,7 +378,7 @@ function renderCards(wos){
       <div class="wo-meta">
         <span class="status-pill">${w.status}</span>
         <span>${escapeHtml(w.asset ? w.asset.name : '')}</span>
-        <span>${new Date(w.created_at).toLocaleDateString()}</span>
+        <span>${fmtDate(w.created_at)}</span>
       </div>
     </div>
   `).join('');
@@ -392,11 +409,11 @@ async function openDetail(id){
 
   const notesHtml = (w.notes.length ? w.notes : []).slice().reverse().map(n => `
     <div class="note">${escapeHtml(n.note_text)}
-      <div class="meta">${n.note_type} &middot; ${n.author ? escapeHtml(n.author.name) : 'system'} &middot; ${new Date(n.created_at).toLocaleString()}</div>
+      <div class="meta">${n.note_type} &middot; ${n.author ? escapeHtml(n.author.name) : 'system'} &middot; ${fmtDateTime(n.created_at)}</div>
     </div>`).join('') || '<div class="empty-state" style="padding:10px 0;">No notes yet.</div>';
 
   const histHtml = w.history.slice().reverse().map(h => `
-    <div class="hist">${h.event_type}: ${h.from_value ? escapeHtml(h.from_value) + ' → ' : ''}${escapeHtml(h.to_value)} &middot; ${new Date(h.changed_at).toLocaleString()}</div>
+    <div class="hist">${h.event_type}: ${h.from_value ? escapeHtml(h.from_value) + ' → ' : ''}${escapeHtml(h.to_value)} &middot; ${fmtDateTime(h.changed_at)}</div>
   `).join('') || '<div class="empty-state" style="padding:10px 0;">No history yet.</div>';
 
   openDrawer(`

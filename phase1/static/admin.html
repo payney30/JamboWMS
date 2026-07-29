@@ -130,6 +130,8 @@ tr.inactive td{opacity:.5;}
     <button class="tab-btn" data-tab="reportinggroups" onclick="switchTab('reportinggroups')">Reporting Groups</button>
     <button class="tab-btn" data-tab="requesttypes" onclick="switchTab('requesttypes')">Request Types</button>
     <button class="tab-btn" data-tab="teams" onclick="switchTab('teams')">Teams</button>
+    <!-- Enhancement backlog Phase 4 (PRD §15#1) -->
+    <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">Settings</button>
   </div>
 
   <div class="tab-panel active" id="panel-users">
@@ -189,6 +191,27 @@ tr.inactive td{opacity:.5;}
       <tbody id="teamTableBody"><tr class="empty-row"><td colspan="3">Loading…</td></tr></tbody>
     </table>
   </div>
+
+  <!-- Enhancement backlog Phase 4 (PRD §15#1) -->
+  <div class="tab-panel" id="panel-settings">
+    <div class="section-title"><span>System Settings</span></div>
+    <div class="hint" style="margin-bottom:14px;">Applies everywhere — Submit WO, LOC triage, and the technician queue all format dates/times against this, regardless of each viewer's own browser/device time zone.</div>
+    <div style="max-width:420px;">
+      <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin:0 0 6px;">Display time zone</label>
+      <select id="settingsTimezone" style="width:100%;padding:8px;border:1px solid var(--khaki-line);border-radius:6px;font-size:13px;">
+        <option value="America/New_York">Eastern (America/New_York)</option>
+        <option value="America/Chicago">Central (America/Chicago)</option>
+        <option value="America/Denver">Mountain (America/Denver)</option>
+        <option value="America/Phoenix">Mountain, no DST (America/Phoenix)</option>
+        <option value="America/Los_Angeles">Pacific (America/Los_Angeles)</option>
+        <option value="America/Anchorage">Alaska (America/Anchorage)</option>
+        <option value="Pacific/Honolulu">Hawaii (Pacific/Honolulu)</option>
+        <option value="UTC">UTC</option>
+      </select>
+      <div class="hint" id="settingsCurrentTz" style="margin:8px 0 0;"></div>
+      <button class="btn" style="margin-top:14px;" onclick="saveSettings()" id="settingsSaveBtn">Save</button>
+    </div>
+  </div>
 </div>
 
 <div id="drawerBackdrop" onclick="closeDrawer()"></div>
@@ -199,6 +222,13 @@ tr.inactive td{opacity:.5;}
 const API = '';
 let TOKEN = localStorage.getItem('loc_token') || '';
 let ME = null, TEAMS = [], USERS = [];
+// Enhancement backlog Phase 4 (PRD §15#1): same pattern as the other
+// screens — display time zone fetched from the public settings endpoint.
+let APP_TIMEZONE = 'UTC';
+function fmtDateTime(iso){
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-US', {timeZone: APP_TIMEZONE});
+}
 let LOCATIONS = [], REPORTING_GROUPS = [], REQUEST_TYPES = [], ADMIN_TEAMS = [];
 const ALL_ROLES = ["tech","leadership","loc","admin"];
 
@@ -288,6 +318,11 @@ async function boot() {
   }
 
   try {
+    const settings = await fetch('/public/settings').then(r => r.json());
+    APP_TIMEZONE = settings.timezone || 'UTC';
+  } catch (e) { /* keep the UTC fallback */ }
+
+  try {
     TEAMS = await api('/teams');
   } catch (e) {
     showToast('Could not load teams: ' + e.message, 'err');
@@ -308,14 +343,63 @@ function switchTab(tab) {
     requesttypes: ['+ New request type', openNewRequestType],
     teams: ['+ New team', openNewAdminTeam],
   };
-  const [label, fn] = actions[tab];
-  newBtn.textContent = label;
-  newBtn.onclick = fn;
+  // Enhancement backlog Phase 4 (PRD §15#1): Settings is a single form,
+  // not a list — no "+ New X" concept, so hide that button entirely
+  // rather than giving it a meaningless label.
+  if (tab === 'settings') {
+    newBtn.style.display = 'none';
+  } else {
+    newBtn.style.display = '';
+    const [label, fn] = actions[tab];
+    newBtn.textContent = label;
+    newBtn.onclick = fn;
+  }
 
   if (tab === 'locations' && !LOCATIONS.length) loadLocations();
   if (tab === 'reportinggroups' && !REPORTING_GROUPS.length) loadReportingGroups();
   if (tab === 'requesttypes' && !REQUEST_TYPES.length) loadRequestTypes();
   if (tab === 'teams' && !ADMIN_TEAMS.length) loadAdminTeams();
+  if (tab === 'settings') loadSettings();
+}
+
+// Enhancement backlog Phase 4 (PRD §15#1). The dropdown above is a
+// curated list of common US zones (this is a US-based event) rather than
+// the full ~600-zone IANA list — if an admin ever needs something
+// outside that list, the backend still accepts any valid IANA zone name
+// via PUT /admin/settings, this UI just doesn't expose that flexibility.
+async function loadSettings(){
+  try {
+    const settings = await api('/admin/settings');
+    const select = document.getElementById('settingsTimezone');
+    if ([...select.options].some(o => o.value === settings.timezone)) {
+      select.value = settings.timezone;
+    } else {
+      // Server has a zone outside our curated list — add it so Save
+      // doesn't silently revert to whatever the dropdown defaults to.
+      select.insertAdjacentHTML('afterbegin', `<option value="${escapeHtml(settings.timezone)}">${escapeHtml(settings.timezone)}</option>`);
+      select.value = settings.timezone;
+    }
+    document.getElementById('settingsCurrentTz').textContent = `Currently: ${settings.timezone}`;
+  } catch (e) {
+    showToast('Could not load settings: ' + e.message, 'err');
+  }
+}
+
+async function saveSettings(){
+  const btn = document.getElementById('settingsSaveBtn');
+  const timezone = document.getElementById('settingsTimezone').value;
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    await api('/admin/settings', {method: 'PUT', body: {timezone}});
+    showToast('Settings saved.', 'ok');
+    document.getElementById('settingsCurrentTz').textContent = `Currently: ${timezone}`;
+  } catch (e) {
+    showToast('Could not save settings: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save';
+  }
 }
 
 function populateFilterOptions(){
@@ -703,7 +787,7 @@ async function openLocationHistory(id) {
       <li>
         <span class="hfield">${escapeHtml(e.field_changed)}</span>:
         ${escapeHtml(e.from_value ?? '—')} → ${escapeHtml(e.to_value ?? '—')}
-        <div class="hmeta">${new Date(e.changed_at).toLocaleString()}</div>
+        <div class="hmeta">${fmtDateTime(e.changed_at)}</div>
       </li>`).join('') + '</ul>';
   } catch (e) {
     document.getElementById('histBody').textContent = 'Could not load history: ' + e.message;

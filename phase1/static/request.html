@@ -207,6 +207,13 @@ const POC_OPTIONS = [
   {key:'no', label:'No, someone else is the point of contact'},
 ];
 let locationPicker = null;
+// Enhancement backlog Phase 4 (PRD §15#1): admin-configured display time
+// zone. Fetched in boot() below; falls back to UTC if that fails.
+let APP_TIMEZONE = 'UTC';
+function fmtDateTime(iso){
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-US', {timeZone: APP_TIMEZONE});
+}
 
 function refreshSelectedStyling(groupEl){
   groupEl.querySelectorAll('.priority-option').forEach(opt => {
@@ -234,6 +241,11 @@ async function boot(){
   // should still render. Previously a single failure early in boot() could
   // silently prevent everything after it (priority, contact-pref, and POC
   // toggle groups) from ever being populated.
+  try {
+    const settings = await fetch('/public/settings').then(r => r.json());
+    APP_TIMEZONE = settings.timezone || 'UTC';
+  } catch (err) { /* keep the UTC fallback */ }
+
   try {
     const pickerEl = document.getElementById('rLocationPicker');
     locationPicker = LocationPicker.mount(pickerEl, {
@@ -443,8 +455,8 @@ async function checkStatus(){
         <div class="status-line"><span>Description</span><span>${escapeHtml(d.description)}</span></div>
         <div class="status-line"><span>Status</span><span>${escapeHtml(d.status)}</span></div>
         <div class="status-line"><span>Priority</span><span>${escapeHtml(d.priority)}</span></div>
-        <div class="status-line"><span>Submitted</span><span>${new Date(d.created_at).toLocaleString()}</span></div>
-        ${d.closed_at ? `<div class="status-line"><span>Closed</span><span>${new Date(d.closed_at).toLocaleString()}</span></div>` : ''}
+        <div class="status-line"><span>Submitted</span><span>${fmtDateTime(d.created_at)}</span></div>
+        ${d.closed_at ? `<div class="status-line"><span>Closed</span><span>${fmtDateTime(d.closed_at)}</span></div>` : ''}
         ${d.note_to_requester ? `<div class="status-note" style="margin-top:8px;padding:8px 10px;background:var(--khaki-tint,#f4f1e8);border-radius:6px;font-size:13px;"><strong>Note from the LOC:</strong> ${escapeHtml(d.note_to_requester)}</div>` : ''}
       </div>
     `).join('');

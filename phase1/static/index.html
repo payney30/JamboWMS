@@ -159,6 +159,10 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
     <select id="fWorkType" onchange="load()"><option value="">All Work Types</option></select>
     <select id="fLocation" onchange="load()"><option value="">All Locations</option></select>
     <select id="fTeam" onchange="load()"><option value="">All Teams</option></select>
+    <!-- Enhancement backlog Phase 4 (PRD §14#17): "work orders I've
+         handled" — filters to WOs where the selected user appears in
+         status history or notes, not just currently-assigned WOs. -->
+    <select id="fHandledBy" onchange="load()"><option value="">Anyone (handled)</option></select>
     <input id="fSearch" placeholder="Search description or WO#…" oninput="debouncedLoad()">
     <button class="btn btn-ghost" onclick="clearFilters()">Clear filters</button>
     <!-- Enhancement backlog Phase 3 (PRD §14#12): exports exactly what's
@@ -192,6 +196,29 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
 const API = '';
 let TOKEN = localStorage.getItem('loc_token') || '';
 let TEAMS = [], ASSETS = [];
+// Enhancement backlog Phase 4 (PRD §15#1): admin-configured display time
+// zone, fetched at boot from the public (no-auth) settings endpoint —
+// same source the Submit WO page reads, so every screen agrees on the
+// same clock regardless of the viewing browser's own local time zone.
+// Defaults to UTC only if the fetch itself fails; the backend's own
+// default is America/New_York (see crud.DEFAULT_TIMEZONE).
+let APP_TIMEZONE = 'UTC';
+
+// Enhancement backlog Phase 4 (PRD §15#1): use these everywhere instead
+// of bare toLocaleString()/toLocaleTimeString() — those format against
+// the viewing browser's local time zone, which is exactly what this
+// feature replaces.
+function fmtDateTime(iso){
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-US', {timeZone: APP_TIMEZONE});
+}
+function fmtTime(iso){
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString('en-US', {timeZone: APP_TIMEZONE});
+}
+// Enhancement backlog Phase 4 (PRD §14#17): populates the "Handled by"
+// filter dropdown.
+let USERS = [];
 let drawerLocationPicker = null, newWoLocationPicker = null;
 let activeQuickView = '';
 let currentSort = {key: null, dir: 'asc'};
@@ -282,10 +309,24 @@ async function boot() {
     CURRENT_USER = await api('/users/me');
     TEAMS = await api('/teams');
     ASSETS = await api('/assets');
+    // loc/admin only — techs can't reach GET /users, and the "handled by"
+    // filter is a triage-staff tool, not something a tech's own queue
+    // view needs. Fail soft: an empty dropdown just means the filter
+    // isn't offered, not a broken page.
+    if (CURRENT_USER.role === 'loc' || CURRENT_USER.role === 'admin') {
+      try { USERS = await api('/users'); } catch (e) { USERS = []; }
+    }
   } catch (e) {
     showToast('Could not load reference data: ' + e.message, 'err');
     return;
   }
+  // Enhancement backlog Phase 4 (PRD §15#1). No-auth endpoint, no token
+  // needed — best-effort: if it fails, APP_TIMEZONE just stays at its
+  // 'UTC' fallback rather than blocking the whole page from loading.
+  try {
+    const settings = await fetch('/public/settings').then(r => r.json());
+    APP_TIMEZONE = settings.timezone || 'UTC';
+  } catch (e) { /* keep the UTC fallback */ }
   populateFilterOptions();
   renderQuickViews();
   await load();
@@ -303,6 +344,11 @@ function populateFilterOptions(){
   const fLocation = document.getElementById('fLocation');
   const locations = Array.from(new Set(ASSETS.map(a => a.location_group))).sort();
   locations.forEach(l => fLocation.insertAdjacentHTML('beforeend', `<option value="${l}">${l}</option>`));
+  // Enhancement backlog Phase 4 (PRD §14#17). USERS is only populated
+  // for loc/admin (see boot()) — for anyone else this is just an empty
+  // "Anyone (handled)" dropdown, which is harmless.
+  const fHandledBy = document.getElementById('fHandledBy');
+  USERS.forEach(u => fHandledBy.insertAdjacentHTML('beforeend', `<option value="${u.id}">${escapeHtml(u.name)}</option>`));
 }
 
 function renderQuickViews(){
@@ -325,7 +371,7 @@ function applyQuickView(key){
 }
 
 function clearFilters(){
-  ['fStatus','fPriority','fWorkType','fLocation','fTeam'].forEach(id => document.getElementById(id).value = '');
+  ['fStatus','fPriority','fWorkType','fLocation','fTeam','fHandledBy'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('fSearch').value = '';
   activeQuickView = '';
   renderQuickViews();
@@ -344,6 +390,7 @@ async function load() {
   const workType = document.getElementById('fWorkType').value;
   const location = document.getElementById('fLocation').value;
   const team = document.getElementById('fTeam').value;
+  const handledBy = document.getElementById('fHandledBy').value;
   const search = document.getElementById('fSearch').value;
 
   // These quick views used to be applied client-side against whatever
@@ -373,6 +420,7 @@ async function load() {
   if (workType) params.set('work_type', workType);
   if (location) params.set('location_group', location);
   if (team) params.set('team_id', team);
+  if (handledBy) params.set('handled_by', handledBy);
   if (search) params.set('search', search);
   params.set('limit', '200');
 
@@ -416,7 +464,7 @@ function exportInboxCsv(){
       w.description || '',
       w.asset ? w.asset.name : '',
       w.assigned_team ? w.assigned_team.name : '',
-      new Date(w.created_at).toLocaleString(),
+      fmtDateTime(w.created_at),
     ].map(csvEscape).join(','));
   }
   const blob = new Blob([lines.join('\n')], {type: 'text/csv;charset=utf-8;'});
@@ -432,7 +480,12 @@ function exportInboxCsv(){
 
 function sortValue(w, key){
   switch(key){
-    case 'wo_number': return w.wo_number || '';
+    // Enhancement backlog Phase 4 (PRD §14#16): true numeric sort, not
+    // string sort — matters once WO numbers pass 5 digits (string sort
+    // would otherwise rank "100000" before "99999"). Depends on §14#13
+    // (no more "WO-" prefix) — parseInt against a prefixed string would
+    // have returned NaN.
+    case 'wo_number': return parseInt(w.wo_number, 10) || 0;
     case 'priority': return PRIORITY_ORDER[w.priority] ?? 99;
     case 'status': return w.status || '';
     case 'location': return (w.asset ? w.asset.name : '') || '';
@@ -495,7 +548,7 @@ function renderTable(wos){
     // WorkOrder.locked_by on the backend), so a stale lock just shows
     // no icon at all rather than needing separate staleness handling here.
     const lockIcon = w.locked_by
-      ? `<span class="lock-icon" title="Locked by ${escapeHtml(w.locked_by.name)} since ${new Date(w.locked_at).toLocaleTimeString()}" style="margin-right:4px;cursor:help;">🔒</span>`
+      ? `<span class="lock-icon" title="Locked by ${escapeHtml(w.locked_by.name)} since ${fmtTime(w.locked_at)}" style="margin-right:4px;cursor:help;">🔒</span>`
       : '';
     // Enhancement backlog Phase 2 (PRD §14#9): notes icon + hover preview
     // when this WO has a requester-facing note set.
@@ -510,7 +563,7 @@ function renderTable(wos){
       <td style="white-space:pre-wrap;">${escapeHtml((w.description||'').slice(0,70))}</td>
       <td>${w.asset ? escapeHtml(w.asset.name) : '—'}</td>
       <td>${w.assigned_team ? escapeHtml(w.assigned_team.name) : '—'}</td>
-      <td>${new Date(w.created_at).toLocaleString()}</td>
+      <td>${fmtDateTime(w.created_at)}</td>
     </tr>`;
   }).join('') || '<tr class="empty-row"><td colspan="7">No work orders match the current filters.</td></tr>';
 }
@@ -567,7 +620,7 @@ async function closeDrawer(skipPrompt){
 
 function lockBannerHtml(user, at){
   return `<div class="lock-banner" style="background:#fdf3e0;border:1px solid #e8c789;border-radius:6px;padding:8px 10px;font-size:13px;margin-bottom:12px;">
-    🔒 Locked by ${escapeHtml(user.name)} since ${new Date(at).toLocaleTimeString()} — read-only until they save or close.
+    🔒 Locked by ${escapeHtml(user.name)} since ${fmtTime(at)} — read-only until they save or close.
   </div>`;
 }
 
@@ -623,11 +676,11 @@ function renderWODrawer(w, lockBanner){
   // Enhancement backlog Phase 3 (PRD §14#15): show who wrote each note,
   // not just its type and timestamp. author is null for system-authored
   // notes (rare, but possible), so this degrades gracefully.
-  const notesHtml = (w.notes||[]).slice().reverse().map(n=>`<div class="note">${escapeHtml(n.note_text)}<div class="meta">${n.note_type}${n.author ? ' · ' + escapeHtml(n.author.name) : ''} · ${new Date(n.created_at).toLocaleString()}</div></div>`).join('') || '<p style="font-size:12px;color:var(--ink-soft);">No notes yet.</p>';
+  const notesHtml = (w.notes||[]).slice().reverse().map(n=>`<div class="note">${escapeHtml(n.note_text)}<div class="meta">${n.note_type}${n.author ? ' · ' + escapeHtml(n.author.name) : ''} · ${fmtDateTime(n.created_at)}</div></div>`).join('') || '<p style="font-size:12px;color:var(--ink-soft);">No notes yet.</p>';
   // Enhancement backlog Phase 1 (PRD §14#4, bundled in alongside the
   // Phase 1 items since the data was already one property away): show
   // who made each change, not just a bare event line.
-  const histHtml = (w.history||[]).slice().reverse().map(h=>`<div class="hist">${h.event_type}: ${h.from_value||'—'} → ${h.to_value}${h.changed_by_name ? ' · ' + escapeHtml(h.changed_by_name) : ''} (${new Date(h.changed_at).toLocaleString()})</div>`).join('');
+  const histHtml = (w.history||[]).slice().reverse().map(h=>`<div class="hist">${h.event_type}: ${h.from_value||'—'} → ${h.to_value}${h.changed_by_name ? ' · ' + escapeHtml(h.changed_by_name) : ''} (${fmtDateTime(h.changed_at)})</div>`).join('');
   const attachmentsHtml = (w.attachments||[]).length
     ? `<div style="display:flex;gap:8px;flex-wrap:wrap;">` + (w.attachments||[]).map(a =>
         `<a href="${a.file_url}" target="_blank" rel="noopener"><img src="${a.file_url}" alt="attachment" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--khaki-line);"></a>`
@@ -651,7 +704,7 @@ function renderWODrawer(w, lockBanner){
       <p><strong>Status:</strong> ${escapeHtml(w.status)} &nbsp; <strong>Team:</strong> ${escapeHtml(w.assigned_team ? w.assigned_team.name : '—')}</p>
       <p><strong>Description:</strong><br>${escapeHtml(w.description)}</p>
       ${w.note_to_requester ? `<p><strong>Note to requestor:</strong><br>${escapeHtml(w.note_to_requester)}</p>` : ''}
-      <p style="font-size:11px;color:#666;">Printed ${new Date().toLocaleString()}</p>
+      <p style="font-size:11px;color:#666;">Printed ${fmtDateTime(new Date().toISOString())}</p>
     </div>`;
 
   openDrawer(`
