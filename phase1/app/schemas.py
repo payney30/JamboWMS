@@ -408,3 +408,16 @@ class AssetChangeLogOut(BaseModel):
     to_value: Optional[str]
     changed_by: Optional[int]
     changed_at: dt.datetime
+
+
+# ---- Enhancement backlog Phase 4: admin-configurable settings (PRD §15#1) ----
+
+class SettingsOut(BaseModel):
+    """What every screen — including the unauthenticated Submit WO form
+    — reads at load time to know which time zone to display dates in.
+    Kept minimal/public-safe on purpose; nothing sensitive belongs here."""
+    timezone: str
+
+
+class SettingsUpdate(BaseModel):
+    timezone: str

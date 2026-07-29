@@ -310,3 +310,16 @@ class ResponseTemplate(Base):
     created_at = Column(TIMESTAMP, default=now)
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     updated_at = Column(TIMESTAMP, default=now, onupdate=now)
+
+
+class AppSetting(Base):
+    """Enhancement backlog Phase 4 (PRD §15#1): small admin-configurable
+    global settings — currently just the display time zone every screen
+    formats dates/times against, instead of each browser's own local
+    time zone. Key-value rather than dedicated columns so future admin
+    settings don't each need their own migration."""
+    __tablename__ = "app_settings"
+    key = Column(String, primary_key=True)
+    value = Column(String, nullable=False)
+    updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    updated_at = Column(TIMESTAMP, default=now, onupdate=now)

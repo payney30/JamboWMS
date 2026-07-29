@@ -9,7 +9,7 @@ mutation later, ask "does this need a history row?" before wiring it up.
 import datetime as dt
 import secrets
 from sqlalchemy.orm import Session
-from sqlalchemy import func, case
+from sqlalchemy import func, case, cast, Integer
 from fastapi import HTTPException
 from . import models, schemas
 from .auth import hash_password
@@ -67,9 +67,26 @@ def build_location_tree(db: Session, include_inactive: bool = False) -> list[dic
 
 
 def _next_wo_number(db: Session) -> str:
-    last = db.query(models.WorkOrder).order_by(models.WorkOrder.id.desc()).first()
-    next_id = (last.id + 1) if last else 10001
-    return f"WO-{next_id}"
+    """Enhancement backlog Phase 4 (PRD §14#13): bare, unpadded WO
+    numbers — no "WO-" prefix. Each number is already unique on its own;
+    the prefix added nothing but made search/sort harder (see §14#16,
+    the numeric-sort fix that depends on this). Since the system isn't
+    live yet, there's no in-flight "WO-xxxxx" numbers to migrate.
+
+    Bug fix (PRD §14#19), found while making the above change: this used
+    to derive the next number from the most-recent row's raw database
+    `id` (`last.id + 1`), which is a different auto-increment sequence
+    than the intended "starts at 10001" WO numbering — it only happens to
+    equal 10001 for the very first WO (the `else 10001` branch), then
+    permanently diverges from the second WO onward, since `id` starts
+    counting from 1 like any other table's primary key. The result: the
+    second work order ever created would get wo_number "2", not "10002".
+    Fixed by deriving the next number from the highest wo_number actually
+    issued so far (cast to int), not from the row id.
+    """
+    highest = db.query(func.max(cast(models.WorkOrder.wo_number, Integer))).scalar()
+    next_id = (highest + 1) if highest else 10001
+    return str(max(next_id, 10001))
 
 
 def _validate_work_type(db: Session, work_type: str):
@@ -418,7 +435,7 @@ def lookup_work_orders_by_phone(db: Session, phone_digits: str, search: str | No
 def list_work_orders(db: Session, status=None, priority=None, team_id=None,
                       work_type=None, location_group=None, search=None,
                       exclude_closed=False, closed_only=False, priority_in=None,
-                      opened_today=False, closed_today=False,
+                      opened_today=False, closed_today=False, handled_by=None,
                       limit=100, offset=0):
     q = db.query(models.WorkOrder)
     if status:
@@ -438,6 +455,21 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
             (models.WorkOrder.wo_number.ilike(like)) |
             (models.WorkOrder.external_ref.ilike(like))
         )
+    if handled_by:
+        # Enhancement backlog Phase 4 (PRD §14#17): "work orders I've
+        # handled" — any WO where this user shows up as the actor on a
+        # status-history row OR as a note author, i.e. they touched it at
+        # some point. Deliberately NOT the same as "currently assigned to
+        # me" (assigned_team/assigned_person) — someone can have worked a
+        # WO earlier and it's since moved teams, and this should still
+        # find it.
+        history_ids = db.query(models.WOStatusHistory.work_order_id).filter(
+            models.WOStatusHistory.changed_by == handled_by
+        )
+        note_ids = db.query(models.WONote.work_order_id).filter(
+            models.WONote.author_id == handled_by
+        )
+        q = q.filter(models.WorkOrder.id.in_(history_ids.union(note_ids)))
     # These back the LOC triage KPI-card quick views (Open/Active,
     # Highest+High Open, Closed, Opened Today, Closed Today). They used to
     # be applied client-side against whatever page the default limit
@@ -1028,3 +1060,40 @@ def update_team(db: Session, team: models.Team, payload: schemas.TeamUpdate) -> 
     db.commit()
     db.refresh(team)
     return team
+
+
+# ---- Enhancement backlog Phase 4: admin-configurable settings (PRD §15#1) ----
+
+# The event's physical location (Summit Bechtel Reserve, WV) is Eastern
+# time — a sensible operational default until an admin sets it
+# explicitly, rather than defaulting to UTC and being wrong for everyone
+# out of the gate.
+DEFAULT_TIMEZONE = "America/New_York"
+
+
+def get_setting(db: Session, key: str, default: str | None = None) -> str | None:
+    row = db.get(models.AppSetting, key)
+    return row.value if row else default
+
+
+def get_all_settings(db: Session) -> dict:
+    """Public-readable snapshot of settings — used by every screen
+    (including the unauthenticated Submit WO form) to know which time
+    zone to format dates in. Deliberately just the display-affecting
+    settings, nothing sensitive."""
+    return {
+        "timezone": get_setting(db, "timezone", DEFAULT_TIMEZONE),
+    }
+
+
+def set_setting(db: Session, key: str, value: str, updated_by: int | None) -> models.AppSetting:
+    row = db.get(models.AppSetting, key)
+    if row:
+        row.value = value
+        row.updated_by = updated_by
+    else:
+        row = models.AppSetting(key=key, value=value, updated_by=updated_by)
+        db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
