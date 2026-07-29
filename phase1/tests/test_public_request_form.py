@@ -238,6 +238,26 @@ def test_public_lookup_includes_note_to_requester(client, asset, db):
     assert resp.json()[0]["note_to_requester"] == "A tech is on the way."
 
 
+def test_public_lookup_includes_assigned_team(client, asset, db, team):
+    """Enhancement backlog Phase 11 (PRD §13#7)."""
+    create = client.post("/public/work-orders", data=_base_form(asset, requester_phone="555-0450"))
+    wo_number = create.json()["wo_number"]
+    wo = db.query(models.WorkOrder).filter(models.WorkOrder.wo_number == wo_number).first()
+    wo.assigned_team_id = team.id
+    db.commit()
+
+    resp = client.get("/public/work-orders/lookup", params={"phone": "555-0450"})
+    assert resp.status_code == 200
+    assert resp.json()[0]["assigned_team"]["name"] == team.name
+
+
+def test_public_lookup_assigned_team_null_when_unassigned(client, asset):
+    client.post("/public/work-orders", data=_base_form(asset, requester_phone="555-0460"))
+    resp = client.get("/public/work-orders/lookup", params={"phone": "555-0460"})
+    assert resp.status_code == 200
+    assert resp.json()[0]["assigned_team"] is None
+
+
 # ---- Enhancement backlog Phase 2 (PRD §13#5): free-text search scoped to phone ----
 
 def test_lookup_search_matches_description(client, asset):
