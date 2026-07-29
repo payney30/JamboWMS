@@ -62,8 +62,25 @@ def get_public_location_tree(db: Session = Depends(get_db)):
     """Nested asset hierarchy for the public request form's location
     picker (PRD 4.2a). Same shape as the authenticated /locations/tree —
     no PII or internal fields involved either way, so nothing to narrow
-    here unlike list_public_assets above."""
+    here unlike list_public_assets above.
+    """
     return crud.build_location_tree(db, include_inactive=False)
+
+
+@router.get("/request-types", response_model=List[str])
+def get_public_request_types(db: Session = Depends(get_db)):
+    """Bug fix, enhancement backlog Phase 5 (PRD §14#20): the "kind of
+    issue" dropdown on the Submit WO form used to hardcode a fixed set
+    of work-type strings. Request types are admin-editable (PRD 4.5c,
+    `/admin/request-types`) — if an admin renames, deactivates, or adds
+    to that list (a real, existing feature), the hardcoded dropdown
+    silently drifted out of sync with what `_validate_work_type` (see
+    crud.py) actually accepts, and every submission using one of the
+    stale hardcoded values would fail with a 400 "invalid or inactive
+    request type" — exactly the "Submit WO is failing" symptom this was
+    found chasing down. This endpoint is now the single source of truth
+    both sides read from: the dropdown, and the validator."""
+    return [rt.name for rt in crud.list_request_types(db, include_inactive=False)]
 
 
 @router.post("/work-orders", response_model=schemas.PublicWorkOrderConfirmation, status_code=201)
