@@ -139,15 +139,18 @@ input[type=file]{font-size:13px;}
            native title attribute on the ⓘ icon — no extra CSS/JS needed,
            works with keyboard/screen readers too. Copy explains what we
            actually want in the description field. -->
-      <label>Describe the issue <span class="required-mark">*</span> <span class="tooltip-icon" tabindex="0" title="Tell us: exactly what's wrong, anything that makes it urgent or unsafe, and what (if anything) you've already tried. Example: &quot;Sink in Latrine 4B is clogged and overflowing onto the floor.&quot; The more specific, the faster we can route the right team." style="cursor:help;color:var(--ink-soft);">ⓘ</span></label>
+      <label>Describe the issue <span class="required-mark">*</span> <span class="tooltip-icon" tabindex="0" title="Include enough detail for the team to act without needing to follow up, plus a point of contact who can answer questions.
+&#8226; Materials: description, dimensions, quantity, brand/SKU if known, delivery location.
+&#8226; Maintenance: precise location and description of the issue.
+&#8226; Transportation: number of passengers, pickup/drop-off times &amp; locations, ages (under/over 18), and gender." style="cursor:help;color:var(--ink-soft);">ⓘ</span></label>
       <textarea id="rDescription" required placeholder="What's going on, and where exactly?"></textarea>
 
-      <label>Priority <span class="required-mark">*</span></label>
+      <label>Urgency <span class="required-mark">*</span></label>
       <div class="priority-group" id="rPriorityGroup"></div>
 
-      <label>Photos (optional)</label>
-      <div class="file-row"><input type="file" id="rFiles" accept="image/*" multiple></div>
-      <div class="hint">Up to 5 photos, 10&nbsp;MB each — helps the team see what they're walking into.</div>
+      <label>Photos or documents (optional)</label>
+      <div class="file-row"><input type="file" id="rFiles" accept="image/*,application/pdf" multiple></div>
+      <div class="hint">Up to 5 files, 10&nbsp;MB each (photos or PDFs) — helps the team see what they're walking into.</div>
 
       <!-- Honeypot: real people never see this field or fill it in. -->
       <div class="hp-field" aria-hidden="true">
@@ -315,8 +318,19 @@ function escapeHtml(s){
 // right mask — doesn't try to preserve cursor position for mid-string
 // edits, which is an acceptable trade-off for a field people almost
 // always type start-to-finish rather than editing in the middle of.
+//
+// Bug fix (PRD §13#13): browser-saved autofill (e.g. Chrome's saved
+// phone numbers) commonly fills in E.164 format with a leading "+1"
+// country code — "+14044297512" (11 digits). The original version just
+// took the first 10 digits of whatever came in, which for an 11-digit
+// number silently DROPPED THE LAST DIGIT instead of the country code,
+// producing a wrong number ("140-442-9751" instead of "404-429-7512").
+// Fixed to strip a leading "1" specifically when there are 11 digits,
+// same as how a person would read/say the number aloud.
 function formatPhoneAsTyped(e){
-  const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+  let digits = e.target.value.replace(/\D/g, '');
+  if (digits.length === 11 && digits[0] === '1') digits = digits.slice(1);
+  digits = digits.slice(0, 10);
   let out = digits;
   if (digits.length > 6) out = `${digits.slice(0,3)}-${digits.slice(3,6)}-${digits.slice(6)}`;
   else if (digits.length > 3) out = `${digits.slice(0,3)}-${digits.slice(3)}`;
@@ -470,7 +484,7 @@ async function checkStatus(){
         <div class="status-line"><span>Work order</span><span>${escapeHtml(d.wo_number)}</span></div>
         <div class="status-line"><span>Description</span><span>${escapeHtml(d.description)}</span></div>
         <div class="status-line"><span>Status</span><span>${escapeHtml(d.status)}</span></div>
-        <div class="status-line"><span>Priority</span><span>${escapeHtml(d.priority)}</span></div>
+        <div class="status-line"><span>Urgency</span><span>${escapeHtml(d.priority)}</span></div>
         <div class="status-line"><span>Submitted</span><span>${fmtDateTime(d.created_at)}</span></div>
         ${d.closed_at ? `<div class="status-line"><span>Closed</span><span>${fmtDateTime(d.closed_at)}</span></div>` : ''}
         ${d.note_to_requester ? `<div class="status-note" style="margin-top:8px;padding:8px 10px;background:var(--khaki-tint,#f4f1e8);border-radius:6px;font-size:13px;"><strong>Note from the LOC:</strong> ${escapeHtml(d.note_to_requester)}</div>` : ''}

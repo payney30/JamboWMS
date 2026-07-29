@@ -703,10 +703,16 @@ function renderWODrawer(w, lockBanner){
   // Phase 1 items since the data was already one property away): show
   // who made each change, not just a bare event line.
   const histHtml = (w.history||[]).slice().reverse().map(h=>`<div class="hist">${h.event_type}: ${h.from_value||'—'} → ${h.to_value}${h.changed_by_name ? ' · ' + escapeHtml(h.changed_by_name) : ''} (${fmtDateTime(h.changed_at)})</div>`).join('');
+  // Enhancement backlog Phase 10 (PRD §13#9): attachments can now be PDFs,
+  // not just photos — render those as a small file-link tile instead of
+  // an <img> (which would just show as broken for a non-image file).
   const attachmentsHtml = (w.attachments||[]).length
-    ? `<div style="display:flex;gap:8px;flex-wrap:wrap;">` + (w.attachments||[]).map(a =>
-        `<a href="${a.file_url}" target="_blank" rel="noopener"><img src="${a.file_url}" alt="attachment" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--khaki-line);"></a>`
-      ).join('') + `</div>`
+    ? `<div style="display:flex;gap:8px;flex-wrap:wrap;">` + (w.attachments||[]).map(a => {
+        const isPdf = /\.pdf($|\?)/i.test(a.file_url);
+        return isPdf
+          ? `<a href="${a.file_url}" target="_blank" rel="noopener" style="width:72px;height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#f4f1e8;font-size:10px;color:var(--ink-soft);text-decoration:none;">📄<span>PDF</span></a>`
+          : `<a href="${a.file_url}" target="_blank" rel="noopener"><img src="${a.file_url}" alt="attachment" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--khaki-line);"></a>`;
+      }).join('') + `</div>`
     : '';
   // Enhancement backlog Phase 1 (PRD §14#3, same "already have the data"
   // rationale as history above): POC block at the top when the requester
