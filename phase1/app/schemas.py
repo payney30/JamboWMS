@@ -228,13 +228,19 @@ class PublicWorkOrderConfirmation(BaseModel):
 
 class PublicWorkOrderStatus(BaseModel):
     """What a requester is allowed to see when looking up their own WO(s)
-    — no internal notes, no assignment details, no requester PII beyond
-    what they already provided to look it up. Enhancement backlog Phase 1
-    (PRD §13#4): lookup is now anchored on phone number and can return
-    more than one WO, so this also carries a short description/location
-    snippet so multiple results are distinguishable — and
-    note_to_requester (PRD §14#5), the one requester-facing field LOC can
-    set."""
+    — no internal notes, no requester PII beyond what they already
+    provided to look it up. Enhancement backlog Phase 1 (PRD §13#4):
+    lookup is now anchored on phone number and can return more than one
+    WO, so this also carries a short description/location snippet so
+    multiple results are distinguishable — and note_to_requester (PRD
+    §14#5), the one requester-facing field LOC can set.
+
+    Enhancement backlog Phase 11 (PRD §13#7): assigned_team is now
+    included too — internal triage notes are deliberately still NOT
+    exposed here (those are LOC's working notes, not written with a
+    requester audience in mind); note_to_requester above already covers
+    the "give the requester a note" half of that ask.
+    """
     model_config = ConfigDict(from_attributes=True)
     wo_number: str
     status: str
@@ -244,6 +250,7 @@ class PublicWorkOrderStatus(BaseModel):
     created_at: dt.datetime
     closed_at: Optional[dt.datetime]
     note_to_requester: Optional[str] = None
+    assigned_team: Optional[TeamOut] = None
 
 
 class KPIOut(BaseModel):
