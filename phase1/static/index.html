@@ -157,7 +157,12 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
     <select id="fStatus" onchange="load()"><option value="">All Statuses</option></select>
     <select id="fPriority" onchange="load()"><option value="">All Priorities</option></select>
     <select id="fWorkType" onchange="load()"><option value="">All Work Types</option></select>
-    <select id="fLocation" onchange="load()"><option value="">All Locations</option></select>
+    <!-- Enhancement backlog Phase 13 (PRD §14#37): relabeled from "All
+         Locations" — location_group is actually the resolved/cached
+         reporting-group name per Asset's own inheritance model
+         (models.py), so "reporting group" is the accurate name for
+         what this filter does, not a separate concept. -->
+    <select id="fLocation" onchange="load()"><option value="">All Reporting Groups</option></select>
     <select id="fTeam" onchange="load()"><option value="">All Teams</option></select>
     <!-- Enhancement backlog Phase 4 (PRD §14#17): "work orders I've
          handled" — filters to WOs where the selected user appears in
@@ -168,11 +173,18 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
     <!-- Enhancement backlog Phase 3 (PRD §14#12): exports exactly what's
          currently filtered/sorted in the inbox, not a full unfiltered dump. -->
     <button class="btn btn-ghost" onclick="exportInboxCsv()">Export CSV</button>
+    <!-- Enhancement backlog Phase 13 (PRD §14#11): opens the real
+         Submit WO screen instead of a separate LOC-only creation form. -->
     <button class="btn" onclick="openNewWO()">+ New WO</button>
+  </div>
+  <!-- Enhancement backlog Phase 13 (PRD §14#38): exact-location filter,
+       same LocationPicker component as the technician queue (§16#5). -->
+  <div style="margin-top:10px;max-width:360px;">
+    <div id="fLocationPicker"></div>
   </div>
   <div class="chips" id="quickViews"></div>
 
-  <div class="section-title">Inbox <span class="hint" id="inboxCount"></span></div>
+  <div class="section-title"><span>Inbox <span class="hint" id="inboxCount"></span></span></div>
   <table>
     <thead><tr>
       <th class="sortable" onclick="setSort('wo_number')">WO# <span class="sort-icon" id="sortIcon-wo_number"></span></th>
@@ -219,7 +231,11 @@ function fmtTime(iso){
 // Enhancement backlog Phase 4 (PRD §14#17): populates the "Handled by"
 // filter dropdown.
 let USERS = [];
-let drawerLocationPicker = null, newWoLocationPicker = null;
+// Enhancement backlog Phase 13 (PRD §14#37).
+let REPORTING_GROUPS = [];
+// Enhancement backlog Phase 13 (PRD §14#38).
+let drawerFilterLocationPicker = null, locationFilterAssetId = null;
+let drawerLocationPicker = null;
 let activeQuickView = '';
 let currentSort = {key: null, dir: 'asc'};
 let LAST_WOS = [];
@@ -309,6 +325,12 @@ async function boot() {
     CURRENT_USER = await api('/users/me');
     TEAMS = await api('/teams');
     ASSETS = await api('/assets');
+    // Enhancement backlog Phase 13 (PRD §14#37): canonical, correctly-
+    // ordered, active-only reporting-group list — replaces deriving
+    // options from whatever location_group values happen to already be
+    // present on loaded ASSETS (which could miss groups with no assets
+    // currently assigned, and had no defined sort order).
+    REPORTING_GROUPS = await api('/reporting-groups');
     // loc/admin only — techs can't reach GET /users, and the "handled by"
     // filter is a triage-staff tool, not something a tech's own queue
     // view needs. Fail soft: an empty dropdown just means the filter
@@ -342,8 +364,17 @@ function populateFilterOptions(){
   const fTeam = document.getElementById('fTeam');
   TEAMS.forEach(t => fTeam.insertAdjacentHTML('beforeend', `<option value="${t.id}">${t.name}</option>`));
   const fLocation = document.getElementById('fLocation');
-  const locations = Array.from(new Set(ASSETS.map(a => a.location_group))).sort();
-  locations.forEach(l => fLocation.insertAdjacentHTML('beforeend', `<option value="${l}">${l}</option>`));
+  REPORTING_GROUPS.forEach(rg => fLocation.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(rg.name)}">${escapeHtml(rg.name)}</option>`));
+  // Enhancement backlog Phase 13 (PRD §14#38): exact-location filter,
+  // same LocationPicker component/pattern as the technician queue
+  // (§16#5) — distinct from the reporting-group dropdown above, which
+  // only narrows to a broad group, not a specific asset.
+  drawerFilterLocationPicker = LocationPicker.mount(document.getElementById('fLocationPicker'), {
+    treeUrl: '/locations/tree',
+    fetchOpts: { headers: { Authorization: 'Bearer ' + TOKEN } },
+    placeholder: 'Filter by exact location…',
+    onChange: (assetId) => { locationFilterAssetId = assetId; load(); },
+  });
   // Enhancement backlog Phase 4 (PRD §14#17). USERS is only populated
   // for loc/admin (see boot()) — for anyone else this is just an empty
   // "Anyone (handled)" dropdown, which is harmless.
@@ -373,6 +404,10 @@ function applyQuickView(key){
 function clearFilters(){
   ['fStatus','fPriority','fWorkType','fLocation','fTeam','fHandledBy'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('fSearch').value = '';
+  // Enhancement backlog Phase 13 (PRD §14#38): setValue() doesn't fire
+  // onChange, so locationFilterAssetId needs resetting explicitly too.
+  if (drawerFilterLocationPicker) drawerFilterLocationPicker.setValue(null, null);
+  locationFilterAssetId = null;
   activeQuickView = '';
   renderQuickViews();
   load();
@@ -428,6 +463,7 @@ async function load(quiet) {
   if (priority) params.set('priority', priority);
   if (workType) params.set('work_type', workType);
   if (location) params.set('location_group', location);
+  if (locationFilterAssetId) params.set('asset_id', locationFilterAssetId);
   if (team) params.set('team_id', team);
   if (handledBy) params.set('handled_by', handledBy);
   if (search) params.set('search', search);
@@ -817,6 +853,12 @@ function renderWODrawer(w, lockBanner){
       <textarea id="dNote" placeholder="Add a note…" oninput="markDirty()" ${dis}></textarea>
     </div>
 
+    <!-- Enhancement backlog Phase 13 (PRD §14#39): visual separation
+         between the note field above and the Save/Cancel/Print row
+         below — companion to the divider already below this row
+         (§14#27), separating actions from both directions. -->
+    <hr style="border:none;border-top:1px solid var(--khaki-line);margin:16px 0 0;">
+
     <!-- Enhancement backlog Phase 1 (PRD §14#2): one Save action for
          everything in the drawer, instead of one per section. -->
     <div class="drawer-actions" style="margin-top:8px;">
@@ -902,62 +944,17 @@ async function saveDrawer(){
   }
 }
 
+// Enhancement backlog Phase 13 (PRD §14#11 — decision made 7/29/26,
+// built here): "+WO" no longer opens a separate, LOC-specific creation
+// drawer. That drawer (formerly openNewWO()/createWO() — removed) was a
+// second implementation of the same form Submit WO already is, just
+// missing several of its fields (POC, phone auto-format, tooltip, PDF
+// attachments, etc.) and drifting further out of sync every time Submit
+// WO changed. "+WO" now just opens the real Submit WO screen in a new
+// tab — one capture process, not two — so LOC keeps their triage view
+// intact while filling it out for a phone-in request.
 function openNewWO(){
-  const priorityOpts = PRIORITIES.map(p=>`<option value="${p}">${p}</option>`).join('');
-  openDrawer(`
-    <button class="close-btn" onclick="closeDrawer()">×</button>
-    <h2>New Work Order</h2>
-    <label>Requester name</label><input id="nName">
-    <label>Requester email</label><input id="nEmail" type="email">
-    <label>Requester phone</label><input id="nPhone">
-    <label>Location / asset</label><div id="nLocationPicker"></div>
-    <label>Work type</label>
-    <select id="nType">
-      <option value="NJ Maintenance">NJ Maintenance</option>
-      <option value="NJ IT">NJ IT</option>
-      <option value="NJ Items/Parts">NJ Items/Parts</option>
-      <option value="NJ Transportation">NJ Transportation</option>
-      <option value="">Other / blank</option>
-    </select>
-    <label>Priority</label><select id="nPriority">${priorityOpts}</select>
-    <label>Description</label><textarea id="nDesc"></textarea>
-    <div class="field-err" id="nErr"></div>
-    <div class="drawer-actions"><button class="btn" onclick="createWO()">Create work order</button></div>
-  `);
-  newWoLocationPicker = LocationPicker.mount(document.getElementById('nLocationPicker'), {
-    treeUrl: '/locations/tree',
-    fetchOpts: { headers: { Authorization: 'Bearer ' + TOKEN } },
-    placeholder: 'Search or browse locations…',
-  });
-}
-
-async function createWO(){
-  const btn = event.target;
-  const errEl = document.getElementById('nErr');
-  errEl.textContent = '';
-  const name = document.getElementById('nName').value.trim();
-  const desc = document.getElementById('nDesc').value.trim();
-  const assetId = newWoLocationPicker ? newWoLocationPicker.getValue() : null;
-  if (!name || !desc) { errEl.textContent = 'Requester name and description are required.'; return; }
-  if (!assetId) { errEl.textContent = 'Choose a location.'; return; }
-  await withButtonLock(btn, async () => {
-    const payload = {
-      requester_name: name,
-      requester_email: document.getElementById('nEmail').value || null,
-      requester_phone: document.getElementById('nPhone').value || null,
-      asset_id: assetId,
-      work_type: document.getElementById('nType').value,
-      priority: document.getElementById('nPriority').value,
-      description: desc,
-    };
-    try {
-      const created = await api('/work-orders', {method:'POST', body:payload});
-      showToast(`Created ${created.wo_number}.`, 'ok');
-      closeDrawer(); load();
-    } catch (e) {
-      if (e.message !== 'session expired') errEl.textContent = e.message;
-    }
-  });
+  window.open('/request.html', '_blank');
 }
 
 // Enhancement backlog Phase 1 (PRD §14#2): best-effort warning on tab
