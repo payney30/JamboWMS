@@ -29,6 +29,16 @@ def get_location_tree(db: Session = Depends(get_db), user: models.User = Depends
     return crud.build_location_tree(db, include_inactive=False)
 
 
+@router.get("/reporting-groups", response_model=list[schemas.ReportingGroupOut])
+def list_reporting_groups(db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """Enhancement backlog Phase 13 (PRD §14#37): read-only reporting-
+    group list for the LOC triage inbox filter — any authenticated role,
+    unlike the full CRUD admin endpoint at /admin/reporting-groups
+    (admin-only, since that one actually manages the catalog). Active
+    groups only, same convention as /locations/tree above."""
+    return crud.list_reporting_groups(db, include_inactive=False)
+
+
 @auth_router.get("/me", response_model=schemas.UserOut)
 def me(user: models.User = Depends(get_current_user)):
     """Lets a page restore role/team from a stored token on reload without
