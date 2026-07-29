@@ -90,7 +90,7 @@ async def submit_public_work_order(
         # A real requester never sees or fills this field. Rather than
         # reject outright (which teaches a bot to stop filling it), return
         # a plausible-looking success without touching the database.
-        return schemas.PublicWorkOrderConfirmation(wo_number="WO-00000")
+        return schemas.PublicWorkOrderConfirmation(wo_number="00000")
 
     retry_after = rate_limit.check_public_submission_limit(client_ip)
     if retry_after is not None:
@@ -210,3 +210,13 @@ def lookup_public_work_orders(phone: str, request: Request, search: Optional[str
     if not wos:
         raise HTTPException(404, "no work orders found for that phone number")
     return wos
+
+
+@router.get("/settings", response_model=schemas.SettingsOut)
+def get_public_settings(db: Session = Depends(get_db)):
+    """Enhancement backlog Phase 4 (PRD §15#1): no auth required — this
+    is how the (unauthenticated) Submit WO / status-lookup page knows
+    which time zone to display dates in, same as the authenticated
+    screens read via GET /admin/settings. Read-only; only an admin can
+    change the value (see app/routers/admin.py)."""
+    return crud.get_all_settings(db)

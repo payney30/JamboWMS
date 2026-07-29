@@ -14,6 +14,7 @@ caller explicitly opts in (cascade_deactivate / confirm_deactivate).
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from zoneinfo import available_timezones
 
 from .. import crud, schemas, models
 from ..database import get_db
@@ -134,3 +135,19 @@ def update_team(team_id: int, payload: schemas.TeamUpdate, db: Session = Depends
     if not team:
         raise HTTPException(404, "team not found")
     return crud.update_team(db, team, payload)
+
+
+# ---- Global settings (PRD §15#1) ----
+
+@router.get("/settings", response_model=schemas.SettingsOut)
+def get_settings(db: Session = Depends(get_db), user: models.User = Depends(admin_only)):
+    return crud.get_all_settings(db)
+
+
+@router.put("/settings", response_model=schemas.SettingsOut)
+def update_settings(payload: schemas.SettingsUpdate, db: Session = Depends(get_db),
+                     user: models.User = Depends(admin_only)):
+    if payload.timezone not in available_timezones():
+        raise HTTPException(400, f"'{payload.timezone}' is not a recognized IANA time zone")
+    crud.set_setting(db, "timezone", payload.timezone, updated_by=user.id)
+    return crud.get_all_settings(db)
