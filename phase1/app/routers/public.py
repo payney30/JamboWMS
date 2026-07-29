@@ -47,7 +47,13 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 MAX_FILES_PER_SUBMISSION = 5
 MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
-ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
+# Enhancement backlog Phase 10 (PRD §13#9): PDFs are common for things
+# like a packing list or a formal transportation request — added
+# alongside the original photo-only allowlist rather than replacing it.
+ALLOWED_CONTENT_TYPES = {
+    "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif",
+    "application/pdf",
+}
 
 
 @router.get("/assets", response_model=list[schemas.PublicAssetOut])
