@@ -52,7 +52,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;}
 th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--khaki-line);}
 th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:var(--ink-soft);}
 .chip{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;}
-.chip-Highest,.chip-High{background:#FBE4D6;color:var(--hivis);}
+.chip-Highest,.chip-High,.chip-Immediate,.chip-Same-Day{background:#FBE4D6;color:var(--hivis);}
 .empty-note{color:var(--ink-soft);font-size:12px;padding:8px 0;}
 
 #toastStack{position:fixed;bottom:16px;left:16px;right:16px;z-index:50;display:flex;flex-direction:column;gap:8px;align-items:center;}
@@ -99,7 +99,7 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
     <div class="card" style="grid-column:1 / -1;"><h3>Assigned team — total vs closed</h3><div id="byTeam"></div></div>
   </div>
 
-  <div class="section-title">Needing attention — Highest/High priority, open, oldest first</div>
+  <div class="section-title">Needing attention — Urgent priority, open, oldest first</div>
   <div class="card">
     <table>
       <thead><tr><th>WO#</th><th>Priority</th><th>Status</th><th>Description</th><th>Location</th><th>Age</th></tr></thead>
@@ -131,6 +131,11 @@ function escapeHtml(s){
   d.textContent = s == null ? '' : s;
   return d.innerHTML;
 }
+// Enhancement backlog Phase 14 (PRD §13#15): the priority value gets
+// interpolated directly into a CSS class name (`chip-${...}`) — the new
+// urgency-tier names contain spaces, which aren't valid in a single
+// class name, so this slugifies first.
+function priorityClass(p){ return (p || '').replace(/\s+/g, '-'); }
 function showToast(msg, kind){
   const el = document.createElement('div');
   el.className = 'toast' + (kind ? ' ' + kind : '');
@@ -213,7 +218,7 @@ async function load(){
   }
   renderStats(kpis);
   renderBars('byStatus', breakdowns.by_status);
-  renderBars('byPriority', breakdowns.by_priority, ['Highest','High','Medium','Low','Lowest']);
+  renderBars('byPriority', breakdowns.by_priority, ['Highest','Immediate','High','Same Day','Medium','Next Day','Low','2 Days','Lowest','3 Days']);
   renderBars('byWorkType', breakdowns.by_work_type);
   renderBars('byLocation', breakdowns.by_location);
   renderTeamTable(breakdowns.by_team, breakdowns.by_status);
@@ -297,7 +302,7 @@ function renderAttention(rows){
     const age = hours < 24 ? `${hours}h` : `${Math.floor(hours/24)}d ${hours%24}h`;
     return `<tr>
       <td>${escapeHtml(w.wo_number)}</td>
-      <td><span class="chip chip-${w.priority}">${w.priority}</span></td>
+      <td><span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span></td>
       <td>${w.status}</td>
       <td>${escapeHtml((w.description||'').slice(0,90))}</td>
       <td>${escapeHtml(w.asset ? w.asset.name : '')}</td>

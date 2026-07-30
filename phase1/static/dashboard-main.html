@@ -51,7 +51,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;}
 th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--khaki-line);}
 th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:var(--ink-soft);}
 .chip{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;}
-.chip-Highest,.chip-High{background:#FBE4D6;color:var(--hivis);}
+.chip-Highest,.chip-High,.chip-Immediate,.chip-Same-Day{background:#FBE4D6;color:var(--hivis);}
 .empty-note{color:var(--ink-soft);font-size:12px;padding:8px 0;}
 
 #toastStack{position:fixed;bottom:16px;left:16px;right:16px;z-index:50;display:flex;flex-direction:column;gap:8px;align-items:center;}
@@ -115,7 +115,7 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
     <div class="card" style="grid-column:1 / -1;"><h3>Assigned team — total vs closed</h3><div id="byTeam"></div></div>
   </div>
 
-  <div class="section-title">Needing attention — Highest/High priority, open, oldest first</div>
+  <div class="section-title">Needing attention — Urgent priority, open, oldest first</div>
   <div class="card">
     <table>
       <thead><tr><th>WO#</th><th>Priority</th><th>Status</th><th>Description</th><th>Location</th><th>Age</th></tr></thead>
@@ -133,7 +133,8 @@ const currentScope = 'main'; // fixed — this page is scope-locked, see dash-na
 let refreshTimer = null;
 let TEAMS = [], ASSETS = [];
 const STATUSES = ["Requested","Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
-const PRIORITIES = ["Highest","High","Medium","Low","Lowest"];
+const PRIORITIES = ["Immediate","Same Day","Next Day","2 Days","3 Days"];
+function priorityClass(p){ return (p || "").replace(/\s+/g, "-"); }
 const WORK_TYPES = ["NJ IT","NJ Items/Parts","NJ Maintenance","NJ Transportation"];
 
 function escapeHtml(s){
@@ -261,7 +262,14 @@ async function load(){
   }
   renderStats(kpis);
   renderBars('byStatus', breakdowns.by_status);
-  renderBars('byPriority', breakdowns.by_priority, ['Highest','High','Medium','Low','Lowest']);
+  // Enhancement backlog Phase 14 (PRD §13#15): urgency-tier rename —
+  // renderBars' `order` param strictly filters which keys can appear
+  // at all (see its implementation below), so omitting the new names
+  // here would silently make every new-style WO invisible in this
+  // breakdown once any exist. Historic WOs still use the old names
+  // (never rewritten, by explicit decision), so both sets need to stay
+  // listed indefinitely.
+  renderBars('byPriority', breakdowns.by_priority, ['Highest','Immediate','High','Same Day','Medium','Next Day','Low','2 Days','Lowest','3 Days']);
   renderBars('byWorkType', breakdowns.by_work_type);
   renderBars('byLocation', breakdowns.by_location);
   renderTeamTable(breakdowns.by_team, breakdowns.by_status);
@@ -345,7 +353,7 @@ function renderAttention(rows){
     const age = hours < 24 ? `${hours}h` : `${Math.floor(hours/24)}d ${hours%24}h`;
     return `<tr>
       <td>${escapeHtml(w.wo_number)}</td>
-      <td><span class="chip chip-${w.priority}">${w.priority}</span></td>
+      <td><span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span></td>
       <td>${w.status}</td>
       <td style="white-space:pre-wrap;">${escapeHtml((w.description||'').slice(0,90))}</td>
       <td>${escapeHtml(w.asset ? w.asset.name : '')}</td>

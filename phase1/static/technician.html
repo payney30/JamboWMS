@@ -66,9 +66,9 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
 .wo-desc{font-size:14px;margin:6px 0;line-height:1.35;white-space:pre-wrap;}
 .wo-meta{font-size:11px;color:var(--ink-soft);display:flex;gap:10px;flex-wrap:wrap;}
 .chip{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;}
-.chip-Highest,.chip-High{background:var(--danger-bg);color:var(--hivis);}
-.chip-Medium{background:#FBF0D6;color:var(--amber);}
-.chip-Low,.chip-Lowest{background:#E7E4DC;color:var(--ink-soft);}
+.chip-Highest,.chip-High,.chip-Immediate,.chip-Same-Day{background:var(--danger-bg);color:var(--hivis);}
+.chip-Medium,.chip-Next-Day{background:#FBF0D6;color:var(--amber);}
+.chip-Low,.chip-Lowest,.chip-2-Days,.chip-3-Days{background:#E7E4DC;color:var(--ink-soft);}
 .status-pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:#F1EDDF;color:var(--ink-soft);}
 .empty-state{color:var(--ink-soft);text-align:center;padding:40px 12px;font-size:14px;}
 
@@ -200,7 +200,12 @@ function fmtDate(iso){
 let activeQuickView = '';
 let scopeTeamId = null; // the team whose queue we're viewing
 const TECH_STATUSES = ["Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
-const PRIORITIES = ["Highest","High","Medium","Low","Lowest"];
+// Enhancement backlog Phase 14 (PRD §13#15): urgency-tier rename — new
+// names only, for the filter dropdown (technicians can't set priority
+// at all, so there's no "current old value" edge case to handle here
+// unlike the LOC triage drawer).
+const PRIORITIES = ["Immediate","Same Day","Next Day","2 Days","3 Days"];
+function priorityClass(p){ return (p || '').replace(/\s+/g, '-'); }
 const STATUS_LABELS = ["Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
 const QUICK_VIEWS = [
   {key:'', label:'All open'},
@@ -430,7 +435,7 @@ function renderCards(wos){
     <div class="wo-card" onclick="openDetail(${w.id})">
       <div class="wo-card-top">
         <span class="wo-num">${escapeHtml(w.wo_number)}</span>
-        <span class="chip chip-${w.priority}">${w.priority}</span>
+        <span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span>
       </div>
       <div class="wo-desc">${escapeHtml((w.description || '').slice(0,140))}${(w.description||'').length>140?'…':''}</div>
       <div class="wo-meta">
@@ -531,7 +536,7 @@ async function openDetail(id){
   openDrawer(`
     <button class="close-btn" onclick="closeDrawer()">×</button>
     <h2>${escapeHtml(w.wo_number)}</h2>
-    <div class="sub">${escapeHtml(w.work_type || 'No work type')} &middot; <span class="chip chip-${w.priority}">${w.priority}</span></div>
+    <div class="sub">${escapeHtml(w.work_type || 'No work type')} &middot; <span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span></div>
 
     <div class="readonly-block"><strong>${escapeHtml(w.asset ? w.asset.name : 'No location')}</strong><br>${escapeHtml(w.description)}</div>
     ${attachmentsHtml}

@@ -191,12 +191,17 @@ input[type=file]{font-size:13px;}
 <script>
 // Criteria and colors match Work_Order_Priorties.pdf exactly, same text
 // already embedded in the existing LOC dashboards (PRIORITY_DEFS).
+// Enhancement backlog Phase 14 (PRD §13#15): urgency-tier rename —
+// Highest/High/Medium/Low/Lowest -> Immediate/Same Day/Next Day/2 Days/
+// 3 Days. New submissions only ever use these new names going forward;
+// the underlying SLA hour targets (and the criteria describing them)
+// are unchanged, only the label changed.
 const PRIORITIES = [
-  {key:'Highest', label:'Highest', color:'#E8620C', criteria:['Immediate safety issue', 'Is causing current program stoppage', 'Action needed within 2 hours']},
-  {key:'High', label:'High', color:'#F4A25E', criteria:['Safety concern, non-immediate', 'Will cause program stoppage within 24 hours', 'Action needed within 6 hours']},
-  {key:'Medium', label:'Medium', color:'#C9962B', criteria:['Will cause program stoppage beyond 24 hours', 'Action needed within 24 hours']},
-  {key:'Low', label:'Low', color:'#5C7A4A', criteria:['Action needed within 48 hours']},
-  {key:'Lowest', label:'Lowest', color:'#5A7385', criteria:['Action needed within 72 hours']},
+  {key:'Immediate', label:'Immediate', color:'#E8620C', criteria:['Immediate safety issue', 'Is causing current program stoppage', 'Action needed within 2 hours']},
+  {key:'Same Day', label:'Same Day', color:'#F4A25E', criteria:['Safety concern, non-immediate', 'Will cause program stoppage within 24 hours', 'Action needed within 6 hours']},
+  {key:'Next Day', label:'Next Day', color:'#C9962B', criteria:['Will cause program stoppage beyond 24 hours', 'Action needed within 24 hours']},
+  {key:'2 Days', label:'2 Days', color:'#5C7A4A', criteria:['Action needed within 48 hours']},
+  {key:'3 Days', label:'3 Days', color:'#5A7385', criteria:['Action needed within 72 hours']},
 ];
 // Default assumption is "yes" (requester = POC) so the common case adds
 // zero extra fields. Selecting "no" reveals the POC name/phone sub-fields.
