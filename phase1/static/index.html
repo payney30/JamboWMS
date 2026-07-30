@@ -126,7 +126,14 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
   #drawer .print-only { display: block !important; }
 }
 .print-only { display: none; }
+/* Enhancement backlog Phase 15 (PRD §14#7): pin display on the WO
+   detail screen. Small preview by default; "expand" opens the point in
+   an external map service (OpenStreetMap) in a new tab rather than a
+   custom in-app modal — simpler, and more useful (native map app
+   deep-linking) for LOC/techs than a bespoke lightbox. */
+#drawerPinMap{height:160px;border-radius:8px;border:1px solid var(--khaki-line);margin:8px 0;}
 </style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 <body>
 
@@ -203,6 +210,7 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
 <div id="drawer"></div>
 <div id="toastStack"></div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="location-picker.js"></script>
 <script>
 const API = '';
@@ -837,6 +845,17 @@ function renderWODrawer(w, lockBanner){
       <p style="font-size:11px;color:#666;">Printed ${fmtDateTime(new Date().toISOString())}</p>
     </div>`;
 
+  // Enhancement backlog Phase 15 (PRD §14#7): pin display, unblocked by
+  // §13#14 (pin-drop on Submit WO) shipping. No pin -> no map section at
+  // all, not a blank/broken one. "Expand" opens the point in
+  // OpenStreetMap in a new tab rather than a custom in-app modal.
+  const hasPin = w.latitude != null && w.longitude != null;
+  const pinHtml = hasPin ? `
+    <div class="drawer-group">
+      <label>Pinned location <a href="https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17" target="_blank" rel="noopener" style="font-weight:400;font-size:12px;">Open full map ↗</a></label>
+      <div id="drawerPinMap"></div>
+    </div>` : '';
+
   openDrawer(`
     <button class="close-btn" onclick="closeDrawer()">×</button>
     <h2>${w.wo_number}${w.external_ref ? ` <span style="font-size:12px;font-weight:400;color:var(--ink-soft);">(Fiix #${escapeHtml(w.external_ref)})</span>` : ''}</h2>
@@ -844,6 +863,7 @@ function renderWODrawer(w, lockBanner){
     ${pocHtml}
     ${lockBanner}
     ${attachmentsHtml}
+    ${pinHtml}
     ${printOnlyHtml}
 
     <div class="drawer-group">
@@ -920,6 +940,21 @@ function renderWODrawer(w, lockBanner){
   // Read-only view still needs the WO's own asset id for... nothing,
   // actually — saveDrawer() is unreachable when !editable (no Save
   // button is rendered), so there's nothing to fall back to here.
+
+  // Enhancement backlog Phase 15 (PRD §14#7): small preview map — has
+  // to happen after openDrawer() above actually inserts #drawerPinMap
+  // into the DOM. Deliberately not draggable/heavily interactive (this
+  // is read-only display, not data entry) but zoom/pan still work,
+  // which covers "expand to see more" without a separate modal —
+  // "Open full map" link handles the rest.
+  if (hasPin) {
+    const dmap = L.map('drawerPinMap', {zoomControl: false}).setView([w.latitude, w.longitude], 16);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors',
+    }).addTo(dmap);
+    L.marker([w.latitude, w.longitude]).addTo(dmap);
+  }
 }
 
 // Enhancement backlog Phase 1 (PRD §14#2): single Save, one request,

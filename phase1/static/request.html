@@ -81,7 +81,13 @@ input[type=file]{font-size:13px;}
 #statusResult{margin-top:14px;font-size:14px;}
 #statusResult .status-line{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--khaki-line);}
 #statusResult .status-line span:first-child{color:var(--ink-soft);text-transform:uppercase;font-size:11px;letter-spacing:.05em;}
+/* Enhancement backlog Phase 15 (PRD §13#14): pin-drop map. Always
+   visible (not toggled) — tap-to-place needs a visible map to tap. */
+#pinMap{height:220px;border-radius:8px;border:1px solid var(--khaki-line);margin-top:8px;}
+.pin-actions{display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap;}
+.pin-status{font-size:12px;color:var(--ink-soft);}
 </style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 <body>
 <div class="wrap">
@@ -124,6 +130,21 @@ input[type=file]{font-size:13px;}
       <label>Location <span class="required-mark">*</span></label>
       <div id="rLocationPicker"></div>
       <div class="field-err" id="rLocationErr"></div>
+
+      <!-- Enhancement backlog Phase 15 (PRD §13#14): optional geo
+           pin-drop — supplements the location picker above, doesn't
+           replace it. Requester picks the general location above (what
+           reporting/dashboards group by), and can optionally also drop
+           an exact point here for cases where "this general area" isn't
+           precise enough (a large field, a trail, a parking lot). -->
+      <label>Pin your exact location <span style="font-weight:400;color:var(--ink-soft);">(optional)</span></label>
+      <div class="pin-actions">
+        <button type="button" class="btn btn-ghost" onclick="useMyLocation()" id="pinLocateBtn">Use my current location</button>
+        <button type="button" class="btn btn-ghost" onclick="clearPin()" id="pinClearBtn" style="display:none;">Clear pin</button>
+        <span class="pin-status" id="pinStatus"></span>
+      </div>
+      <div id="pinMap"></div>
+      <div class="hint">Tap the map to drop a pin, or drag it once placed. Skip this if "Use my current location" doesn't work — the location picker above is all that's required.</div>
 
       <!-- Enhancement backlog Phase 3 (PRD §13#3): required. Bug fix
            (PRD §14#20): options are now populated dynamically in boot()
@@ -187,6 +208,7 @@ input[type=file]{font-size:13px;}
   </div>
 </div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="location-picker.js"></script>
 <script>
 // Criteria and colors match Work_Order_Priorties.pdf exactly, same text
@@ -210,6 +232,8 @@ const POC_OPTIONS = [
   {key:'no', label:'No, someone else is the point of contact'},
 ];
 let locationPicker = null;
+// Enhancement backlog Phase 15 (PRD §13#14): pin-drop map state.
+let pinMap = null, pinMarker = null;
 // Enhancement backlog Phase 4 (PRD §15#1): admin-configured display time
 // zone. Fetched in boot() below; falls back to UTC if that fails.
 let APP_TIMEZONE = 'UTC';
@@ -283,6 +307,17 @@ async function boot(){
       'Location lookup failed to load — please refresh the page. If this keeps happening, contact the LOC directly.';
   }
 
+  // Enhancement backlog Phase 15 (PRD §13#14): pin-drop map. Failing
+  // here shouldn't block the rest of the form — the pin is optional,
+  // and the location picker above already covers the required field.
+  try {
+    initPinMap();
+  } catch (err) {
+    console.error('Pin map failed to load:', err);
+    document.getElementById('pinMap').style.display = 'none';
+    document.getElementById('pinLocateBtn').style.display = 'none';
+  }
+
   try {
     const group = document.getElementById('rPriorityGroup');
     group.innerHTML = PRIORITIES.map((p, i) => `
@@ -332,6 +367,82 @@ function escapeHtml(s){
 // producing a wrong number ("140-442-9751" instead of "404-429-7512").
 // Fixed to strip a leading "1" specifically when there are 11 digits,
 // same as how a person would read/say the number aloud.
+// Enhancement backlog Phase 15 (PRD §13#14): pin-drop map. Approximate
+// center on the Summit Bechtel Reserve (Glen Jean, WV) — a reasonable
+// default view whether or not geolocation ends up being used; the
+// requester can always pan/zoom to find the right spot.
+const SBR_CENTER = [37.860, -81.132];
+
+function initPinMap(){
+  pinMap = L.map('pinMap').setView(SBR_CENTER, 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors',
+  }).addTo(pinMap);
+
+  // Tap-to-place: the fallback path whether or not "Use my current
+  // location" worked (denied permission, unsupported browser, or the
+  // requester just isn't on-site right now) — one mechanism, not a
+  // separate error state.
+  pinMap.on('click', (e) => placePin(e.latlng.lat, e.latlng.lng));
+}
+
+function placePin(lat, lng){
+  if (pinMarker) {
+    pinMarker.setLatLng([lat, lng]);
+  } else {
+    pinMarker = L.marker([lat, lng], {draggable: true}).addTo(pinMap);
+    pinMarker.on('dragend', () => {
+      const pos = pinMarker.getLatLng();
+      updatePinStatus(pos.lat, pos.lng);
+    });
+    document.getElementById('pinClearBtn').style.display = '';
+  }
+  pinMap.panTo([lat, lng]);
+  updatePinStatus(lat, lng);
+}
+
+function updatePinStatus(lat, lng){
+  document.getElementById('pinStatus').textContent =
+    `Pinned at ${lat.toFixed(5)}, ${lng.toFixed(5)} — drag to adjust.`;
+}
+
+function getPinLatLng(){
+  if (!pinMarker) return null;
+  const pos = pinMarker.getLatLng();
+  return {lat: pos.lat, lng: pos.lng};
+}
+
+function clearPin(){
+  if (pinMarker) {
+    pinMap.removeLayer(pinMarker);
+    pinMarker = null;
+  }
+  document.getElementById('pinClearBtn').style.display = 'none';
+  document.getElementById('pinStatus').textContent = '';
+}
+
+function useMyLocation(){
+  const statusEl = document.getElementById('pinStatus');
+  if (!navigator.geolocation) {
+    // No separate error state — same fallback as a denied permission:
+    // the map is still right there to tap.
+    statusEl.textContent = "Your browser doesn't support location — tap the map to drop a pin manually.";
+    return;
+  }
+  statusEl.textContent = 'Finding your location…';
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      placePin(pos.coords.latitude, pos.coords.longitude);
+      pinMap.setView([pos.coords.latitude, pos.coords.longitude], 17);
+    },
+    () => {
+      statusEl.textContent = "Couldn't get your location — tap the map to drop a pin manually.";
+    },
+    {enableHighAccuracy: true, timeout: 10000}
+  );
+}
+
 function formatPhoneAsTyped(e){
   let digits = e.target.value.replace(/\D/g, '');
   if (digits.length === 11 && digits[0] === '1') digits = digits.slice(1);
@@ -406,8 +517,20 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
   formData.set('asset_id', assetId);
   formData.set('work_type', workType);
   formData.set('description', description);
-  formData.set('priority', priorityInput ? priorityInput.value : 'Medium');
+  // Bug fix (PRD §13#15 follow-up): fallback was 'Medium', an old-style
+  // name schemas.PRIORITIES no longer accepts — 'Next Day' is its
+  // equivalent. Only matters if priorityInput is somehow null (radios
+  // failed to render), but stale either way.
+  formData.set('priority', priorityInput ? priorityInput.value : 'Next Day');
   formData.set('website', document.getElementById('rWebsite').value); // honeypot
+  // Enhancement backlog Phase 15 (PRD §13#14): optional geo pin-drop —
+  // omitted entirely (not even empty strings) when no pin was placed,
+  // matching the backend's "blank means no pin" handling.
+  const pin = getPinLatLng();
+  if (pin) {
+    formData.set('latitude', pin.lat);
+    formData.set('longitude', pin.lng);
+  }
   const files = document.getElementById('rFiles').files;
   for (let i = 0; i < files.length; i++) formData.append('files', files[i]);
 
@@ -442,6 +565,7 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
 function resetForm(){
   document.getElementById('woForm').reset();
   if (locationPicker) locationPicker.setValue(null);
+  clearPin();
   document.getElementById('formCard').style.display = 'block';
   document.getElementById('confirmCard').style.display = 'none';
   document.getElementById('submitBtn').disabled = false;
