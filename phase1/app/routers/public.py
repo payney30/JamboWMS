@@ -38,10 +38,20 @@ from ..database import get_db
 
 router = APIRouter(prefix="/public", tags=["public"])
 
-# Local disk storage is fine for a single-process, ~2-week event deployment.
-# If this ever needs to survive across instances/restarts reliably, swap
-# this for object storage (S3-compatible) and store the resulting URL in
-# WOAttachment.file_url same as now — nothing else in the model needs to change.
+# Enhancement backlog Phase 16 (PRD §14#29): local disk storage doesn't
+# survive a redeploy on Render's default ephemeral filesystem — confirmed
+# in production 7/29/26, every attachment uploaded before a redeploy went
+# missing after it. Fixed via a Render persistent disk (see render.yaml's
+# `disk` block), not a code change: UPLOAD_DIR is now set via the
+# UPLOAD_DIR env var to the disk's mount path, which IS durable across
+# restarts/redeploys — this default ("uploads", a relative path) only
+# still applies to local dev / any environment that doesn't set the env
+# var. A persistent disk only works with a single service instance (no
+# horizontal autoscaling) — not a constraint this app has today, but if
+# that ever changes, swap this for object storage (S3-compatible, e.g.
+# Cloudflare R2 for its no-egress-fee pricing) and store the resulting
+# URL in WOAttachment.file_url same as now — nothing else in the model
+# needs to change either way.
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
