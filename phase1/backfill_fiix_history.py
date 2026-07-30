@@ -183,7 +183,15 @@ def backfill(db, records: list[dict]) -> dict:
             continue
 
         priority = rec.get("priority", "")
-        if priority not in schemas.PRIORITIES:
+        # Enhancement backlog Phase 14 (PRD §13#15): urgency-tier rename.
+        # This is a historical import of real, already-recorded Fiix
+        # data — it was always written with the OLD priority names and
+        # always will be, so it must validate against
+        # schemas.LEGACY_PRIORITIES, not schemas.PRIORITIES (which now
+        # means "valid for a NEW work order going forward" and no longer
+        # includes these). Using the wrong tuple here would silently
+        # skip every historical record.
+        if priority not in schemas.LEGACY_PRIORITIES:
             summary["skipped_unmapped_priority"] += 1
             continue
 
