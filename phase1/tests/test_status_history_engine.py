@@ -29,7 +29,7 @@ def test_create_work_order_writes_exactly_one_history_row(db, asset):
             requester_name="Scout",
             asset_id=asset.id,
             description="Broken light",
-            priority="Medium",
+            priority="Next Day",
         ),
     )
     rows = _history_rows(db, wo.id)
@@ -43,7 +43,7 @@ def test_first_assignment_writes_status_change_and_reassignment_rows(db, asset, 
     wo = crud.create_work_order(
         db,
         schemas.WorkOrderCreate(
-            requester_name="Scout", asset_id=asset.id, description="x", priority="Medium"
+            requester_name="Scout", asset_id=asset.id, description="x", priority="Next Day"
         ),
     )
     crud.assign_work_order(
@@ -66,7 +66,7 @@ def test_reassignment_uses_reassignment_event_type_not_status_change(db, asset, 
     wo = crud.create_work_order(
         db,
         schemas.WorkOrderCreate(
-            requester_name="Scout", asset_id=asset.id, description="x", priority="Medium"
+            requester_name="Scout", asset_id=asset.id, description="x", priority="Next Day"
         ),
     )
     crud.assign_work_order(db, wo, schemas.AssignRequest(team_id=team.id), changed_by=admin_user.id)
@@ -90,7 +90,7 @@ def test_reassignment_to_different_team_requires_note(db, asset, team, other_tea
     wo = crud.create_work_order(
         db,
         schemas.WorkOrderCreate(
-            requester_name="Scout", asset_id=asset.id, description="x", priority="Medium"
+            requester_name="Scout", asset_id=asset.id, description="x", priority="Next Day"
         ),
     )
     crud.assign_work_order(db, wo, schemas.AssignRequest(team_id=team.id), changed_by=admin_user.id)
@@ -110,7 +110,7 @@ def test_reassigning_to_same_team_does_not_require_note(db, asset, team, admin_u
     wo = crud.create_work_order(
         db,
         schemas.WorkOrderCreate(
-            requester_name="Scout", asset_id=asset.id, description="x", priority="Medium"
+            requester_name="Scout", asset_id=asset.id, description="x", priority="Next Day"
         ),
     )
     crud.assign_work_order(db, wo, schemas.AssignRequest(team_id=team.id), changed_by=admin_user.id)
@@ -125,29 +125,29 @@ def test_priority_change_writes_priority_change_row(db, asset, admin_user):
     wo = crud.create_work_order(
         db,
         schemas.WorkOrderCreate(
-            requester_name="Scout", asset_id=asset.id, description="x", priority="Medium"
+            requester_name="Scout", asset_id=asset.id, description="x", priority="Next Day"
         ),
     )
     crud.update_work_order_fields(
-        db, wo, schemas.WorkOrderUpdate(priority="Highest"), changed_by=admin_user.id
+        db, wo, schemas.WorkOrderUpdate(priority="Immediate"), changed_by=admin_user.id
     )
     rows = _history_rows(db, wo.id)
     priority_rows = [r for r in rows if r.event_type == "priority_change"]
     assert len(priority_rows) == 1
-    assert priority_rows[0].from_value == "Medium"
-    assert priority_rows[0].to_value == "Highest"
-    assert wo.priority == "Highest"
+    assert priority_rows[0].from_value == "Next Day"
+    assert priority_rows[0].to_value == "Immediate"
+    assert wo.priority == "Immediate"
 
 
 def test_priority_change_to_same_value_writes_no_row(db, asset, admin_user):
     wo = crud.create_work_order(
         db,
         schemas.WorkOrderCreate(
-            requester_name="Scout", asset_id=asset.id, description="x", priority="Medium"
+            requester_name="Scout", asset_id=asset.id, description="x", priority="Next Day"
         ),
     )
     crud.update_work_order_fields(
-        db, wo, schemas.WorkOrderUpdate(priority="Medium"), changed_by=admin_user.id
+        db, wo, schemas.WorkOrderUpdate(priority="Next Day"), changed_by=admin_user.id
     )
     rows = _history_rows(db, wo.id)
     assert len(rows) == 1  # only the creation row
@@ -157,7 +157,7 @@ def test_editing_description_alone_writes_no_history_row(db, asset, admin_user):
     wo = crud.create_work_order(
         db,
         schemas.WorkOrderCreate(
-            requester_name="Scout", asset_id=asset.id, description="x", priority="Medium"
+            requester_name="Scout", asset_id=asset.id, description="x", priority="Next Day"
         ),
     )
     crud.update_work_order_fields(
@@ -173,7 +173,7 @@ def test_closing_status_sets_closed_at(db, asset, admin_user, closing_status):
     wo = crud.create_work_order(
         db,
         schemas.WorkOrderCreate(
-            requester_name="Scout", asset_id=asset.id, description="x", priority="Medium"
+            requester_name="Scout", asset_id=asset.id, description="x", priority="Next Day"
         ),
     )
     assert wo.closed_at is None
@@ -195,7 +195,7 @@ def test_non_closing_status_leaves_closed_at_null(db, asset, admin_user, non_clo
     wo = crud.create_work_order(
         db,
         schemas.WorkOrderCreate(
-            requester_name="Scout", asset_id=asset.id, description="x", priority="Medium"
+            requester_name="Scout", asset_id=asset.id, description="x", priority="Next Day"
         ),
     )
     crud.change_status(
@@ -208,7 +208,7 @@ def test_reopening_a_closed_wo_clears_closed_at(db, asset, admin_user):
     wo = crud.create_work_order(
         db,
         schemas.WorkOrderCreate(
-            requester_name="Scout", asset_id=asset.id, description="x", priority="Medium"
+            requester_name="Scout", asset_id=asset.id, description="x", priority="Next Day"
         ),
     )
     crud.change_status(
@@ -226,7 +226,7 @@ def test_invalid_status_is_rejected_and_writes_no_history_row(db, asset, admin_u
     wo = crud.create_work_order(
         db,
         schemas.WorkOrderCreate(
-            requester_name="Scout", asset_id=asset.id, description="x", priority="Medium"
+            requester_name="Scout", asset_id=asset.id, description="x", priority="Next Day"
         ),
     )
     with pytest.raises(Exception):
@@ -247,7 +247,7 @@ def test_every_mutating_field_produces_exactly_one_history_row_per_change(db, as
     wo = crud.create_work_order(
         db,
         schemas.WorkOrderCreate(
-            requester_name="Scout", asset_id=asset.id, description="x", priority="Medium"
+            requester_name="Scout", asset_id=asset.id, description="x", priority="Next Day"
         ),
     )
     count = len(_history_rows(db, wo.id))
@@ -258,7 +258,7 @@ def test_every_mutating_field_produces_exactly_one_history_row_per_change(db, as
     assert new_count - count == 2  # status_change (Requested->Assigned) + reassignment
     count = new_count
 
-    crud.update_work_order_fields(db, wo, schemas.WorkOrderUpdate(priority="High"), changed_by=admin_user.id)
+    crud.update_work_order_fields(db, wo, schemas.WorkOrderUpdate(priority="Same Day"), changed_by=admin_user.id)
     new_count = len(_history_rows(db, wo.id))
     assert new_count - count == 1
     count = new_count
@@ -289,7 +289,7 @@ def test_failed_history_write_rolls_back_the_whole_mutation(db, asset, admin_use
     wo = crud.create_work_order(
         db,
         schemas.WorkOrderCreate(
-            requester_name="Scout", asset_id=asset.id, description="x", priority="Medium"
+            requester_name="Scout", asset_id=asset.id, description="x", priority="Next Day"
         ),
     )
     nonexistent_user_id = 999_999

@@ -21,7 +21,7 @@ def _asset(db, location_group="Branch A", camp_letter=None, name=None):
     return a
 
 
-def _make_wo(db, asset, priority="Medium"):
+def _make_wo(db, asset, priority="Next Day"):
     return crud.create_work_order(
         db,
         schemas.WorkOrderCreate(
@@ -65,11 +65,11 @@ def test_main_scope_is_unfiltered(db):
 def test_breakdowns_respect_scope(db):
     program_asset = _asset(db, location_group="Program Areas")
     other_asset = _asset(db, location_group="Base Camps", camp_letter="A")
-    _make_wo(db, program_asset, priority="Highest")
-    _make_wo(db, other_asset, priority="Highest")
+    _make_wo(db, program_asset, priority="Immediate")
+    _make_wo(db, other_asset, priority="Immediate")
 
     breakdowns = crud.get_breakdowns(db, scope="program")
-    assert breakdowns["by_priority"]["Highest"] == 1
+    assert breakdowns["by_priority"]["Immediate"] == 1
     assert breakdowns["by_location"] == {"Program Areas": 1}
 
 
@@ -92,15 +92,15 @@ def test_daily_trend_scoped_to_basecamp(db):
 
 
 def test_needing_attention_only_open_highest_and_high_oldest_first(db, asset, admin_user):
-    old_highest = _make_wo(db, asset, priority="Highest")
+    old_highest = _make_wo(db, asset, priority="Immediate")
     old_highest.created_at = dt.datetime.utcnow() - dt.timedelta(hours=5)
     db.commit()
 
-    new_high = _make_wo(db, asset, priority="High")
+    new_high = _make_wo(db, asset, priority="Same Day")
 
-    _make_wo(db, asset, priority="Medium")  # excluded: wrong priority
+    _make_wo(db, asset, priority="Next Day")  # excluded: wrong priority
 
-    closed_highest = _make_wo(db, asset, priority="Highest")
+    closed_highest = _make_wo(db, asset, priority="Immediate")
     crud.change_status(
         db, closed_highest, schemas.StatusChangeRequest(status="Closed, Completed"), changed_by=admin_user.id
     )  # excluded: closed
@@ -112,7 +112,7 @@ def test_needing_attention_only_open_highest_and_high_oldest_first(db, asset, ad
 
 def test_needing_attention_respects_limit(db, asset):
     for _ in range(5):
-        _make_wo(db, asset, priority="Highest")
+        _make_wo(db, asset, priority="Immediate")
 
     attention = crud.get_needing_attention(db, scope="main", limit=2)
     assert len(attention) == 2
@@ -132,10 +132,10 @@ def test_dashboard_router_scope_endpoints(client, auth_headers, asset):
 
 def test_extra_filters_combine_with_scope(db, auth_headers, client):
     program_asset = _asset(db, location_group="Program Areas")
-    _make_wo(db, program_asset, priority="Highest")
-    _make_wo(db, program_asset, priority="Low")
+    _make_wo(db, program_asset, priority="Immediate")
+    _make_wo(db, program_asset, priority="2 Days")
 
-    kpis = crud.get_kpis(db, scope="program", priority="Highest")
+    kpis = crud.get_kpis(db, scope="program", priority="Immediate")
     assert kpis["total"] == 1
 
 
@@ -153,10 +153,10 @@ def test_status_filter(db):
 def test_work_type_filter(db):
     a = _asset(db)
     wo1 = crud.create_work_order(
-        db, schemas.WorkOrderCreate(requester_name="Scout", asset_id=a.id, description="x", priority="Medium", work_type="NJ IT"),
+        db, schemas.WorkOrderCreate(requester_name="Scout", asset_id=a.id, description="x", priority="Next Day", work_type="NJ IT"),
     )
     crud.create_work_order(
-        db, schemas.WorkOrderCreate(requester_name="Scout", asset_id=a.id, description="x", priority="Medium", work_type="NJ Maintenance"),
+        db, schemas.WorkOrderCreate(requester_name="Scout", asset_id=a.id, description="x", priority="Next Day", work_type="NJ Maintenance"),
     )
     kpis = crud.get_kpis(db, scope="main", work_type="NJ IT")
     assert kpis["total"] == 1
@@ -186,10 +186,10 @@ def test_location_group_filter_narrows_within_scope(db):
 def test_search_filter_matches_description_or_wo_number(db):
     a = _asset(db)
     wo = crud.create_work_order(
-        db, schemas.WorkOrderCreate(requester_name="Scout", asset_id=a.id, description="broken sink", priority="Medium"),
+        db, schemas.WorkOrderCreate(requester_name="Scout", asset_id=a.id, description="broken sink", priority="Next Day"),
     )
     crud.create_work_order(
-        db, schemas.WorkOrderCreate(requester_name="Scout", asset_id=a.id, description="need cones", priority="Medium"),
+        db, schemas.WorkOrderCreate(requester_name="Scout", asset_id=a.id, description="need cones", priority="Next Day"),
     )
 
     kpis = crud.get_kpis(db, scope="main", search="sink")
@@ -202,12 +202,12 @@ def test_search_filter_matches_description_or_wo_number(db):
 def test_router_passes_through_extra_filters(client, auth_headers, asset, team, admin_user):
     wo = client.post(
         "/work-orders",
-        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Highest"},
+        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Immediate"},
         headers=auth_headers,
     ).json()
     client.post(f"/work-orders/{wo['id']}/assign", json={"team_id": team.id}, headers=auth_headers)
 
-    resp = client.get(f"/dashboard/kpis?scope=main&priority=Highest&team_id={team.id}", headers=auth_headers)
+    resp = client.get(f"/dashboard/kpis?scope=main&priority=Immediate&team_id={team.id}", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json()["total"] == 1
 

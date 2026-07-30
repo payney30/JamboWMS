@@ -38,6 +38,12 @@ def test_normalize_work_type():
 # --- backfill() against a small synthetic dataset ---------------------------
 
 def _rec(**overrides):
+    # Enhancement backlog Phase 14 (PRD §13#15): this simulates a raw
+    # HISTORICAL Fiix record, which legitimately uses the OLD priority
+    # names (that's what real historical data actually contains, and
+    # backfill_fiix_history.py now validates against
+    # schemas.LEGACY_PRIORITIES for exactly that reason) — not the new
+    # names new work orders use going forward.
     base = {
         "code": "1001",
         "description": "Broken light in the mess hall",
@@ -172,7 +178,7 @@ def test_backfilled_wo_numbers_dont_collide_with_live_wos(db, base_camp_e_asset)
     from app import crud, schemas
     live = crud.create_work_order(db, schemas.WorkOrderCreate(
         requester_name="Live Scout", asset_id=base_camp_e_asset.id,
-        description="a live-created WO", priority="Medium",
+        description="a live-created WO", priority="Next Day",
     ))
     backfill_mod.backfill(db, [_rec(code="1001")])
     backfilled = db.query(models.WorkOrder).filter(models.WorkOrder.external_ref == "1001").first()

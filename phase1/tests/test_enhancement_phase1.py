@@ -91,7 +91,7 @@ def test_mutating_a_locked_wo_as_a_different_loc_user_is_rejected(client, auth_h
     loc_headers = {"Authorization": f"Bearer {loc_resp.json()['access_token']}"}
 
     patch_resp = client.patch(
-        f"/work-orders/{wo['id']}", json={"priority": "High"}, headers=loc_headers
+        f"/work-orders/{wo['id']}", json={"priority": "Same Day"}, headers=loc_headers
     )
     assert patch_resp.status_code == 409
 
@@ -158,7 +158,7 @@ def test_save_endpoint_applies_details_status_assign_and_note_in_one_call(
     resp = client.post(
         f"/work-orders/{wo['id']}/save",
         json={
-            "priority": "High",
+            "priority": "Same Day",
             "note_to_requester": "On our way.",
             "status": "Work In Progress",
             "team_id": team.id,
@@ -169,7 +169,7 @@ def test_save_endpoint_applies_details_status_assign_and_note_in_one_call(
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["priority"] == "High"
+    assert body["priority"] == "Same Day"
     assert body["note_to_requester"] == "On our way."
     assert body["status"] == "Work In Progress"
     assert body["assigned_team"]["id"] == team.id
@@ -181,7 +181,7 @@ def test_save_endpoint_applies_details_status_assign_and_note_in_one_call(
 def test_save_endpoint_releases_the_lock(client, auth_headers, loc_user, wo_payload):
     wo = _create_wo(client, auth_headers, wo_payload)
     client.post(f"/work-orders/{wo['id']}/lock", headers=auth_headers)
-    client.post(f"/work-orders/{wo['id']}/save", json={"priority": "High"}, headers=auth_headers)
+    client.post(f"/work-orders/{wo['id']}/save", json={"priority": "Same Day"}, headers=auth_headers)
 
     loc_resp = client.post(
         "/auth/login", data={"username": loc_user.email, "password": "test-password"}
@@ -197,7 +197,7 @@ def test_save_endpoint_writes_one_history_row_per_mutated_field(
     wo = _create_wo(client, auth_headers, wo_payload)
     resp = client.post(
         f"/work-orders/{wo['id']}/save",
-        json={"priority": "High", "team_id": team.id},
+        json={"priority": "Same Day", "team_id": team.id},
         headers=auth_headers,
     )
     history = resp.json()["history"]
@@ -258,7 +258,7 @@ def test_save_endpoint_blocked_when_locked_by_someone_else(client, auth_headers,
     )
     loc_headers = {"Authorization": f"Bearer {loc_resp.json()['access_token']}"}
     resp = client.post(
-        f"/work-orders/{wo['id']}/save", json={"priority": "High"}, headers=loc_headers
+        f"/work-orders/{wo['id']}/save", json={"priority": "Same Day"}, headers=loc_headers
     )
     assert resp.status_code == 409
 

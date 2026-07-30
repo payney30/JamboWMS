@@ -13,7 +13,7 @@ from app import crud, schemas
 def test_work_order_created_at_serializes_with_utc_marker(client, auth_headers, asset):
     _make_wo_via_api = client.post(
         "/work-orders",
-        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Medium"},
+        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Next Day"},
         headers=auth_headers,
     )
     assert _make_wo_via_api.status_code == 201, _make_wo_via_api.text
@@ -27,7 +27,7 @@ def test_work_order_created_at_serializes_with_utc_marker(client, auth_headers, 
 def test_status_history_changed_at_has_utc_marker(client, auth_headers, asset):
     wo = client.post(
         "/work-orders",
-        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Medium"},
+        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Next Day"},
         headers=auth_headers,
     ).json()
     detail = client.get(f"/work-orders/{wo['id']}", headers=auth_headers).json()
@@ -45,7 +45,7 @@ def test_dashboard_kpis_opened_today_matches_a_client_side_utc_filter(client, au
 
     resp = client.post(
         "/work-orders",
-        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Medium"},
+        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Next Day"},
         headers=auth_headers,
     )
     wo = resp.json()

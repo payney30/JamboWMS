@@ -210,7 +210,7 @@ def test_create_request_type_and_use_it_on_public_submission(client, auth_header
             "asset_id": str(asset.id),
             "work_type": "NJ Security",
             "description": "Suspicious activity near the gate",
-            "priority": "High",
+            "priority": "Same Day",
             "poc_is_requester": "true",
             "website": "",
         },
@@ -231,7 +231,7 @@ def test_inactive_request_type_rejected_on_submission(client, auth_headers, asse
             "asset_id": str(asset.id),
             "work_type": "NJ Retired Type",
             "description": "Something",
-            "priority": "High",
+            "priority": "Same Day",
             "poc_is_requester": "true",
             "website": "",
         },
@@ -249,7 +249,7 @@ def test_blank_work_type_still_valid_without_a_request_type_row(client, asset):
             "asset_id": str(asset.id),
             "work_type": "",
             "description": "Not sure what kind of issue this is",
-            "priority": "Medium",
+            "priority": "Next Day",
             "poc_is_requester": "true",
             "website": "",
         },
@@ -283,7 +283,7 @@ def test_deactivate_team_with_open_wo_requires_confirm(client, auth_headers, db,
     db.refresh(team)
     wo = models.WorkOrder(
         wo_number="90001", requester_name="X", asset_id=asset.id,
-        description="test", priority="Medium", status="Assigned", assigned_team_id=team.id,
+        description="test", priority="Next Day", status="Assigned", assigned_team_id=team.id,
     )
     db.add(wo)
     db.commit()

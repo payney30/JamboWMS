@@ -231,5 +231,8 @@ def wo_payload(asset):
         "asset_id": asset.id,
         "work_type": "NJ Maintenance",
         "description": "Leaky faucet in the latrine block",
-        "priority": "Medium",
+        # Enhancement backlog Phase 14 (PRD §13#15): urgency-tier rename
+        # — "Medium" is an old-style value new WOs can no longer use;
+        # "Next Day" is its equivalent (both map to a 24h SLA window).
+        "priority": "Next Day",
     }

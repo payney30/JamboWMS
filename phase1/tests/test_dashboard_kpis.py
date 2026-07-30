@@ -9,7 +9,7 @@ import datetime as dt
 from app import crud, models, schemas
 
 
-def _make_wo(db, asset, priority="Medium", work_type="NJ Maintenance"):
+def _make_wo(db, asset, priority="Next Day", work_type="NJ Maintenance"):
     return crud.create_work_order(
         db,
         schemas.WorkOrderCreate(
@@ -138,13 +138,13 @@ def test_open_and_closed_and_completion_rate(db, asset, admin_user):
 
 
 def test_breakdowns_group_by_status_and_priority(db, asset):
-    _make_wo(db, asset, priority="Highest")
-    _make_wo(db, asset, priority="Highest")
-    _make_wo(db, asset, priority="Low")
+    _make_wo(db, asset, priority="Immediate")
+    _make_wo(db, asset, priority="Immediate")
+    _make_wo(db, asset, priority="2 Days")
 
     breakdowns = crud.get_breakdowns(db)
-    assert breakdowns["by_priority"]["Highest"] == 2
-    assert breakdowns["by_priority"]["Low"] == 1
+    assert breakdowns["by_priority"]["Immediate"] == 2
+    assert breakdowns["by_priority"]["2 Days"] == 1
     assert breakdowns["by_status"]["Requested"] == 3
 
 
@@ -159,11 +159,11 @@ def test_breakdowns_by_team_only_counts_assigned_work_orders(db, asset, team, ad
 
 
 def test_highest_high_open_counts_only_open_highest_and_high(db, asset, admin_user):
-    _make_wo(db, asset, priority="Highest")  # open, counts
-    _make_wo(db, asset, priority="High")  # open, counts
-    _make_wo(db, asset, priority="Medium")  # open, doesn't count (wrong priority)
+    _make_wo(db, asset, priority="Immediate")  # open, counts
+    _make_wo(db, asset, priority="Same Day")  # open, counts
+    _make_wo(db, asset, priority="Next Day")  # open, doesn't count (wrong priority)
 
-    closed_highest = _make_wo(db, asset, priority="Highest")
+    closed_highest = _make_wo(db, asset, priority="Immediate")
     crud.change_status(
         db, closed_highest, schemas.StatusChangeRequest(status="Closed, Completed"), changed_by=admin_user.id
     )  # closed, doesn't count even though priority matches

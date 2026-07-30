@@ -23,11 +23,11 @@ def _make_wo(db, asset, priority, created_at):
 def test_default_sort_is_priority_then_oldest_first(db, asset):
     now = dt.datetime.utcnow()
     # Deliberately created out of priority and chronological order.
-    low_old = _make_wo(db, asset, "Low", now - dt.timedelta(hours=5))
-    high_new = _make_wo(db, asset, "High", now - dt.timedelta(hours=1))
-    highest_old = _make_wo(db, asset, "Highest", now - dt.timedelta(hours=4))
-    highest_new = _make_wo(db, asset, "Highest", now - dt.timedelta(hours=2))
-    medium = _make_wo(db, asset, "Medium", now - dt.timedelta(hours=3))
+    low_old = _make_wo(db, asset, "2 Days", now - dt.timedelta(hours=5))
+    high_new = _make_wo(db, asset, "Same Day", now - dt.timedelta(hours=1))
+    highest_old = _make_wo(db, asset, "Immediate", now - dt.timedelta(hours=4))
+    highest_new = _make_wo(db, asset, "Immediate", now - dt.timedelta(hours=2))
+    medium = _make_wo(db, asset, "Next Day", now - dt.timedelta(hours=3))
 
     ordered = crud.list_work_orders(db)
     ids_in_order = [wo.id for wo in ordered]
@@ -50,9 +50,9 @@ def test_opened_today_survives_a_low_limit_even_when_sorted_past_it(db, asset):
     # reliably NOT "today" no matter what time this test happens to run —
     # they just need to sort ahead of the new Low-priority one below.
     for i in range(12):
-        _make_wo(db, asset, "Highest", now - dt.timedelta(days=2, hours=i))
+        _make_wo(db, asset, "Immediate", now - dt.timedelta(days=2, hours=i))
 
-    todays_low_priority_wo = _make_wo(db, asset, "Low", now)
+    todays_low_priority_wo = _make_wo(db, asset, "2 Days", now)
 
     # A limit far smaller than 12 — the old client-side-filter approach
     # would never even see todays_low_priority_wo in the fetched page.
@@ -61,10 +61,10 @@ def test_opened_today_survives_a_low_limit_even_when_sorted_past_it(db, asset):
 
 
 def test_closed_today_filter(db, asset, admin_user):
-    wo = _make_wo(db, asset, "Medium", dt.datetime.utcnow())
+    wo = _make_wo(db, asset, "Next Day", dt.datetime.utcnow())
     crud.change_status(db, wo, schemas.StatusChangeRequest(status="Closed, Completed"), changed_by=admin_user.id)
 
-    other_closed_yesterday = _make_wo(db, asset, "Medium", dt.datetime.utcnow() - dt.timedelta(days=2))
+    other_closed_yesterday = _make_wo(db, asset, "Next Day", dt.datetime.utcnow() - dt.timedelta(days=2))
     crud.change_status(db, other_closed_yesterday, schemas.StatusChangeRequest(status="Closed, Completed"), changed_by=admin_user.id)
     other_closed_yesterday.closed_at = dt.datetime.utcnow() - dt.timedelta(days=1)
     db.commit()
@@ -74,8 +74,8 @@ def test_closed_today_filter(db, asset, admin_user):
 
 
 def test_exclude_closed_and_closed_only_filters(db, asset, admin_user):
-    open_wo = _make_wo(db, asset, "Medium", dt.datetime.utcnow())
-    closed_wo = _make_wo(db, asset, "Medium", dt.datetime.utcnow())
+    open_wo = _make_wo(db, asset, "Next Day", dt.datetime.utcnow())
+    closed_wo = _make_wo(db, asset, "Next Day", dt.datetime.utcnow())
     crud.change_status(db, closed_wo, schemas.StatusChangeRequest(status="Closed, Completed"), changed_by=admin_user.id)
 
     open_results = crud.list_work_orders(db, exclude_closed=True)
@@ -86,11 +86,11 @@ def test_exclude_closed_and_closed_only_filters(db, asset, admin_user):
 
 
 def test_priority_in_filter(db, asset):
-    highest = _make_wo(db, asset, "Highest", dt.datetime.utcnow())
-    high = _make_wo(db, asset, "High", dt.datetime.utcnow())
-    _make_wo(db, asset, "Medium", dt.datetime.utcnow())
+    highest = _make_wo(db, asset, "Immediate", dt.datetime.utcnow())
+    high = _make_wo(db, asset, "Same Day", dt.datetime.utcnow())
+    _make_wo(db, asset, "Next Day", dt.datetime.utcnow())
 
-    results = crud.list_work_orders(db, priority_in=["Highest", "High"])
+    results = crud.list_work_orders(db, priority_in=["Immediate", "Same Day"])
     ids = {w.id for w in results}
     assert ids == {highest.id, high.id}
 
@@ -98,7 +98,7 @@ def test_priority_in_filter(db, asset):
 def test_router_opened_today_param(client, auth_headers, asset):
     now_wo = client.post(
         "/work-orders",
-        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Low"},
+        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "2 Days"},
         headers=auth_headers,
     ).json()
 
@@ -111,16 +111,16 @@ def test_router_opened_today_param(client, auth_headers, asset):
 def test_router_priority_in_param(client, auth_headers, asset):
     highest = client.post(
         "/work-orders",
-        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Highest"},
+        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Immediate"},
         headers=auth_headers,
     ).json()
     medium = client.post(
         "/work-orders",
-        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Medium"},
+        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Next Day"},
         headers=auth_headers,
     ).json()
 
-    resp = client.get("/work-orders?priority_in=Highest,High", headers=auth_headers)
+    resp = client.get("/work-orders", params={"priority_in": "Immediate,Same Day"}, headers=auth_headers)
     ids = [w["id"] for w in resp.json()]
     assert highest["id"] in ids
     assert medium["id"] not in ids

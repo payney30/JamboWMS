@@ -18,7 +18,7 @@ def _base_form(asset, **overrides):
         "asset_id": str(asset.id),
         "work_type": "NJ Maintenance",
         "description": "Leaky faucet in the latrine block",
-        "priority": "Medium",
+        "priority": "Next Day",
         "website": "",  # honeypot, left blank like a real user
         # poc_is_requester defaults to "true" server-side if omitted, but
         # tests set it explicitly here so the base form matches what the
