@@ -18,14 +18,26 @@ from .auth import hash_password
 # Lower rank = higher priority = sorts first. Ties (an unrecognized value,
 # which the CHECK constraint shouldn't allow, but belt-and-suspenders)
 # fall to the end rather than erroring.
+# Enhancement backlog Phase 14 (PRD §13#15): old and new urgency-tier
+# names rank identically (Highest == Immediate, etc.) — historic WOs
+# weren't rewritten to the new names, so both need to sort correctly
+# side by side in the same inbox.
 _PRIORITY_RANK = case(
-    (models.WorkOrder.priority == "Highest", 0),
-    (models.WorkOrder.priority == "High", 1),
-    (models.WorkOrder.priority == "Medium", 2),
-    (models.WorkOrder.priority == "Low", 3),
-    (models.WorkOrder.priority == "Lowest", 4),
+    (models.WorkOrder.priority.in_(("Highest", "Immediate")), 0),
+    (models.WorkOrder.priority.in_(("High", "Same Day")), 1),
+    (models.WorkOrder.priority.in_(("Medium", "Next Day")), 2),
+    (models.WorkOrder.priority.in_(("Low", "2 Days")), 3),
+    (models.WorkOrder.priority.in_(("Lowest", "3 Days")), 4),
     else_=5,
 )
+
+
+# Enhancement backlog Phase 14 (PRD §13#15): the two most-urgent tiers,
+# old and new names both — backs the "Urgent Open" KPI tile (renamed
+# from "Highest+High Open" since that label would go stale once new WOs
+# stop using those names) and the needing-attention query. Shared here
+# so both stay in sync.
+URGENT_PRIORITIES = ("Highest", "High", "Immediate", "Same Day")
 
 
 def build_location_tree(db: Session, include_inactive: bool = False) -> list[dict]:
@@ -124,11 +136,27 @@ def _validate_work_type(db: Session, work_type: str):
         raise HTTPException(400, f"invalid or inactive request type: {work_type}")
 
 
+def _validate_priority(priority: str):
+    """Enhancement backlog Phase 14 (PRD §13#15): closes a pre-existing
+    gap — priority was previously only enforced by the DB CHECK
+    constraint (see models.py), never validated at the application layer
+    on the authenticated creation/edit paths (only the public submission
+    endpoint checked it explicitly). That constraint now has to accept
+    both old and new urgency-tier names so historic rows stay valid
+    (see the widen-constraint migration's docstring), which means it can
+    no longer be the thing that stops someone from newly assigning an
+    old-style value going forward. This is that check now — same
+    schemas.PRIORITIES (new names only) the public form already used."""
+    if priority not in schemas.PRIORITIES:
+        raise HTTPException(400, f"invalid priority: {priority}")
+
+
 def create_work_order(db: Session, payload: schemas.WorkOrderCreate) -> models.WorkOrder:
     asset = db.get(models.Asset, payload.asset_id)
     if not asset:
         raise HTTPException(404, "asset not found")
     _validate_work_type(db, payload.work_type)
+    _validate_priority(payload.priority)
 
     wo = models.WorkOrder(
         wo_number=_next_wo_number(db),
@@ -185,6 +213,12 @@ def update_work_order_fields(db: Session, wo: models.WorkOrder, payload: schemas
     with the default commit=True and is unaffected.
     """
     if payload.priority is not None and payload.priority != wo.priority:
+        # Enhancement backlog Phase 14 (PRD §13#15): only validate when
+        # actually assigning a *new* value — a no-op save of a WO that
+        # already carries an old-style priority (nothing touched it)
+        # shouldn't be rejected just because that old value isn't in
+        # schemas.PRIORITIES anymore.
+        _validate_priority(payload.priority)
         db.add(models.WOStatusHistory(
             work_order_id=wo.id,
             event_type="priority_change",
@@ -647,7 +681,7 @@ def get_kpis(db: Session, scope: str = "main", **filters) -> dict:
 
     highest_high_open = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
         ~models.WorkOrder.status.like("Closed%"),
-        models.WorkOrder.priority.in_(["Highest", "High"]),
+        models.WorkOrder.priority.in_(URGENT_PRIORITIES),
     ).count()
 
     # Enhancement backlog Phase 11 (PRD §14#25): count of WOs still
@@ -761,14 +795,14 @@ def get_daily_trend(db: Session, scope: str = "main", days: int = 14, **filters)
 
 
 def get_needing_attention(db: Session, scope: str = "main", limit: int = 15, **filters) -> list[models.WorkOrder]:
-    """Highest/High priority, still open, oldest first — matches the
-    'needing attention' table from the original dashboards and the LOC
-    triage inbox's default sort."""
+    """Urgent-tier (old or new names), still open, oldest first — matches
+    the 'needing attention' table from the original dashboards and the
+    LOC triage inbox's default sort."""
     q = _apply_filters(
         db,
         db.query(models.WorkOrder).filter(
             ~models.WorkOrder.status.like("Closed%"),
-            models.WorkOrder.priority.in_(["Highest", "High"]),
+            models.WorkOrder.priority.in_(URGENT_PRIORITIES),
         ),
         scope, **filters,
     )

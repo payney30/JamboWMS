@@ -26,11 +26,18 @@ LOCK_TIMEOUT_MINUTES = 15
 # High/Medium/Low/Lowest → 2/6/24/48/72-hour targets). Used to compute
 # each WorkOrder's sla_warn_at (75% elapsed) and sla_deadline (100%).
 SLA_HOURS = {
-    "Highest": 2,
-    "High": 6,
-    "Medium": 24,
-    "Low": 48,
-    "Lowest": 72,
+    # Enhancement backlog Phase 14 (PRD §13#15): urgency-tier rename.
+    # New submissions only ever use the right-hand names going forward
+    # (see schemas.PRIORITIES) — the old names stay here, mapped to the
+    # exact same hour windows, purely so already-existing WOs that still
+    # carry the old labels (historic data was deliberately NOT rewritten
+    # — see the migration) keep getting correct SLA deadline math for
+    # the rest of their lifecycle.
+    "Highest": 2, "Immediate": 2,
+    "High": 6, "Same Day": 6,
+    "Medium": 24, "Next Day": 24,
+    "Low": 48, "2 Days": 48,
+    "Lowest": 72, "3 Days": 72,
 }
 
 
@@ -244,7 +251,11 @@ class WorkOrder(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "priority IN ('Highest','High','Medium','Low','Lowest')", name="ck_wo_priority"
+            # Enhancement backlog Phase 14 (PRD §13#15): union of old and
+            # new urgency-tier names — see the d3f8a2c1e5b7 migration's
+            # docstring for why this can't just be a 5-for-5 swap.
+            "priority IN ('Highest','High','Medium','Low','Lowest',"
+            "'Immediate','Same Day','Next Day','2 Days','3 Days')", name="ck_wo_priority"
         ),
         CheckConstraint(
             "status IN ('Requested','Assigned','Work In Progress','On Hold',"
