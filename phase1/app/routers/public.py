@@ -103,6 +103,11 @@ async def submit_public_work_order(
     description: str = Form(...),
     priority: str = Form(...),
     notify_preference: Optional[str] = Form(None),  # 'email' | 'text' | 'both'
+    # Enhancement backlog Phase 15 (PRD §13#14): optional geo pin-drop.
+    # Sent as strings by the form (like everything else here) since it's
+    # a plain multipart POST, not JSON — parsed to float below.
+    latitude: Optional[str] = Form(None),
+    longitude: Optional[str] = Form(None),
     website: Optional[str] = Form(None),  # honeypot — see module docstring
     files: List[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
@@ -155,6 +160,17 @@ async def submit_public_work_order(
     if len(files) > MAX_FILES_PER_SUBMISSION:
         raise HTTPException(400, f"attach at most {MAX_FILES_PER_SUBMISSION} photos")
 
+    # Enhancement backlog Phase 15 (PRD §13#14): blank/missing means "no
+    # pin," not an error — the requester skipped the optional step.
+    lat_val = None
+    lng_val = None
+    if latitude and longitude:
+        try:
+            lat_val = float(latitude)
+            lng_val = float(longitude)
+        except ValueError:
+            raise HTTPException(400, "invalid coordinates")
+
     wo = crud.create_work_order(
         db,
         schemas.WorkOrderCreate(
@@ -169,6 +185,8 @@ async def submit_public_work_order(
             description=description,
             priority=priority,
             notify_preference=notify_preference or None,
+            latitude=lat_val,
+            longitude=lng_val,
         ),
     )
 
