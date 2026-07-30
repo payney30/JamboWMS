@@ -158,6 +158,14 @@ def create_work_order(db: Session, payload: schemas.WorkOrderCreate) -> models.W
     _validate_work_type(db, payload.work_type)
     _validate_priority(payload.priority)
 
+    # Enhancement backlog Phase 15 (PRD §13#14): basic sanity check —
+    # not trying to verify the point is actually on-site, just that it's
+    # a real coordinate rather than garbage from a broken client.
+    if payload.latitude is not None and not (-90 <= payload.latitude <= 90):
+        raise HTTPException(400, "invalid latitude")
+    if payload.longitude is not None and not (-180 <= payload.longitude <= 180):
+        raise HTTPException(400, "invalid longitude")
+
     wo = models.WorkOrder(
         wo_number=_next_wo_number(db),
         requester_name=payload.requester_name,
@@ -172,6 +180,8 @@ def create_work_order(db: Session, payload: schemas.WorkOrderCreate) -> models.W
         priority=payload.priority,
         notify_preference=payload.notify_preference,
         external_ref=payload.external_ref,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
         status="Requested",
     )
     db.add(wo)

@@ -5,7 +5,7 @@ forward-compatibility with Phase 2/3 but have no endpoints yet.
 """
 import datetime as dt
 from sqlalchemy import (
-    Column, Integer, String, Text, Boolean, ForeignKey, TIMESTAMP, CheckConstraint
+    Column, Integer, String, Text, Boolean, Float, ForeignKey, TIMESTAMP, CheckConstraint
 )
 from sqlalchemy.orm import relationship, backref
 from .database import Base
@@ -206,6 +206,11 @@ class WorkOrder(Base):
     # Distinct from wo_notes, which are internal/instruction/work notes never
     # shown to the requester.
     note_to_requester = Column(Text, nullable=True)
+    # Enhancement backlog Phase 15 (PRD §13#14): optional geo pin-drop —
+    # supplements (doesn't replace) the location-hierarchy picker.
+    # Nullable: a WO with no pin just shows no map on the detail screen.
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
 
     asset = relationship("Asset")
     assigned_team = relationship("Team")

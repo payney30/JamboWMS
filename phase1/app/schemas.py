@@ -164,6 +164,11 @@ class WorkOrderCreate(BaseModel):
     priority: str
     notify_preference: Optional[str] = None  # 'email' | 'text' | 'both' — see NOTIFY_PREFERENCES
     external_ref: Optional[str] = None  # original Fiix ticket number — backfill only
+    # Enhancement backlog Phase 15 (PRD §13#14): optional geo pin-drop,
+    # set from the Submit WO screen only — no editing surface elsewhere
+    # in this pass (LOC triage displays it, doesn't adjust it).
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class WorkOrderUpdate(BaseModel):
@@ -273,6 +278,12 @@ class WorkOrderDetail(WorkOrderListItem):
     # Enhancement backlog Phase 5 (PRD §14#10).
     sla_warn_at: Optional[UTCDateTime] = None
     sla_deadline: Optional[UTCDateTime] = None
+    # Enhancement backlog Phase 15 (PRD §13#14): geo pin-drop, if the
+    # requester set one at submission. Both null (the common case for
+    # WOs submitted before this feature, or where the requester skipped
+    # it) means "no pin" — the WO detail screen shows no map at all.
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     notes: List[NoteOut] = []
     history: List[HistoryOut] = []
     attachments: List[AttachmentOut] = []
