@@ -18,26 +18,32 @@ from .auth import hash_password
 # Lower rank = higher priority = sorts first. Ties (an unrecognized value,
 # which the CHECK constraint shouldn't allow, but belt-and-suspenders)
 # fall to the end rather than erroring.
-# Enhancement backlog Phase 14 (PRD §13#15): old and new urgency-tier
-# names rank identically (Highest == Immediate, etc.) — historic WOs
-# weren't rewritten to the new names, so both need to sort correctly
-# side by side in the same inbox.
+# Enhancement backlog Phase 18 (PRD §13#15 follow-up, 7/30/26): back to
+# single-value cases — an earlier version paired each new name with its
+# old equivalent (`.in_((old, new))`) so already-existing old-named WOs
+# ranked correctly alongside new ones; migration f4a8d1c6e3b2 converted
+# every row in the system to the new names (all 2026 data was test data,
+# not real history), so there's nothing left in the old names to rank.
 _PRIORITY_RANK = case(
-    (models.WorkOrder.priority.in_(("Highest", "Immediate")), 0),
-    (models.WorkOrder.priority.in_(("High", "Same Day")), 1),
-    (models.WorkOrder.priority.in_(("Medium", "Next Day")), 2),
-    (models.WorkOrder.priority.in_(("Low", "2 Days")), 3),
-    (models.WorkOrder.priority.in_(("Lowest", "3 Days")), 4),
+    (models.WorkOrder.priority == "Immediate", 0),
+    (models.WorkOrder.priority == "Same Day", 1),
+    (models.WorkOrder.priority == "Next Day", 2),
+    (models.WorkOrder.priority == "2 Days", 3),
+    (models.WorkOrder.priority == "3 Days", 4),
     else_=5,
 )
 
 
-# Enhancement backlog Phase 14 (PRD §13#15): the two most-urgent tiers,
-# old and new names both — backs the "Urgent Open" KPI tile (renamed
-# from "Highest+High Open" since that label would go stale once new WOs
-# stop using those names) and the needing-attention query. Shared here
-# so both stay in sync.
-URGENT_PRIORITIES = ("Highest", "High", "Immediate", "Same Day")
+# Backs the "Urgent Open" KPI tile and the needing-attention query.
+# Shared here so both stay in sync. Enhancement backlog Phase 18 (PRD
+# §13#15 follow-up, 7/30/26): back to the 2 new-name tiers only — this
+# briefly carried the old names too (Highest/High) so already-existing
+# old-named WOs still counted correctly; migration f4a8d1c6e3b2
+# converted every row in the system, so there's nothing left in the old
+# names to count. Tile label stays "Urgent Open" (not reverted to
+# "Highest+High Open") since the generic label is arguably just better
+# regardless of naming scheme.
+URGENT_PRIORITIES = ("Immediate", "Same Day")
 
 
 def build_location_tree(db: Session, include_inactive: bool = False) -> list[dict]:
@@ -657,8 +663,20 @@ def _apply_filters(db: Session, query, scope: str, status: str | None = None,
         ids = db.query(models.Asset.id).filter(models.Asset.location_group == "Program Areas")
         query = query.filter(models.WorkOrder.asset_id.in_(ids))
     elif scope == "basecamp":
-        # PRD: Base Camp Ops dashboard scope stays Charlie/Delta/Echo only.
-        ids = db.query(models.Asset.id).filter(models.Asset.camp_letter.in_(["C", "D", "E"]))
+        # Bug fix (PRD §17#14 follow-up, 7/30/26): this used to hardcode
+        # "camp_letter IN ('C','D','E')" as a stand-in for "camps that
+        # report under Base Camp Ops" — a real, documented exception
+        # exists (Base Camps A/B report under "Program Areas" instead,
+        # per seed.py), which the letter list was working around rather
+        # than reading directly. Per explicit direction: this should
+        # follow the actual location-hierarchy → reporting-group mapping
+        # maintained in Admin (Asset.location_group, resolved through
+        # reporting_group_id/crud.recompute_effective_groups), not a
+        # hardcoded proxy for it — so a future admin reassignment (e.g.
+        # if a camp's reporting group ever changes) is reflected
+        # automatically here instead of silently going stale. Mirrors
+        # the "program" branch above, which already did this correctly.
+        ids = db.query(models.Asset.id).filter(models.Asset.location_group == "Base Camp Ops")
         query = query.filter(models.WorkOrder.asset_id.in_(ids))
 
     if status:

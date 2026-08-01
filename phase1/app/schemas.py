@@ -42,32 +42,17 @@ def _serialize_utc(v: dt.datetime) -> str:
 UTCDateTime = Annotated[dt.datetime, PlainSerializer(_serialize_utc, return_type=str)]
 
 # Enhancement backlog Phase 14 (PRD §13#15): urgency-tier rename. This
-# tuple governs what NEW work orders (any creation/priority-edit path)
-# are allowed to be assigned — old names ("Highest"/"High"/"Medium"/
-# "Low"/"Lowest") are deliberately excluded here going forward. Historic
-# data was NOT rewritten (explicit decision, 7/29/26), so old values
-# still exist and remain readable/valid in the database — the DB CHECK
-# constraint (see models.py) accepts the union of both old and new for
-# exactly that reason, and models.SLA_HOURS/crud._PRIORITY_RANK/
-# crud.URGENT_PRIORITIES all still recognize old values too, so already-
-# existing WOs keep working correctly (SLA math, sorting, the urgent-
-# open KPI) for the rest of their lifecycle. This tuple is the one place
-# that's intentionally narrower than the DB: it's what stops someone
-# from newly assigning an old-style value going forward.
+# tuple governs what a work order's priority may be assigned to — old
+# names ("Highest"/"High"/"Medium"/"Low"/"Lowest") are not valid here.
+# Originally (7/29/26) this coexisted with old-named historic data that
+# was deliberately left unrewritten, so this tuple was narrower than
+# what the DB itself would accept. As of migration f4a8d1c6e3b2
+# (7/30/26), that's no longer true: all 2026 data turned out to be test
+# data rather than real history, so it was converted to the new names
+# too, and the DB CHECK constraint (models.py) was narrowed to match
+# this tuple exactly — there's now exactly one valid set of priority
+# values, not two.
 PRIORITIES = ("Immediate", "Same Day", "Next Day", "2 Days", "3 Days")
-
-# The old names, kept around explicitly for contexts that deal with
-# historic/legacy data on purpose — right now just
-# backfill_fiix_history.py, which imports real historical Fiix records
-# that were always written with these names and always will be (it's a
-# one-time import of a fixed, already-recorded dataset, not an ongoing
-# input). Deliberately a separate tuple from PRIORITIES, not a superset
-# of it, so it stays obvious at each call site which meaning ("what a
-# NEW work order may be assigned" vs. "what historical data legitimately
-# contains") is intended — mixing them into one tuple would make it easy
-# to accidentally let old names back in somewhere that should only ever
-# see new ones going forward.
-LEGACY_PRIORITIES = ("Highest", "High", "Medium", "Low", "Lowest")
 STATUSES = (
     "Requested", "Assigned", "Work In Progress", "On Hold",
     "Closed, Completed", "Closed, Incomplete",
