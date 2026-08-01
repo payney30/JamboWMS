@@ -1,40 +1,37 @@
-# Dashboard Bug Fixes (Phase 19 follow-up) — 3 real issues fixed
+# Public Management Dashboard (Phase 20, §17#15)
 
-Full cumulative state. No new migration this round.
+Full cumulative state. No new migration this round — new endpoints and
+one new static page only.
 
-## 1. Base Camp Ops dashboard showed no data — real bug, now fixed
+## What's new this round
 
-The location-scope fix from the previous round used the string
-`"Base Camp Ops"` — which doesn't exist anywhere in the real data. That
-was descriptive shorthand from a `seed.py` *comment*, not an actual
-branch label. The real value (confirmed against `data/name_to_branch.json`,
-the authoritative file `seed.py` itself reads from) is `"Base Camps"`
-(plural, no "Ops").
+**New file:** `static/management-dashboard.html` — no login gate, no
+`Authorization` header anywhere in it. Shareable link, viewable by
+anyone with the URL.
 
-Fixed in `crud.py`, `dashboard-basecamp.html`, and every test fixture
-that had the same wrong assumption baked in. **Added two regression
-tests** that load the real `name_to_branch.json` and would fail loudly
-if this class of bug ever recurs (a hardcoded reporting-group string
-that doesn't match anything in the real data).
+Shows: KPI tiles (Total/Requested/Active/Closed/Completion Rate,
+non-clickable), the requested open-vs-closed trend graph, and status/
+priority/work-type/location breakdown bars. Auto-refreshes every 60s.
+**No WO-level detail anywhere** — no inbox, no individual WO lookup, no
+requester info of any kind.
 
-## 2. KPI tiles were changing value on every filter — wrong, now fixed
+**New backend endpoints** (`app/routers/public.py`):
+- `GET /public/dashboard/kpis`
+- `GET /public/dashboard/breakdowns`
+- `GET /public/dashboard/trend?days=N` (bounded 1-90)
 
-The 4 tiles (Total/Requested/Active/Closed) were using the same
-filter-bar state as the inbox — so applying any filter silently
-redefined what "Total" meant. Fixed: the tiles now always show the true
-totals for the whole reporting group, completely decoupled from the
-filter bar and quick-view state. Clicking a tile still filters the
-inbox (and the breakdowns/trend below it, for consistency) — it just
-never changes the tile numbers themselves anymore.
+These reuse the exact same `crud.get_kpis`/`get_breakdowns`/
+`get_daily_trend` functions the authenticated `/dashboard/*` router
+already uses — none of the three have ever returned WO-level detail, so
+the real decision here was "allow no login," not "build different,
+more-restricted data." No filter params are exposed on any of the
+three — fixed to the overall system view, nothing configurable, on
+purpose (every filter could be used to slice toward something more
+identifiable than a flat aggregate).
 
-## 3. Clicking an inbox row did nothing — real gap, now fixed
-
-"Everything view-only" had been over-applied to mean "rows aren't
-clickable at all." Added a read-only detail slide-out — full WO
-information (location, description, requester/POC, assigned team,
-attachments, pinned-location map if present, notes, status history) —
-with no inputs and no Save button anywhere in it, matching the actual
-intent of "no editing."
+**Rate-limited per-IP**, same limiter the phone-based public status
+lookup already uses — a public no-auth GET endpoint is exactly the kind
+of thing that can get scraped.
 
 ## How to apply
 
@@ -51,23 +48,31 @@ intent of "no editing."
     #   tests/test_enhancement_phase5.py
     #   tests/test_enhancement_phase12.py
     #   tests/test_enhancement_phase15.py
+    #   tests/test_enhancement_phase20.py
     alembic upgrade head
 
-No new migration for this round specifically.
+No new migration this round specifically.
 
 ## Verify after deploying
 
-1. Open the Base Camp Ops dashboard — it should now show data (KPI
-   tiles, breakdowns, inbox all populated).
-2. Apply any filter (status/priority/etc.) — the 4 top tiles should
-   stay exactly the same; only the inbox/breakdowns/trend below should
-   change.
-3. Click a tile — the inbox should filter to that bucket; the tiles
-   themselves still shouldn't change.
-4. Click any row in the inbox — a read-only detail panel should slide
-   out from the right.
+- Open `management-dashboard.html` in a private/incognito window (no
+  logged-in session) — it should load and show data with zero sign-in.
+- Confirm there's genuinely no way to see an individual WO, requester
+  name, or description anywhere on the page.
+- Hit `/public/dashboard/kpis` rapidly (or check the rate-limit test) to
+  confirm the 429 response kicks in as expected.
 
 ## Test status
 
-**251 passing, 0 failing** — fully green. Added 2 regression tests
-specifically targeting the reporting-group-string bug class.
+**257 passing, 0 failing** — fully green. Added 6 new tests: no-auth
+access for all three endpoints, the `days` bound clamping both
+directions, a check that KPIOut never contains WO-shaped keys, and
+confirmation the rate limiter actually trips.
+
+## What's left in §17
+
+§17#1-4 and #10 (Fulfillment Worker / assignment hierarchy), #5 (SKU
+matching, blocked on you providing the catalog), #6-8 (texting, blocked
+on a provider decision), #9 (BOM import, blocked on the BOM data),
+#16 (inactionable/cancel analysis — cheap, still open). Plus trivial PRD
+housekeeping (§13#6, §14#22/#23).
