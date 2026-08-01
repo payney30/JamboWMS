@@ -73,6 +73,20 @@ STATUS_MAP = {
     "Closed, Incomplete": "Closed, Incomplete",
 }
 
+# Enhancement backlog Phase 18 (PRD §13#15 follow-up, 7/30/26): maps the
+# OLD priority names this import's real Fiix source data always used
+# onto their NEW equivalents — same 1:1 mapping the data migration
+# (f4a8d1c6e3b2) used, kept local to this file since schemas.py no
+# longer carries a shared old-names constant (nothing else needs it —
+# this import is confirmed done for good).
+_LEGACY_PRIORITY_MAP = {
+    "Highest": "Immediate",
+    "High": "Same Day",
+    "Medium": "Next Day",
+    "Low": "2 Days",
+    "Lowest": "3 Days",
+}
+
 # Historical export used "NJ Items/parts" (lowercase p) — map case-
 # insensitively onto the canonical WORK_TYPES casing rather than assuming
 # the export's casing is authoritative.
@@ -182,18 +196,25 @@ def backfill(db, records: list[dict]) -> dict:
             summary["skipped_unmapped_work_type"] += 1
             continue
 
-        priority = rec.get("priority", "")
-        # Enhancement backlog Phase 14 (PRD §13#15): urgency-tier rename.
-        # This is a historical import of real, already-recorded Fiix
-        # data — it was always written with the OLD priority names and
-        # always will be, so it must validate against
-        # schemas.LEGACY_PRIORITIES, not schemas.PRIORITIES (which now
-        # means "valid for a NEW work order going forward" and no longer
-        # includes these). Using the wrong tuple here would silently
-        # skip every historical record.
-        if priority not in schemas.LEGACY_PRIORITIES:
+        priority_raw = rec.get("priority", "")
+        # Enhancement backlog Phase 18 (PRD §13#15 follow-up, 7/30/26):
+        # this is a historical import of real Fiix data, which was
+        # always written with the OLD priority names — that part hasn't
+        # changed. What has changed: schemas.LEGACY_PRIORITIES no longer
+        # exists (removed as part of retiring the whole old/new
+        # dual-naming system — this import is confirmed done for good,
+        # won't run again), so this now validates against its own local
+        # copy of the old names. More importantly, the CHECK constraint
+        # this script's output has to satisfy was narrowed back to the
+        # 5 new names only (migration f4a8d1c6e3b2) — so the raw old
+        # name from the source file now gets translated to its new
+        # equivalent before being stored, the same 1:1 mapping the data
+        # migration used. Storing the untranslated old value here would
+        # violate that constraint outright if this ever ran again.
+        if priority_raw not in _LEGACY_PRIORITY_MAP:
             summary["skipped_unmapped_priority"] += 1
             continue
+        priority = _LEGACY_PRIORITY_MAP[priority_raw]
 
         try:
             recorded_at = dt.datetime.fromisoformat(rec["date"])

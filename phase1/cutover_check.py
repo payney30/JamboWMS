@@ -105,7 +105,17 @@ def old_dashboard_breakdowns(records: list[dict]) -> dict:
 
     return {
         "by_status": count_by("status", backfill_mod.map_status),
-        "by_priority": count_by("priority"),
+        # Enhancement backlog Phase 18 (PRD §13#15 follow-up, 7/30/26):
+        # same normalization treatment as by_status/by_work_type above,
+        # for the same reason — the backfill now translates old priority
+        # names to new ones on the way in (see backfill_fiix_history.py's
+        # _LEGACY_PRIORITY_MAP), so comparing raw "Highest" against
+        # stored "Immediate" would show every record as a mismatch even
+        # though it's the same data, just relabeled. Not a discrepancy
+        # worth flagging here, same as the status/work_type cases.
+        "by_priority": count_by(
+            "priority", lambda v: backfill_mod._LEGACY_PRIORITY_MAP.get(v, v)
+        ),
         "by_work_type": count_by("type", backfill_mod.normalize_work_type),
     }
 
