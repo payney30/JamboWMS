@@ -1,5 +1,5 @@
 diff --git a/phase1/app/crud.py b/phase1/app/crud.py
-index ec75c56..4b8f5aa 100644
+index ec75c56..a1f0beb 100644
 --- a/phase1/app/crud.py
 +++ b/phase1/app/crud.py
 @@ -8,8 +8,9 @@ mutation later, ask "does this need a history row?" before wiring it up.
@@ -524,7 +524,7 @@ index ec75c56..4b8f5aa 100644
      # PRD 4.2: inbox sorts highest-priority first, oldest first within a
      # priority tier — matches the old dashboard's "needing attention" table.
      return (
-@@ -311,20 +651,43 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -311,20 +651,52 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
  def _apply_filters(db: Session, query, scope: str, status: str | None = None,
                      priority: str | None = None, work_type: str | None = None,
                      team_id: int | None = None, location_group: str | None = None,
@@ -557,22 +557,31 @@ index ec75c56..4b8f5aa 100644
 -        ids = db.query(models.Asset.id).filter(models.Asset.camp_letter.in_(["C", "D", "E"]))
 +        # Bug fix (PRD §17#14 follow-up, 7/30/26): this used to hardcode
 +        # "camp_letter IN ('C','D','E')" as a stand-in for "camps that
-+        # report under Base Camp Ops" — a real, documented exception
-+        # exists (Base Camps A/B report under "Program Areas" instead,
-+        # per seed.py), which the letter list was working around rather
-+        # than reading directly. Per explicit direction: this should
-+        # follow the actual location-hierarchy → reporting-group mapping
-+        # maintained in Admin (Asset.location_group, resolved through
-+        # reporting_group_id/crud.recompute_effective_groups), not a
-+        # hardcoded proxy for it — so a future admin reassignment (e.g.
-+        # if a camp's reporting group ever changes) is reflected
-+        # automatically here instead of silently going stale. Mirrors
-+        # the "program" branch above, which already did this correctly.
-+        ids = db.query(models.Asset.id).filter(models.Asset.location_group == "Base Camp Ops")
++        # report under the Base Camps reporting group" — a real,
++        # documented exception exists (Base Camps A/B report under
++        # "Program Areas" instead, per seed.py), which the letter list
++        # was working around rather than reading directly. Per explicit
++        # direction: this should follow the actual location-hierarchy →
++        # reporting-group mapping maintained in Admin (Asset.location_group,
++        # resolved through reporting_group_id/crud.recompute_effective_groups),
++        # not a hardcoded proxy for it.
++        #
++        # Bug fix (7/31/26): the first attempt at this fix used
++        # "Base Camp Ops" as the reporting-group name — that string
++        # doesn't exist anywhere in the real data (confirmed against
++        # name_to_branch.json, the authoritative branch-label source
++        # seed.py reads from) and was actually just descriptive shorthand
++        # used in a seed.py *comment*, not a real value. The real branch
++        # label is "Base Camps" (plural, no "Ops") — using the wrong
++        # string meant this filter matched nothing, so the Base Camp Ops
++        # dashboard showed no data at all. Verify any reporting-group
++        # name used in a filter against the actual data (name_to_branch.json
++        # or the live reporting_groups table), not a comment describing it.
++        ids = db.query(models.Asset.id).filter(models.Asset.location_group == "Base Camps")
          query = query.filter(models.WorkOrder.asset_id.in_(ids))
  
      if status:
-@@ -338,11 +701,17 @@ def _apply_filters(db: Session, query, scope: str, status: str | None = None,
+@@ -338,11 +710,17 @@ def _apply_filters(db: Session, query, scope: str, status: str | None = None,
      if location_group:
          ids = db.query(models.Asset.id).filter(models.Asset.location_group == location_group)
          query = query.filter(models.WorkOrder.asset_id.in_(ids))
@@ -590,7 +599,7 @@ index ec75c56..4b8f5aa 100644
      return query
  
  
-@@ -357,28 +726,48 @@ def get_kpis(db: Session, scope: str = "main", **filters) -> dict:
+@@ -357,28 +735,48 @@ def get_kpis(db: Session, scope: str = "main", **filters) -> dict:
  
      highest_high_open = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
          ~models.WorkOrder.status.like("Closed%"),
@@ -650,7 +659,7 @@ index ec75c56..4b8f5aa 100644
      }
  
  
-@@ -451,14 +840,14 @@ def get_daily_trend(db: Session, scope: str = "main", days: int = 14, **filters)
+@@ -451,14 +849,14 @@ def get_daily_trend(db: Session, scope: str = "main", days: int = 14, **filters)
  
  
  def get_needing_attention(db: Session, scope: str = "main", limit: int = 15, **filters) -> list[models.WorkOrder]:
@@ -669,7 +678,7 @@ index ec75c56..4b8f5aa 100644
          ),
          scope, **filters,
      )
-@@ -865,3 +1254,40 @@ def update_team(db: Session, team: models.Team, payload: schemas.TeamUpdate) ->
+@@ -865,3 +1263,40 @@ def update_team(db: Session, team: models.Team, payload: schemas.TeamUpdate) ->
      db.commit()
      db.refresh(team)
      return team
@@ -711,7 +720,7 @@ index ec75c56..4b8f5aa 100644
 +    db.refresh(row)
 +    return row
 diff --git a/phase1/app/models.py b/phase1/app/models.py
-index 1963639..a80799c 100644
+index 1963639..f56b915 100644
 --- a/phase1/app/models.py
 +++ b/phase1/app/models.py
 @@ -5,7 +5,7 @@ forward-compatibility with Phase 2/3 but have no endpoints yet.
@@ -757,6 +766,15 @@ index 1963639..a80799c 100644
  class Team(Base):
      __tablename__ = "teams"
      id = Column(Integer, primary_key=True)
+@@ -87,7 +114,7 @@ class Asset(Base):
+ 
+ class ReportingGroup(Base):
+     """Admin-editable reporting-group catalog (PRD 4.5b) — e.g. 'Program
+-    Areas', 'Base Camp Ops'. Assigned to Asset nodes via
++    Areas', 'Base Camps'. Assigned to Asset nodes via
+     Asset.reporting_group_id; see that column's docstring for the
+     inheritance model. Set once at the start of an event and read live —
+     no versioning/snapshotting, per PRD 4.5b."""
 @@ -168,17 +195,76 @@ class WorkOrder(Base):
      # actual email/SMS provider yet; see app/routers/public.py and the
      # README's "Known gaps" list.
@@ -2000,7 +2018,7 @@ index 719f0d9..d570dd8 100644
    } catch (e) {
      document.getElementById('histBody').textContent = 'Could not load history: ' + e.message;
 diff --git a/phase1/static/dashboard-basecamp.html b/phase1/static/dashboard-basecamp.html
-index ca5d1ed..65e7706 100644
+index ca5d1ed..330dfa3 100644
 --- a/phase1/static/dashboard-basecamp.html
 +++ b/phase1/static/dashboard-basecamp.html
 @@ -51,7 +51,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;}
@@ -2012,18 +2030,49 @@ index ca5d1ed..65e7706 100644
  .empty-note{color:var(--ink-soft);font-size:12px;padding:8px 0;}
  
  #toastStack{position:fixed;bottom:16px;left:16px;right:16px;z-index:50;display:flex;flex-direction:column;gap:8px;align-items:center;}
-@@ -78,8 +78,8 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
+@@ -63,7 +63,30 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
+ .filters input{flex:1;min-width:180px;}
+ .filters .reset-btn{background:transparent;color:var(--ink-soft);border:1px solid var(--khaki-line);border-radius:6px;padding:8px 14px;font-size:12px;cursor:pointer;}
+ .filters .reset-btn:hover{border-color:var(--pine);color:var(--pine);}
++
++/* Enhancement backlog Phase 19 follow-up (7/31/26): read-only WO detail
++   view — clicking an inbox row shows this. Never has a Save button or
++   any input; this dashboard is view-only end to end. */
++#detailBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;z-index:40;}
++#detailBackdrop.open{display:block;}
++#detailModal{position:fixed;top:0;right:0;bottom:0;width:420px;max-width:92vw;background:var(--canvas-panel);
++  box-shadow:-6px 0 20px rgba(0,0,0,.2);z-index:41;overflow-y:auto;padding:22px;transform:translateX(100%);transition:transform .2s;}
++#detailModal.open{transform:translateX(0);}
++#detailModal .close-btn{position:absolute;top:16px;right:16px;background:none;border:none;font-size:22px;cursor:pointer;color:var(--ink-soft);}
++#detailModal h2{font-family:var(--font-display);margin:0 0 2px;font-size:18px;}
++#detailModal .sub{font-size:12px;color:var(--ink-soft);margin-bottom:14px;}
++#detailModal .field{margin:12px 0;}
++#detailModal .field label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin-bottom:3px;}
++#detailModal .field .val{font-size:13px;white-space:pre-wrap;}
++#detailModal .divider{border:none;border-top:1px solid var(--khaki-line);margin:18px 0;}
++#detailModal .note{background:#F1EDDF;border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px;}
++#detailModal .note .meta{color:var(--ink-soft);font-size:10px;margin-top:3px;}
++#detailModal .hist{font-size:11px;color:var(--ink-soft);padding:4px 0;border-bottom:1px dashed var(--khaki-line);}
++#detailPinMap{height:160px;border-radius:8px;border:1px solid var(--khaki-line);margin:8px 0;}
++.inbox-row{cursor:pointer;}
++.inbox-row:hover{background:#F1EDDF;}
+ </style>
++<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+ </head>
+ <body>
+ 
+@@ -78,8 +101,8 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
  <div class="wrap" id="app" style="display:none;">
    <div class="topbar">
      <div>
 -      <p class="brand-eyebrow">Live · Read-only · Base Camp Ops (C/D/E)</p>
 -      <h1 class="brand-title">Base Camp Ops Dashboard — Charlie / Delta / Echo</h1>
-+      <p class="brand-eyebrow">Live · Read-only · Base Camp Ops reporting group</p>
++      <p class="brand-eyebrow">Live · Read-only · Base Camps reporting group</p>
 +      <h1 class="brand-title">Base Camp Ops Dashboard</h1>
      </div>
      <div>
        <span class="refresh-note" id="refreshNote">Updates automatically every 60s</span>
-@@ -93,11 +93,17 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
+@@ -93,11 +116,17 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
      <select id="fStatus" onchange="load()"><option value="">All statuses</option></select>
      <select id="fPriority" onchange="load()"><option value="">All priorities</option></select>
      <select id="fWorkType" onchange="load()"><option value="">All work types</option></select>
@@ -2042,7 +2091,7 @@ index ca5d1ed..65e7706 100644
  
    <div class="stats" id="statRow"></div>
  
-@@ -115,26 +121,54 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
+@@ -115,26 +144,57 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
      <div class="card" style="grid-column:1 / -1;"><h3>Assigned team — total vs closed</h3><div id="byTeam"></div></div>
    </div>
  
@@ -2070,8 +2119,11 @@ index ca5d1ed..65e7706 100644
    </div>
  </div>
  
++<div id="detailBackdrop" onclick="closeDetail()"></div>
++<div id="detailModal"></div>
  <div id="toastStack"></div>
  
++<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 +<script src="location-picker.js"></script>
  <script>
  const API = '';
@@ -2081,7 +2133,7 @@ index ca5d1ed..65e7706 100644
 +// name _apply_filters' scope="program" branch resolves to — used here
 +// to also scope the inbox fetch (GET /work-orders), which has no
 +// `scope` concept of its own, only location_group.
-+const SCOPE_LOCATION_GROUP = 'Base Camp Ops';
++const SCOPE_LOCATION_GROUP = 'Base Camps';
  let refreshTimer = null;
  let TEAMS = [], ASSETS = [];
  const STATUSES = ["Requested","Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
@@ -2101,7 +2153,7 @@ index ca5d1ed..65e7706 100644
  
  function escapeHtml(s){
    const d = document.createElement('div');
-@@ -196,6 +230,19 @@ async function boot(){
+@@ -196,6 +256,19 @@ async function boot(){
      showToast('Could not load filter reference data: ' + e.message, 'err');
    }
    populateFilterOptions();
@@ -2121,7 +2173,7 @@ index ca5d1ed..65e7706 100644
    load();
    if (refreshTimer) clearInterval(refreshTimer);
    refreshTimer = setInterval(load, 60000);
-@@ -210,14 +257,24 @@ function populateFilterOptions(){
+@@ -210,14 +283,24 @@ function populateFilterOptions(){
    WORK_TYPES.forEach(w => fWorkType.insertAdjacentHTML('beforeend', `<option value="${w}">${w}</option>`));
    const fTeam = document.getElementById('fTeam');
    TEAMS.forEach(t => fTeam.insertAdjacentHTML('beforeend', `<option value="${t.id}">${escapeHtml(t.name)}</option>`));
@@ -2150,7 +2202,7 @@ index ca5d1ed..65e7706 100644
    load();
  }
  
-@@ -227,33 +284,99 @@ function currentFilterParams(){
+@@ -227,33 +310,114 @@ function currentFilterParams(){
    const status = document.getElementById('fStatus').value;
    const priority = document.getElementById('fPriority').value;
    const workType = document.getElementById('fWorkType').value;
@@ -2247,11 +2299,27 @@ index ca5d1ed..65e7706 100644
  async function load(){
    const params = currentFilterParams();
 -  let kpis, breakdowns, trend, attention;
++  // Enhancement backlog Phase 19 follow-up (7/31/26): the 4 KPI tiles
++  // must always report the true totals for the whole reporting group —
++  // scope only, nothing else — not shift every time a filter or a
++  // quick-view tile is applied. Previously this used the same
++  // currentFilterParams() as breakdowns/trend/inbox, so e.g. picking a
++  // priority in the filter bar made "Total" silently mean "total
++  // matching that priority" instead of the true reporting-group total.
++  // Kept as a fully separate request/param set on purpose, rather than
++  // trying to reuse currentFilterParams() with pieces stripped out — the
++  // two have fundamentally different jobs now (fixed overview vs.
++  // filterable drill-down) and conflating them again is exactly how
++  // this bug happened the first time.
++  const scopeOnlyParams = new URLSearchParams();
++  scopeOnlyParams.set('scope', currentScope);
++
 +  let kpis, breakdowns, trend, inboxWos;
    try {
 -    [kpis, breakdowns, trend, attention] = await Promise.all([
+-      api(`/dashboard/kpis?${params.toString()}`),
 +    [kpis, breakdowns, trend, inboxWos] = await Promise.all([
-       api(`/dashboard/kpis?${params.toString()}`),
++      api(`/dashboard/kpis?${scopeOnlyParams.toString()}`),
        api(`/dashboard/breakdowns?${params.toString()}`),
        api(`/dashboard/trend?${params.toString()}&days=14`),
 -      api(`/dashboard/attention?${params.toString()}&limit=15`),
@@ -2259,7 +2327,7 @@ index ca5d1ed..65e7706 100644
      ]);
    } catch (e) {
      if (e.message !== 'session expired') showToast('Could not refresh dashboard: ' + e.message, 'err');
-@@ -261,21 +384,37 @@ async function load(){
+@@ -261,21 +425,37 @@ async function load(){
    }
    renderStats(kpis);
    renderBars('byStatus', breakdowns.by_status);
@@ -2303,7 +2371,7 @@ index ca5d1ed..65e7706 100644
  }
  
  function renderBars(elId, dataObj, order){
-@@ -335,23 +474,53 @@ function renderTrend(trend){
+@@ -335,23 +515,144 @@ function renderTrend(trend){
    `;
  }
  
@@ -2355,7 +2423,12 @@ index ca5d1ed..65e7706 100644
 +  if (countEl) countEl.textContent = `(${rows.length})`;
 +  const tbody = document.getElementById('inboxBody');
 +  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-note">No work orders match the current filters.</td></tr>'; return; }
-+  tbody.innerHTML = rows.map(w => `<tr>
++  // Enhancement backlog Phase 19 follow-up (7/31/26): rows are
++  // clickable to a read-only detail view (openDetail below) — "no
++  // editing" in the original spec meant no Save/status-change/notes
++  // controls, not "nothing happens when you click a row." That gap
++  // meant clicking a row previously did nothing at all.
++  tbody.innerHTML = rows.map(w => `<tr class="inbox-row" onclick="openDetail(${w.id})">
        <td>${escapeHtml(w.wo_number)}</td>
 -      <td><span class="chip chip-${w.priority}">${w.priority}</span></td>
 +      <td><span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span></td>
@@ -2367,6 +2440,92 @@ index ca5d1ed..65e7706 100644
 -  }).join('');
 +      <td>${new Date(w.created_at).toLocaleString()}</td>
 +    </tr>`).join('');
++}
++
++// Enhancement backlog Phase 19 follow-up (7/31/26): read-only WO detail
++// view. Deliberately no Save/Cancel, no editable inputs anywhere in
++// this — matches the spec's "everything view-only" requirement, while
++// still letting someone actually see the full record.
++let detailPinMap = null;
++
++async function openDetail(id){
++  let w;
++  try {
++    w = await api(`/work-orders/${id}`);
++  } catch (e) {
++    if (e.message !== 'session expired') showToast('Could not load work order: ' + e.message, 'err');
++    return;
++  }
++
++  const notesHtml = (w.notes || []).slice().reverse().map(n => `
++    <div class="note">${escapeHtml(n.note_text)}
++      <div class="meta">${n.note_type} &middot; ${n.author ? escapeHtml(n.author.name) : 'system'} &middot; ${new Date(n.created_at).toLocaleString()}</div>
++    </div>`).join('') || '<div class="empty-note">No notes.</div>';
++
++  const histHtml = (w.history || []).slice().reverse().map(h => `
++    <div class="hist">${h.event_type}: ${h.from_value ? escapeHtml(h.from_value) + ' → ' : ''}${escapeHtml(h.to_value)} &middot; ${new Date(h.changed_at).toLocaleString()}</div>
++  `).join('') || '<div class="empty-note">No history.</div>';
++
++  const attachmentsHtml = (w.attachments || []).length
++    ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;">` + w.attachments.map(a => {
++        const isPdf = /\.pdf($|\?)/i.test(a.file_url);
++        if (isPdf) {
++          return `<a href="${a.file_url}" target="_blank" rel="noopener" style="width:60px;height:60px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:9px;color:var(--ink-soft);text-decoration:none;">📄<span>PDF</span></a>`;
++        }
++        return `<a href="${a.file_url}" target="_blank" rel="noopener" style="position:relative;width:60px;height:60px;display:block;">
++          <img src="${a.file_url}" alt="attachment" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--khaki-line);" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
++          <span style="display:none;width:60px;height:60px;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:8px;color:var(--ink-soft);text-align:center;">🖼️<span>Can't preview</span></span>
++        </a>`;
++      }).join('') + `</div>`
++    : '';
++
++  const hasPin = w.latitude != null && w.longitude != null;
++  const pinHtml = hasPin ? `
++    <div class="field">
++      <label>Pinned location <a href="https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17" target="_blank" rel="noopener" style="font-weight:400;">Open full map ↗</a></label>
++      <div id="detailPinMap"></div>
++    </div>` : '';
++
++  document.getElementById('detailModal').innerHTML = `
++    <button class="close-btn" onclick="closeDetail()">×</button>
++    <h2>${escapeHtml(w.wo_number)}${w.external_ref ? ` <span style="font-size:11px;font-weight:400;color:var(--ink-soft);">(Fiix #${escapeHtml(w.external_ref)})</span>` : ''}</h2>
++    <div class="sub">${escapeHtml(w.work_type || 'No work type')} &middot; <span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span> &middot; ${escapeHtml(w.status)}</div>
++
++    <div class="field"><label>Location</label><div class="val">${escapeHtml(w.asset ? w.asset.name : '—')}</div></div>
++    <div class="field"><label>Description</label><div class="val">${escapeHtml(w.description)}</div></div>
++    <div class="field"><label>Requester</label><div class="val">${escapeHtml(w.requester_name)}${w.requester_phone ? ' · ' + escapeHtml(w.requester_phone) : ''}${w.requester_email ? ' · ' + escapeHtml(w.requester_email) : ''}</div></div>
++    ${!w.poc_is_requester && w.poc_name ? `<div class="field"><label>Point of contact</label><div class="val">${escapeHtml(w.poc_name)}${w.poc_phone ? ' · ' + escapeHtml(w.poc_phone) : ''}</div></div>` : ''}
++    <div class="field"><label>Assigned team</label><div class="val">${w.assigned_team ? escapeHtml(w.assigned_team.name) : '— unassigned —'}</div></div>
++    <div class="field"><label>Submitted</label><div class="val">${new Date(w.created_at).toLocaleString()}</div></div>
++    ${w.closed_at ? `<div class="field"><label>Closed</label><div class="val">${new Date(w.closed_at).toLocaleString()}</div></div>` : ''}
++    ${w.note_to_requester ? `<div class="field"><label>Note to requester</label><div class="val">${escapeHtml(w.note_to_requester)}</div></div>` : ''}
++    ${attachmentsHtml}
++    ${pinHtml}
++
++    <hr class="divider">
++    <div class="field"><label>Notes</label></div>
++    ${notesHtml}
++    <div class="field" style="margin-top:14px;"><label>Status history</label></div>
++    ${histHtml}
++  `;
++
++  document.getElementById('detailModal').classList.add('open');
++  document.getElementById('detailBackdrop').classList.add('open');
++
++  if (hasPin) {
++    if (detailPinMap) { detailPinMap.remove(); detailPinMap = null; }
++    detailPinMap = L.map('detailPinMap', {zoomControl: false}).setView([w.latitude, w.longitude], 16);
++    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
++      maxZoom: 19, attribution: '&copy; OpenStreetMap contributors',
++    }).addTo(detailPinMap);
++    L.marker([w.latitude, w.longitude]).addTo(detailPinMap);
++  }
++}
++
++function closeDetail(){
++  document.getElementById('detailModal').classList.remove('open');
++  document.getElementById('detailBackdrop').classList.remove('open');
++  if (detailPinMap) { detailPinMap.remove(); detailPinMap = null; }
  }
  
  if (TOKEN) boot();
@@ -2437,7 +2596,7 @@ index 6dd0b4e..4051079 100644
        <td style="white-space:pre-wrap;">${escapeHtml((w.description||'').slice(0,90))}</td>
        <td>${escapeHtml(w.asset ? w.asset.name : '')}</td>
 diff --git a/phase1/static/dashboard-program.html b/phase1/static/dashboard-program.html
-index 519578d..e799f80 100644
+index 519578d..337cfeb 100644
 --- a/phase1/static/dashboard-program.html
 +++ b/phase1/static/dashboard-program.html
 @@ -51,7 +51,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;}
@@ -2449,7 +2608,38 @@ index 519578d..e799f80 100644
  .empty-note{color:var(--ink-soft);font-size:12px;padding:8px 0;}
  
  #toastStack{position:fixed;bottom:16px;left:16px;right:16px;z-index:50;display:flex;flex-direction:column;gap:8px;align-items:center;}
-@@ -93,11 +93,17 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
+@@ -63,7 +63,30 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
+ .filters input{flex:1;min-width:180px;}
+ .filters .reset-btn{background:transparent;color:var(--ink-soft);border:1px solid var(--khaki-line);border-radius:6px;padding:8px 14px;font-size:12px;cursor:pointer;}
+ .filters .reset-btn:hover{border-color:var(--pine);color:var(--pine);}
++
++/* Enhancement backlog Phase 19 follow-up (7/31/26): read-only WO detail
++   view — clicking an inbox row shows this. Never has a Save button or
++   any input; this dashboard is view-only end to end. */
++#detailBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;z-index:40;}
++#detailBackdrop.open{display:block;}
++#detailModal{position:fixed;top:0;right:0;bottom:0;width:420px;max-width:92vw;background:var(--canvas-panel);
++  box-shadow:-6px 0 20px rgba(0,0,0,.2);z-index:41;overflow-y:auto;padding:22px;transform:translateX(100%);transition:transform .2s;}
++#detailModal.open{transform:translateX(0);}
++#detailModal .close-btn{position:absolute;top:16px;right:16px;background:none;border:none;font-size:22px;cursor:pointer;color:var(--ink-soft);}
++#detailModal h2{font-family:var(--font-display);margin:0 0 2px;font-size:18px;}
++#detailModal .sub{font-size:12px;color:var(--ink-soft);margin-bottom:14px;}
++#detailModal .field{margin:12px 0;}
++#detailModal .field label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin-bottom:3px;}
++#detailModal .field .val{font-size:13px;white-space:pre-wrap;}
++#detailModal .divider{border:none;border-top:1px solid var(--khaki-line);margin:18px 0;}
++#detailModal .note{background:#F1EDDF;border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px;}
++#detailModal .note .meta{color:var(--ink-soft);font-size:10px;margin-top:3px;}
++#detailModal .hist{font-size:11px;color:var(--ink-soft);padding:4px 0;border-bottom:1px dashed var(--khaki-line);}
++#detailPinMap{height:160px;border-radius:8px;border:1px solid var(--khaki-line);margin:8px 0;}
++.inbox-row{cursor:pointer;}
++.inbox-row:hover{background:#F1EDDF;}
+ </style>
++<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+ </head>
+ <body>
+ 
+@@ -93,11 +116,17 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
      <select id="fStatus" onchange="load()"><option value="">All statuses</option></select>
      <select id="fPriority" onchange="load()"><option value="">All priorities</option></select>
      <select id="fWorkType" onchange="load()"><option value="">All work types</option></select>
@@ -2468,7 +2658,7 @@ index 519578d..e799f80 100644
  
    <div class="stats" id="statRow"></div>
  
-@@ -115,26 +121,54 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
+@@ -115,26 +144,57 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
      <div class="card" style="grid-column:1 / -1;"><h3>Assigned team — total vs closed</h3><div id="byTeam"></div></div>
    </div>
  
@@ -2496,8 +2686,11 @@ index 519578d..e799f80 100644
    </div>
  </div>
  
++<div id="detailBackdrop" onclick="closeDetail()"></div>
++<div id="detailModal"></div>
  <div id="toastStack"></div>
  
++<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 +<script src="location-picker.js"></script>
  <script>
  const API = '';
@@ -2527,7 +2720,7 @@ index 519578d..e799f80 100644
  
  function escapeHtml(s){
    const d = document.createElement('div');
-@@ -196,6 +230,19 @@ async function boot(){
+@@ -196,6 +256,19 @@ async function boot(){
      showToast('Could not load filter reference data: ' + e.message, 'err');
    }
    populateFilterOptions();
@@ -2547,7 +2740,7 @@ index 519578d..e799f80 100644
    load();
    if (refreshTimer) clearInterval(refreshTimer);
    refreshTimer = setInterval(load, 60000);
-@@ -210,14 +257,24 @@ function populateFilterOptions(){
+@@ -210,14 +283,24 @@ function populateFilterOptions(){
    WORK_TYPES.forEach(w => fWorkType.insertAdjacentHTML('beforeend', `<option value="${w}">${w}</option>`));
    const fTeam = document.getElementById('fTeam');
    TEAMS.forEach(t => fTeam.insertAdjacentHTML('beforeend', `<option value="${t.id}">${escapeHtml(t.name)}</option>`));
@@ -2576,7 +2769,7 @@ index 519578d..e799f80 100644
    load();
  }
  
-@@ -227,33 +284,99 @@ function currentFilterParams(){
+@@ -227,33 +310,114 @@ function currentFilterParams(){
    const status = document.getElementById('fStatus').value;
    const priority = document.getElementById('fPriority').value;
    const workType = document.getElementById('fWorkType').value;
@@ -2673,11 +2866,27 @@ index 519578d..e799f80 100644
  async function load(){
    const params = currentFilterParams();
 -  let kpis, breakdowns, trend, attention;
++  // Enhancement backlog Phase 19 follow-up (7/31/26): the 4 KPI tiles
++  // must always report the true totals for the whole reporting group —
++  // scope only, nothing else — not shift every time a filter or a
++  // quick-view tile is applied. Previously this used the same
++  // currentFilterParams() as breakdowns/trend/inbox, so e.g. picking a
++  // priority in the filter bar made "Total" silently mean "total
++  // matching that priority" instead of the true reporting-group total.
++  // Kept as a fully separate request/param set on purpose, rather than
++  // trying to reuse currentFilterParams() with pieces stripped out — the
++  // two have fundamentally different jobs now (fixed overview vs.
++  // filterable drill-down) and conflating them again is exactly how
++  // this bug happened the first time.
++  const scopeOnlyParams = new URLSearchParams();
++  scopeOnlyParams.set('scope', currentScope);
++
 +  let kpis, breakdowns, trend, inboxWos;
    try {
 -    [kpis, breakdowns, trend, attention] = await Promise.all([
+-      api(`/dashboard/kpis?${params.toString()}`),
 +    [kpis, breakdowns, trend, inboxWos] = await Promise.all([
-       api(`/dashboard/kpis?${params.toString()}`),
++      api(`/dashboard/kpis?${scopeOnlyParams.toString()}`),
        api(`/dashboard/breakdowns?${params.toString()}`),
        api(`/dashboard/trend?${params.toString()}&days=14`),
 -      api(`/dashboard/attention?${params.toString()}&limit=15`),
@@ -2685,7 +2894,7 @@ index 519578d..e799f80 100644
      ]);
    } catch (e) {
      if (e.message !== 'session expired') showToast('Could not refresh dashboard: ' + e.message, 'err');
-@@ -261,21 +384,37 @@ async function load(){
+@@ -261,21 +425,37 @@ async function load(){
    }
    renderStats(kpis);
    renderBars('byStatus', breakdowns.by_status);
@@ -2729,7 +2938,7 @@ index 519578d..e799f80 100644
  }
  
  function renderBars(elId, dataObj, order){
-@@ -335,23 +474,53 @@ function renderTrend(trend){
+@@ -335,23 +515,144 @@ function renderTrend(trend){
    `;
  }
  
@@ -2781,7 +2990,12 @@ index 519578d..e799f80 100644
 +  if (countEl) countEl.textContent = `(${rows.length})`;
 +  const tbody = document.getElementById('inboxBody');
 +  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-note">No work orders match the current filters.</td></tr>'; return; }
-+  tbody.innerHTML = rows.map(w => `<tr>
++  // Enhancement backlog Phase 19 follow-up (7/31/26): rows are
++  // clickable to a read-only detail view (openDetail below) — "no
++  // editing" in the original spec meant no Save/status-change/notes
++  // controls, not "nothing happens when you click a row." That gap
++  // meant clicking a row previously did nothing at all.
++  tbody.innerHTML = rows.map(w => `<tr class="inbox-row" onclick="openDetail(${w.id})">
        <td>${escapeHtml(w.wo_number)}</td>
 -      <td><span class="chip chip-${w.priority}">${w.priority}</span></td>
 +      <td><span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span></td>
@@ -2793,6 +3007,92 @@ index 519578d..e799f80 100644
 -  }).join('');
 +      <td>${new Date(w.created_at).toLocaleString()}</td>
 +    </tr>`).join('');
++}
++
++// Enhancement backlog Phase 19 follow-up (7/31/26): read-only WO detail
++// view. Deliberately no Save/Cancel, no editable inputs anywhere in
++// this — matches the spec's "everything view-only" requirement, while
++// still letting someone actually see the full record.
++let detailPinMap = null;
++
++async function openDetail(id){
++  let w;
++  try {
++    w = await api(`/work-orders/${id}`);
++  } catch (e) {
++    if (e.message !== 'session expired') showToast('Could not load work order: ' + e.message, 'err');
++    return;
++  }
++
++  const notesHtml = (w.notes || []).slice().reverse().map(n => `
++    <div class="note">${escapeHtml(n.note_text)}
++      <div class="meta">${n.note_type} &middot; ${n.author ? escapeHtml(n.author.name) : 'system'} &middot; ${new Date(n.created_at).toLocaleString()}</div>
++    </div>`).join('') || '<div class="empty-note">No notes.</div>';
++
++  const histHtml = (w.history || []).slice().reverse().map(h => `
++    <div class="hist">${h.event_type}: ${h.from_value ? escapeHtml(h.from_value) + ' → ' : ''}${escapeHtml(h.to_value)} &middot; ${new Date(h.changed_at).toLocaleString()}</div>
++  `).join('') || '<div class="empty-note">No history.</div>';
++
++  const attachmentsHtml = (w.attachments || []).length
++    ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;">` + w.attachments.map(a => {
++        const isPdf = /\.pdf($|\?)/i.test(a.file_url);
++        if (isPdf) {
++          return `<a href="${a.file_url}" target="_blank" rel="noopener" style="width:60px;height:60px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:9px;color:var(--ink-soft);text-decoration:none;">📄<span>PDF</span></a>`;
++        }
++        return `<a href="${a.file_url}" target="_blank" rel="noopener" style="position:relative;width:60px;height:60px;display:block;">
++          <img src="${a.file_url}" alt="attachment" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--khaki-line);" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
++          <span style="display:none;width:60px;height:60px;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:8px;color:var(--ink-soft);text-align:center;">🖼️<span>Can't preview</span></span>
++        </a>`;
++      }).join('') + `</div>`
++    : '';
++
++  const hasPin = w.latitude != null && w.longitude != null;
++  const pinHtml = hasPin ? `
++    <div class="field">
++      <label>Pinned location <a href="https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17" target="_blank" rel="noopener" style="font-weight:400;">Open full map ↗</a></label>
++      <div id="detailPinMap"></div>
++    </div>` : '';
++
++  document.getElementById('detailModal').innerHTML = `
++    <button class="close-btn" onclick="closeDetail()">×</button>
++    <h2>${escapeHtml(w.wo_number)}${w.external_ref ? ` <span style="font-size:11px;font-weight:400;color:var(--ink-soft);">(Fiix #${escapeHtml(w.external_ref)})</span>` : ''}</h2>
++    <div class="sub">${escapeHtml(w.work_type || 'No work type')} &middot; <span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span> &middot; ${escapeHtml(w.status)}</div>
++
++    <div class="field"><label>Location</label><div class="val">${escapeHtml(w.asset ? w.asset.name : '—')}</div></div>
++    <div class="field"><label>Description</label><div class="val">${escapeHtml(w.description)}</div></div>
++    <div class="field"><label>Requester</label><div class="val">${escapeHtml(w.requester_name)}${w.requester_phone ? ' · ' + escapeHtml(w.requester_phone) : ''}${w.requester_email ? ' · ' + escapeHtml(w.requester_email) : ''}</div></div>
++    ${!w.poc_is_requester && w.poc_name ? `<div class="field"><label>Point of contact</label><div class="val">${escapeHtml(w.poc_name)}${w.poc_phone ? ' · ' + escapeHtml(w.poc_phone) : ''}</div></div>` : ''}
++    <div class="field"><label>Assigned team</label><div class="val">${w.assigned_team ? escapeHtml(w.assigned_team.name) : '— unassigned —'}</div></div>
++    <div class="field"><label>Submitted</label><div class="val">${new Date(w.created_at).toLocaleString()}</div></div>
++    ${w.closed_at ? `<div class="field"><label>Closed</label><div class="val">${new Date(w.closed_at).toLocaleString()}</div></div>` : ''}
++    ${w.note_to_requester ? `<div class="field"><label>Note to requester</label><div class="val">${escapeHtml(w.note_to_requester)}</div></div>` : ''}
++    ${attachmentsHtml}
++    ${pinHtml}
++
++    <hr class="divider">
++    <div class="field"><label>Notes</label></div>
++    ${notesHtml}
++    <div class="field" style="margin-top:14px;"><label>Status history</label></div>
++    ${histHtml}
++  `;
++
++  document.getElementById('detailModal').classList.add('open');
++  document.getElementById('detailBackdrop').classList.add('open');
++
++  if (hasPin) {
++    if (detailPinMap) { detailPinMap.remove(); detailPinMap = null; }
++    detailPinMap = L.map('detailPinMap', {zoomControl: false}).setView([w.latitude, w.longitude], 16);
++    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
++      maxZoom: 19, attribution: '&copy; OpenStreetMap contributors',
++    }).addTo(detailPinMap);
++    L.marker([w.latitude, w.longitude]).addTo(detailPinMap);
++  }
++}
++
++function closeDetail(){
++  document.getElementById('detailModal').classList.remove('open');
++  document.getElementById('detailBackdrop').classList.remove('open');
++  if (detailPinMap) { detailPinMap.remove(); detailPinMap = null; }
  }
  
  if (TOKEN) boot();
@@ -4859,9 +5159,31 @@ index 4cf7c4f..9a2bf5e 100644
 +        "priority": "Next Day",
      }
 diff --git a/phase1/tests/test_admin_config.py b/phase1/tests/test_admin_config.py
-index 991e7a7..c4eb232 100644
+index 991e7a7..ce19d26 100644
 --- a/phase1/tests/test_admin_config.py
 +++ b/phase1/tests/test_admin_config.py
+@@ -129,8 +129,8 @@ def test_asset_change_log_records_edits(client, auth_headers, asset):
+ 
+ def test_reporting_group_assignment_cascades_to_children(client, auth_headers, db):
+     from app import models
+-    parent = models.Asset(name="Base Camp A", location_group="Base Camp Ops")
+-    child = models.Asset(name="Base Camp A Shower House", location_group="Base Camp Ops")
++    parent = models.Asset(name="Base Camp A", location_group="Base Camps")
++    child = models.Asset(name="Base Camp A Shower House", location_group="Base Camps")
+     db.add_all([parent, child])
+     db.commit()
+     db.refresh(parent)
+@@ -154,8 +154,8 @@ def test_reporting_group_assignment_cascades_to_children(client, auth_headers, d
+ 
+ def test_child_override_blocks_inheritance(client, auth_headers, db):
+     from app import models
+-    parent = models.Asset(name="Base Camp B", location_group="Base Camp Ops")
+-    child = models.Asset(name="Base Camp B Motorpool", location_group="Base Camp Ops")
++    parent = models.Asset(name="Base Camp B", location_group="Base Camps")
++    child = models.Asset(name="Base Camp B Motorpool", location_group="Base Camps")
+     db.add_all([parent, child])
+     db.commit()
+     db.refresh(parent)
 @@ -210,7 +210,7 @@ def test_create_request_type_and_use_it_on_public_submission(client, auth_header
              "asset_id": str(asset.id),
              "work_type": "NJ Security",
@@ -5064,9 +5386,17 @@ index 9c60364..00eaf48 100644
          db, closed_highest, schemas.StatusChangeRequest(status="Closed, Completed"), changed_by=admin_user.id
      )  # closed, doesn't count even though priority matches
 diff --git a/phase1/tests/test_dashboard_scopes.py b/phase1/tests/test_dashboard_scopes.py
-index 4d586ca..6f58a13 100644
+index 4d586ca..03a4f45 100644
 --- a/phase1/tests/test_dashboard_scopes.py
 +++ b/phase1/tests/test_dashboard_scopes.py
+@@ -1,6 +1,6 @@
+ """
+ Tests for the scoped dashboard queries backing PRD 4.4's three dashboards
+-(Main LOC / Program Team / Base Camp Ops) and the new trend + "needing
++(Main LOC / Program Team / Base Camps) and the new trend + "needing
+ attention" endpoints that replace the old dashboard_snapshot_history.json
+ pipeline.
+ """
 @@ -21,7 +21,7 @@ def _asset(db, location_group="Branch A", camp_letter=None, name=None):
      return a
  
@@ -5096,7 +5426,7 @@ index 4d586ca..6f58a13 100644
 +    Camp Ops," despite being physically base camps — so camp_letter
 +    alone was never actually the right discriminator; this test now
 +    reflects that directly rather than working around it."""
-+    ops_asset = _asset(db, location_group="Base Camp Ops", camp_letter="C")
++    ops_asset = _asset(db, location_group="Base Camps", camp_letter="C")
 +    # Base Camp A, but reports under Program Areas — the documented
 +    # exception this fix is specifically about getting right.
 +    program_reporting_a = _asset(db, location_group="Program Areas", camp_letter="A")
@@ -5130,7 +5460,7 @@ index 4d586ca..6f58a13 100644
 -    alpha = _asset(db, location_group="Base Camps", camp_letter="A")
 -    _make_wo(db, charlie)
 -    _make_wo(db, alpha)
-+    ops_asset = _asset(db, location_group="Base Camp Ops", camp_letter="C")
++    ops_asset = _asset(db, location_group="Base Camps", camp_letter="C")
 +    program_reporting_a = _asset(db, location_group="Program Areas", camp_letter="A")
 +    _make_wo(db, ops_asset)
 +    _make_wo(db, program_reporting_a)
@@ -5220,7 +5550,7 @@ index 4d586ca..6f58a13 100644
      assert resp.status_code == 200
      assert resp.json()["total"] == 1
  
-@@ -217,3 +227,67 @@ def test_router_passes_through_extra_filters(client, auth_headers, asset, team,
+@@ -217,3 +227,108 @@ def test_router_passes_through_extra_filters(client, auth_headers, asset, team,
  
      resp3 = client.get("/dashboard/attention?scope=main", headers=auth_headers)
      assert resp3.status_code == 200
@@ -5288,6 +5618,47 @@ index 4d586ca..6f58a13 100644
 +    )
 +    assert scope_resp.json()["total"] == 1
 +    assert len(inbox_resp.json()) == 1
++
++
++# ---- Regression test for the "Base Camp Ops" vs "Base Camps" bug (7/31/26) ----
++
++def test_basecamp_scope_string_matches_real_hierarchy_data():
++    """The basecamp scope filter (crud._apply_filters) hardcodes a
++    reporting-group name to match against. A previous fix used
++    "Base Camp Ops" — a string that never appears anywhere in the real
++    location hierarchy data (it was descriptive shorthand in a seed.py
++    *comment*, not an actual branch label) — so the filter silently
++    matched nothing and the Base Camp Ops dashboard showed no data at
++    all. This test fails loudly if that ever regresses: it loads the
++    same authoritative name_to_branch.json the real seed process reads
++    from and confirms crud.py's hardcoded string is actually one of the
++    real branch labels, not a plausible-looking guess."""
++    import json
++    import os
++
++    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
++    with open(os.path.join(project_root, "data", "name_to_branch.json")) as f:
++        real_branch_labels = set(json.load(f).values())
++
++    # Same hardcoded value crud._apply_filters' scope="basecamp" branch
++    # uses — kept in sync manually since it's a plain string literal in
++    # that function, not an importable constant.
++    BASECAMP_REPORTING_GROUP = "Base Camps"
++    assert BASECAMP_REPORTING_GROUP in real_branch_labels, (
++        f"'{BASECAMP_REPORTING_GROUP}' is not a real branch label in "
++        f"name_to_branch.json — the basecamp dashboard scope would "
++        f"silently match zero work orders. Real labels: {sorted(real_branch_labels)}"
++    )
++
++
++def test_basecamp_scope_actually_finds_data_with_the_real_branch_label(db):
++    """Directly pins the fix: an asset with the real branch label
++    ("Base Camps") is included in scope="basecamp" results."""
++    real_asset = _asset(db, location_group="Base Camps", name="Real Base Camp Asset")
++    _make_wo(db, real_asset)
++
++    kpis = crud.get_kpis(db, scope="basecamp")
++    assert kpis["total"] == 1
 diff --git a/phase1/tests/test_public_request_form.py b/phase1/tests/test_public_request_form.py
 index b7dce27..1a4340e 100644
 --- a/phase1/tests/test_public_request_form.py
