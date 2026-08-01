@@ -63,7 +63,30 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
 .filters input{flex:1;min-width:180px;}
 .filters .reset-btn{background:transparent;color:var(--ink-soft);border:1px solid var(--khaki-line);border-radius:6px;padding:8px 14px;font-size:12px;cursor:pointer;}
 .filters .reset-btn:hover{border-color:var(--pine);color:var(--pine);}
+
+/* Enhancement backlog Phase 19 follow-up (7/31/26): read-only WO detail
+   view — clicking an inbox row shows this. Never has a Save button or
+   any input; this dashboard is view-only end to end. */
+#detailBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;z-index:40;}
+#detailBackdrop.open{display:block;}
+#detailModal{position:fixed;top:0;right:0;bottom:0;width:420px;max-width:92vw;background:var(--canvas-panel);
+  box-shadow:-6px 0 20px rgba(0,0,0,.2);z-index:41;overflow-y:auto;padding:22px;transform:translateX(100%);transition:transform .2s;}
+#detailModal.open{transform:translateX(0);}
+#detailModal .close-btn{position:absolute;top:16px;right:16px;background:none;border:none;font-size:22px;cursor:pointer;color:var(--ink-soft);}
+#detailModal h2{font-family:var(--font-display);margin:0 0 2px;font-size:18px;}
+#detailModal .sub{font-size:12px;color:var(--ink-soft);margin-bottom:14px;}
+#detailModal .field{margin:12px 0;}
+#detailModal .field label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin-bottom:3px;}
+#detailModal .field .val{font-size:13px;white-space:pre-wrap;}
+#detailModal .divider{border:none;border-top:1px solid var(--khaki-line);margin:18px 0;}
+#detailModal .note{background:#F1EDDF;border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px;}
+#detailModal .note .meta{color:var(--ink-soft);font-size:10px;margin-top:3px;}
+#detailModal .hist{font-size:11px;color:var(--ink-soft);padding:4px 0;border-bottom:1px dashed var(--khaki-line);}
+#detailPinMap{height:160px;border-radius:8px;border:1px solid var(--khaki-line);margin:8px 0;}
+.inbox-row{cursor:pointer;}
+.inbox-row:hover{background:#F1EDDF;}
 </style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 <body>
 
@@ -78,7 +101,7 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
 <div class="wrap" id="app" style="display:none;">
   <div class="topbar">
     <div>
-      <p class="brand-eyebrow">Live · Read-only · Base Camp Ops reporting group</p>
+      <p class="brand-eyebrow">Live · Read-only · Base Camps reporting group</p>
       <h1 class="brand-title">Base Camp Ops Dashboard</h1>
     </div>
     <div>
@@ -142,8 +165,11 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
   </div>
 </div>
 
+<div id="detailBackdrop" onclick="closeDetail()"></div>
+<div id="detailModal"></div>
 <div id="toastStack"></div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="location-picker.js"></script>
 <script>
 const API = '';
@@ -153,7 +179,7 @@ const currentScope = 'basecamp'; // fixed — this page is scope-locked, see das
 // name _apply_filters' scope="program" branch resolves to — used here
 // to also scope the inbox fetch (GET /work-orders), which has no
 // `scope` concept of its own, only location_group.
-const SCOPE_LOCATION_GROUP = 'Base Camp Ops';
+const SCOPE_LOCATION_GROUP = 'Base Camps';
 let refreshTimer = null;
 let TEAMS = [], ASSETS = [];
 const STATUSES = ["Requested","Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
@@ -370,10 +396,25 @@ function inboxFilterParams(){
 
 async function load(){
   const params = currentFilterParams();
+  // Enhancement backlog Phase 19 follow-up (7/31/26): the 4 KPI tiles
+  // must always report the true totals for the whole reporting group —
+  // scope only, nothing else — not shift every time a filter or a
+  // quick-view tile is applied. Previously this used the same
+  // currentFilterParams() as breakdowns/trend/inbox, so e.g. picking a
+  // priority in the filter bar made "Total" silently mean "total
+  // matching that priority" instead of the true reporting-group total.
+  // Kept as a fully separate request/param set on purpose, rather than
+  // trying to reuse currentFilterParams() with pieces stripped out — the
+  // two have fundamentally different jobs now (fixed overview vs.
+  // filterable drill-down) and conflating them again is exactly how
+  // this bug happened the first time.
+  const scopeOnlyParams = new URLSearchParams();
+  scopeOnlyParams.set('scope', currentScope);
+
   let kpis, breakdowns, trend, inboxWos;
   try {
     [kpis, breakdowns, trend, inboxWos] = await Promise.all([
-      api(`/dashboard/kpis?${params.toString()}`),
+      api(`/dashboard/kpis?${scopeOnlyParams.toString()}`),
       api(`/dashboard/breakdowns?${params.toString()}`),
       api(`/dashboard/trend?${params.toString()}&days=14`),
       api(`/work-orders?${inboxFilterParams().toString()}`),
@@ -513,7 +554,12 @@ function renderInbox(rows){
   if (countEl) countEl.textContent = `(${rows.length})`;
   const tbody = document.getElementById('inboxBody');
   if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-note">No work orders match the current filters.</td></tr>'; return; }
-  tbody.innerHTML = rows.map(w => `<tr>
+  // Enhancement backlog Phase 19 follow-up (7/31/26): rows are
+  // clickable to a read-only detail view (openDetail below) — "no
+  // editing" in the original spec meant no Save/status-change/notes
+  // controls, not "nothing happens when you click a row." That gap
+  // meant clicking a row previously did nothing at all.
+  tbody.innerHTML = rows.map(w => `<tr class="inbox-row" onclick="openDetail(${w.id})">
       <td>${escapeHtml(w.wo_number)}</td>
       <td><span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span></td>
       <td>${w.status}</td>
@@ -521,6 +567,92 @@ function renderInbox(rows){
       <td>${escapeHtml(w.asset ? w.asset.name : '')}</td>
       <td>${new Date(w.created_at).toLocaleString()}</td>
     </tr>`).join('');
+}
+
+// Enhancement backlog Phase 19 follow-up (7/31/26): read-only WO detail
+// view. Deliberately no Save/Cancel, no editable inputs anywhere in
+// this — matches the spec's "everything view-only" requirement, while
+// still letting someone actually see the full record.
+let detailPinMap = null;
+
+async function openDetail(id){
+  let w;
+  try {
+    w = await api(`/work-orders/${id}`);
+  } catch (e) {
+    if (e.message !== 'session expired') showToast('Could not load work order: ' + e.message, 'err');
+    return;
+  }
+
+  const notesHtml = (w.notes || []).slice().reverse().map(n => `
+    <div class="note">${escapeHtml(n.note_text)}
+      <div class="meta">${n.note_type} &middot; ${n.author ? escapeHtml(n.author.name) : 'system'} &middot; ${new Date(n.created_at).toLocaleString()}</div>
+    </div>`).join('') || '<div class="empty-note">No notes.</div>';
+
+  const histHtml = (w.history || []).slice().reverse().map(h => `
+    <div class="hist">${h.event_type}: ${h.from_value ? escapeHtml(h.from_value) + ' → ' : ''}${escapeHtml(h.to_value)} &middot; ${new Date(h.changed_at).toLocaleString()}</div>
+  `).join('') || '<div class="empty-note">No history.</div>';
+
+  const attachmentsHtml = (w.attachments || []).length
+    ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;">` + w.attachments.map(a => {
+        const isPdf = /\.pdf($|\?)/i.test(a.file_url);
+        if (isPdf) {
+          return `<a href="${a.file_url}" target="_blank" rel="noopener" style="width:60px;height:60px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:9px;color:var(--ink-soft);text-decoration:none;">📄<span>PDF</span></a>`;
+        }
+        return `<a href="${a.file_url}" target="_blank" rel="noopener" style="position:relative;width:60px;height:60px;display:block;">
+          <img src="${a.file_url}" alt="attachment" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--khaki-line);" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+          <span style="display:none;width:60px;height:60px;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:8px;color:var(--ink-soft);text-align:center;">🖼️<span>Can't preview</span></span>
+        </a>`;
+      }).join('') + `</div>`
+    : '';
+
+  const hasPin = w.latitude != null && w.longitude != null;
+  const pinHtml = hasPin ? `
+    <div class="field">
+      <label>Pinned location <a href="https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17" target="_blank" rel="noopener" style="font-weight:400;">Open full map ↗</a></label>
+      <div id="detailPinMap"></div>
+    </div>` : '';
+
+  document.getElementById('detailModal').innerHTML = `
+    <button class="close-btn" onclick="closeDetail()">×</button>
+    <h2>${escapeHtml(w.wo_number)}${w.external_ref ? ` <span style="font-size:11px;font-weight:400;color:var(--ink-soft);">(Fiix #${escapeHtml(w.external_ref)})</span>` : ''}</h2>
+    <div class="sub">${escapeHtml(w.work_type || 'No work type')} &middot; <span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span> &middot; ${escapeHtml(w.status)}</div>
+
+    <div class="field"><label>Location</label><div class="val">${escapeHtml(w.asset ? w.asset.name : '—')}</div></div>
+    <div class="field"><label>Description</label><div class="val">${escapeHtml(w.description)}</div></div>
+    <div class="field"><label>Requester</label><div class="val">${escapeHtml(w.requester_name)}${w.requester_phone ? ' · ' + escapeHtml(w.requester_phone) : ''}${w.requester_email ? ' · ' + escapeHtml(w.requester_email) : ''}</div></div>
+    ${!w.poc_is_requester && w.poc_name ? `<div class="field"><label>Point of contact</label><div class="val">${escapeHtml(w.poc_name)}${w.poc_phone ? ' · ' + escapeHtml(w.poc_phone) : ''}</div></div>` : ''}
+    <div class="field"><label>Assigned team</label><div class="val">${w.assigned_team ? escapeHtml(w.assigned_team.name) : '— unassigned —'}</div></div>
+    <div class="field"><label>Submitted</label><div class="val">${new Date(w.created_at).toLocaleString()}</div></div>
+    ${w.closed_at ? `<div class="field"><label>Closed</label><div class="val">${new Date(w.closed_at).toLocaleString()}</div></div>` : ''}
+    ${w.note_to_requester ? `<div class="field"><label>Note to requester</label><div class="val">${escapeHtml(w.note_to_requester)}</div></div>` : ''}
+    ${attachmentsHtml}
+    ${pinHtml}
+
+    <hr class="divider">
+    <div class="field"><label>Notes</label></div>
+    ${notesHtml}
+    <div class="field" style="margin-top:14px;"><label>Status history</label></div>
+    ${histHtml}
+  `;
+
+  document.getElementById('detailModal').classList.add('open');
+  document.getElementById('detailBackdrop').classList.add('open');
+
+  if (hasPin) {
+    if (detailPinMap) { detailPinMap.remove(); detailPinMap = null; }
+    detailPinMap = L.map('detailPinMap', {zoomControl: false}).setView([w.latitude, w.longitude], 16);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '&copy; OpenStreetMap contributors',
+    }).addTo(detailPinMap);
+    L.marker([w.latitude, w.longitude]).addTo(detailPinMap);
+  }
+}
+
+function closeDetail(){
+  document.getElementById('detailModal').classList.remove('open');
+  document.getElementById('detailBackdrop').classList.remove('open');
+  if (detailPinMap) { detailPinMap.remove(); detailPinMap = null; }
 }
 
 if (TOKEN) boot();
