@@ -1,6 +1,6 @@
 """
 Tests for the scoped dashboard queries backing PRD 4.4's three dashboards
-(Main LOC / Program Team / Base Camp Ops) and the new trend + "needing
+(Main LOC / Program Team / Base Camps) and the new trend + "needing
 attention" endpoints that replace the old dashboard_snapshot_history.json
 pipeline.
 """
@@ -49,7 +49,7 @@ def test_basecamp_scope_only_counts_base_camp_ops_reporting_group(db):
     Camp Ops," despite being physically base camps — so camp_letter
     alone was never actually the right discriminator; this test now
     reflects that directly rather than working around it."""
-    ops_asset = _asset(db, location_group="Base Camp Ops", camp_letter="C")
+    ops_asset = _asset(db, location_group="Base Camps", camp_letter="C")
     # Base Camp A, but reports under Program Areas — the documented
     # exception this fix is specifically about getting right.
     program_reporting_a = _asset(db, location_group="Program Areas", camp_letter="A")
@@ -92,7 +92,7 @@ def test_daily_trend_returns_requested_number_of_days(db, asset):
 
 
 def test_daily_trend_scoped_to_basecamp(db):
-    ops_asset = _asset(db, location_group="Base Camp Ops", camp_letter="C")
+    ops_asset = _asset(db, location_group="Base Camps", camp_letter="C")
     program_reporting_a = _asset(db, location_group="Program Areas", camp_letter="A")
     _make_wo(db, ops_asset)
     _make_wo(db, program_reporting_a)
@@ -291,3 +291,44 @@ def test_inbox_via_work_orders_scoped_by_location_group_matches_dashboard_scope(
     )
     assert scope_resp.json()["total"] == 1
     assert len(inbox_resp.json()) == 1
+
+
+# ---- Regression test for the "Base Camp Ops" vs "Base Camps" bug (7/31/26) ----
+
+def test_basecamp_scope_string_matches_real_hierarchy_data():
+    """The basecamp scope filter (crud._apply_filters) hardcodes a
+    reporting-group name to match against. A previous fix used
+    "Base Camp Ops" — a string that never appears anywhere in the real
+    location hierarchy data (it was descriptive shorthand in a seed.py
+    *comment*, not an actual branch label) — so the filter silently
+    matched nothing and the Base Camp Ops dashboard showed no data at
+    all. This test fails loudly if that ever regresses: it loads the
+    same authoritative name_to_branch.json the real seed process reads
+    from and confirms crud.py's hardcoded string is actually one of the
+    real branch labels, not a plausible-looking guess."""
+    import json
+    import os
+
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(project_root, "data", "name_to_branch.json")) as f:
+        real_branch_labels = set(json.load(f).values())
+
+    # Same hardcoded value crud._apply_filters' scope="basecamp" branch
+    # uses — kept in sync manually since it's a plain string literal in
+    # that function, not an importable constant.
+    BASECAMP_REPORTING_GROUP = "Base Camps"
+    assert BASECAMP_REPORTING_GROUP in real_branch_labels, (
+        f"'{BASECAMP_REPORTING_GROUP}' is not a real branch label in "
+        f"name_to_branch.json — the basecamp dashboard scope would "
+        f"silently match zero work orders. Real labels: {sorted(real_branch_labels)}"
+    )
+
+
+def test_basecamp_scope_actually_finds_data_with_the_real_branch_label(db):
+    """Directly pins the fix: an asset with the real branch label
+    ("Base Camps") is included in scope="basecamp" results."""
+    real_asset = _asset(db, location_group="Base Camps", name="Real Base Camp Asset")
+    _make_wo(db, real_asset)
+
+    kpis = crud.get_kpis(db, scope="basecamp")
+    assert kpis["total"] == 1

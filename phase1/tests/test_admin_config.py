@@ -129,8 +129,8 @@ def test_asset_change_log_records_edits(client, auth_headers, asset):
 
 def test_reporting_group_assignment_cascades_to_children(client, auth_headers, db):
     from app import models
-    parent = models.Asset(name="Base Camp A", location_group="Base Camp Ops")
-    child = models.Asset(name="Base Camp A Shower House", location_group="Base Camp Ops")
+    parent = models.Asset(name="Base Camp A", location_group="Base Camps")
+    child = models.Asset(name="Base Camp A Shower House", location_group="Base Camps")
     db.add_all([parent, child])
     db.commit()
     db.refresh(parent)
@@ -154,8 +154,8 @@ def test_reporting_group_assignment_cascades_to_children(client, auth_headers, d
 
 def test_child_override_blocks_inheritance(client, auth_headers, db):
     from app import models
-    parent = models.Asset(name="Base Camp B", location_group="Base Camp Ops")
-    child = models.Asset(name="Base Camp B Motorpool", location_group="Base Camp Ops")
+    parent = models.Asset(name="Base Camp B", location_group="Base Camps")
+    child = models.Asset(name="Base Camp B Motorpool", location_group="Base Camps")
     db.add_all([parent, child])
     db.commit()
     db.refresh(parent)
