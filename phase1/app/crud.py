@@ -651,14 +651,25 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
 def _apply_filters(db: Session, query, scope: str, status: str | None = None,
                     priority: str | None = None, work_type: str | None = None,
                     team_id: int | None = None, location_group: str | None = None,
-                    search: str | None = None):
+                    asset_id: int | None = None, search: str | None = None,
+                    exclude_closed: bool = False, closed_only: bool = False):
     """Scope (main/program/basecamp) plus the same fine-grained filters the
     original static dashboards had (status/priority/work type/team/location/
     search) — narrows further *within* whichever scope tab/page you're on.
     Filters via subqueries on asset_id rather than explicit joins, so this
     stays safe to combine with queries that already join Asset or Team
     themselves (e.g. the by_location/by_team breakdowns) — an explicit join
-    here would double-join and blow up with an ambiguous-column error."""
+    here would double-join and blow up with an ambiguous-column error.
+
+    Enhancement backlog Phase 19 (PRD §17#14): added exclude_closed/
+    closed_only/asset_id — needed so the new clickable KPI tiles on the
+    Program HQ/Contingent Ops HQ dashboards filter *everything*
+    consistently (KPIs, breakdowns, trend, AND the inbox list), matching
+    how LOC triage's quick-view tiles already work, not just the inbox
+    table underneath them. asset_id backs the LocationPicker upgrade
+    (exact-location filtering), same as the LOC triage/technician queue
+    filters already use via list_work_orders.
+    """
     if scope == "program":
         ids = db.query(models.Asset.id).filter(models.Asset.location_group == "Program Areas")
         query = query.filter(models.WorkOrder.asset_id.in_(ids))
@@ -690,11 +701,17 @@ def _apply_filters(db: Session, query, scope: str, status: str | None = None,
     if location_group:
         ids = db.query(models.Asset.id).filter(models.Asset.location_group == location_group)
         query = query.filter(models.WorkOrder.asset_id.in_(ids))
+    if asset_id:
+        query = query.filter(models.WorkOrder.asset_id == asset_id)
     if search:
         like = f"%{search}%"
         query = query.filter(
             (models.WorkOrder.description.ilike(like)) | (models.WorkOrder.wo_number.ilike(like))
         )
+    if exclude_closed:
+        query = query.filter(~models.WorkOrder.status.like("Closed%"))
+    if closed_only:
+        query = query.filter(models.WorkOrder.status.like("Closed%"))
     return query
 
 
