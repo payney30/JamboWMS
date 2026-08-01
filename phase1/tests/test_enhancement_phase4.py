@@ -5,6 +5,8 @@ Tests for enhancement backlog Phase 4 (NJ2026_Work_Order_System_PRD.md
 setting.
 """
 from app import models
+import pytest
+from sqlalchemy.exc import IntegrityError
 
 
 def _create_wo(client, auth_headers, wo_payload):
@@ -39,7 +41,7 @@ def test_wo_number_generation_survives_legacy_prefixed_data(client, auth_headers
     from app import models
     db.add(models.WorkOrder(
         wo_number="WO-99999", requester_name="Legacy", asset_id=wo_payload["asset_id"],
-        work_type="", description="pre-existing legacy WO", priority="Medium", status="Requested",
+        work_type="", description="pre-existing legacy WO", priority="Next Day", status="Requested",
     ))
     db.commit()
 
@@ -147,3 +149,37 @@ def test_settings_persist_across_requests(client, auth_headers, db):
     row = db.get(models.AppSetting, "timezone")
     assert row is not None
     assert row.value == "UTC"
+
+
+# ---- Enhancement backlog Phase 18 (PRD §13#15 follow-up, 7/30/26) ----
+# Full cleanup: old priority names are no longer valid anywhere, not just
+# for new API writes — the DB itself now rejects them outright, since
+# migration f4a8d1c6e3b2 converted every existing row and narrowed the
+# CHECK constraint back to the 5 new names. This is a real behavior
+# change from the earlier phase (§13#15's original rename), which kept
+# the DB permissive of old values specifically to avoid breaking
+# already-existing historic rows — that concern no longer applies since
+# all 2026 data was confirmed to be test data, not real history.
+
+def test_old_style_priority_rejected_at_db_level_even_bypassing_the_api(db, asset):
+    """Not just app-level validation (crud._validate_priority) — the DB
+    CHECK constraint itself now rejects an old name, even via direct ORM
+    construction that bypasses the API/crud layer entirely. This is the
+    real, structural guarantee the cleanup establishes: there is exactly
+    one valid set of priority values now, not two."""
+    wo = models.WorkOrder(
+        wo_number="77777", requester_name="Test", asset_id=asset.id,
+        work_type="", description="x", priority="Highest", status="Requested",
+    )
+    db.add(wo)
+    with pytest.raises(IntegrityError):
+        db.commit()
+
+
+def test_all_five_new_priority_names_still_accepted(client, auth_headers, wo_payload):
+    """Sanity check the narrowed constraint didn't accidentally also
+    reject any of the 5 legitimate new names."""
+    for p in ("Immediate", "Same Day", "Next Day", "2 Days", "3 Days"):
+        payload = dict(wo_payload, priority=p)
+        resp = client.post("/work-orders", json=payload, headers=auth_headers)
+        assert resp.status_code == 201, f"{p} should be accepted: {resp.text}"

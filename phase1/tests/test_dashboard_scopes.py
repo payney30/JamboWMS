@@ -40,13 +40,23 @@ def test_program_scope_only_counts_program_areas(db):
     assert kpis["total"] == 1
 
 
-def test_basecamp_scope_only_counts_charlie_delta_echo(db):
-    charlie = _asset(db, location_group="Base Camps", camp_letter="C")
-    alpha = _asset(db, location_group="Base Camps", camp_letter="A")
-    no_letter = _asset(db, location_group="Base Camps", camp_letter=None)
-    _make_wo(db, charlie)
-    _make_wo(db, alpha)
-    _make_wo(db, no_letter)
+def test_basecamp_scope_only_counts_base_camp_ops_reporting_group(db):
+    """Bug fix (PRD §17#14 follow-up): basecamp scope now follows the
+    real location_group -> reporting-group mapping (Asset.location_group,
+    resolved via reporting_group_id/recompute_effective_groups) instead
+    of a hardcoded camp-letter allowlist. Base Camps A/B are a real,
+    documented exception — they report under "Program Areas," not "Base
+    Camp Ops," despite being physically base camps — so camp_letter
+    alone was never actually the right discriminator; this test now
+    reflects that directly rather than working around it."""
+    ops_asset = _asset(db, location_group="Base Camp Ops", camp_letter="C")
+    # Base Camp A, but reports under Program Areas — the documented
+    # exception this fix is specifically about getting right.
+    program_reporting_a = _asset(db, location_group="Program Areas", camp_letter="A")
+    other = _asset(db, location_group="Medical", camp_letter=None)
+    _make_wo(db, ops_asset)
+    _make_wo(db, program_reporting_a)
+    _make_wo(db, other)
 
     kpis = crud.get_kpis(db, scope="basecamp")
     assert kpis["total"] == 1
@@ -82,10 +92,10 @@ def test_daily_trend_returns_requested_number_of_days(db, asset):
 
 
 def test_daily_trend_scoped_to_basecamp(db):
-    charlie = _asset(db, location_group="Base Camps", camp_letter="C")
-    alpha = _asset(db, location_group="Base Camps", camp_letter="A")
-    _make_wo(db, charlie)
-    _make_wo(db, alpha)
+    ops_asset = _asset(db, location_group="Base Camp Ops", camp_letter="C")
+    program_reporting_a = _asset(db, location_group="Program Areas", camp_letter="A")
+    _make_wo(db, ops_asset)
+    _make_wo(db, program_reporting_a)
 
     trend = crud.get_daily_trend(db, scope="basecamp", days=3)
     assert trend[-1]["opened"] == 1

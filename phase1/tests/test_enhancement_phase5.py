@@ -5,7 +5,7 @@ the approaching_deadline / past_deadline inbox filters + KPI counts.
 """
 import datetime as dt
 
-from app import crud, schemas, models
+from app import crud, schemas
 
 
 def _make_wo(db, asset, priority, created_at, status=None):
@@ -29,25 +29,16 @@ def test_sla_deadline_and_warn_at_computed_from_priority(db, asset):
     assert wo.sla_warn_at == now + dt.timedelta(hours=4.5)  # 75% of 6 hours
 
 
-def test_sla_math_still_works_for_old_style_priority_names(db, asset):
-    """Enhancement backlog Phase 14 (PRD §13#15): urgency-tier rename —
-    old names ('Highest'/'High'/etc.) can no longer be assigned to NEW
-    work orders (crud._validate_priority), but plenty of already-existing
-    WOs still carry them, and those need correct SLA math for the rest
-    of their lifecycle. Bypasses crud.create_work_order (which would
-    reject an old name) to simulate a pre-existing historic row, same
-    pattern used elsewhere for this kind of test (e.g.
-    test_enhancement_phase4.py's legacy-WO-number test)."""
-    now = dt.datetime.utcnow()
-    wo = models.WorkOrder(
-        wo_number="88888", requester_name="Historic", asset_id=asset.id,
-        work_type="", description="pre-rename WO", priority="High", status="Requested",
-        created_at=now,
-    )
-    db.add(wo)
-    db.commit()
-    assert wo.sla_deadline == now + dt.timedelta(hours=6)  # same window as "Same Day"
-    assert wo.sla_warn_at == now + dt.timedelta(hours=4.5)
+# Enhancement backlog Phase 18 (PRD §13#15 follow-up, 7/30/26): removed
+# test_sla_math_still_works_for_old_style_priority_names — it existed
+# specifically to confirm SLA math still worked for already-existing
+# old-named WOs, a backward-compatibility guarantee that no longer
+# applies now that migration f4a8d1c6e3b2 converted every row in the
+# system to the new names and the DB CHECK constraint no longer accepts
+# old values at all (confirmed: constructing a WorkOrder with an
+# old-style priority now raises an IntegrityError, which is correct).
+# Keeping a test for a capability that was deliberately removed would
+# just be testing that removal didn't happen, which isn't useful.
 
 
 def test_sla_fields_exposed_on_list_endpoint(client, auth_headers, db, asset):
