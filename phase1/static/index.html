@@ -70,9 +70,9 @@ th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--khaki-line)
 th{background:#F1EDDF;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);}
 tr:hover td{background:#F5F1E4;cursor:pointer;}
 .chip{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;}
-.chip-Highest,.chip-High,.chip-Immediate,.chip-Same-Day{background:var(--danger-bg);color:var(--hivis);}
-.chip-Medium,.chip-Next-Day{background:#FBF0D6;color:var(--amber);}
-.chip-Low,.chip-Lowest,.chip-2-Days,.chip-3-Days{background:#E7E4DC;color:var(--ink-soft);}
+.chip-Immediate,.chip-Same-Day{background:var(--danger-bg);color:var(--hivis);}
+.chip-Next-Day{background:#FBF0D6;color:var(--amber);}
+.chip-2-Days,.chip-3-Days{background:#E7E4DC;color:var(--ink-soft);}
 .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;}
 .empty-row td{color:var(--ink-soft);text-align:center;padding:22px 12px;}
 .loading-row td{color:var(--ink-soft);text-align:center;padding:22px 12px;font-family:var(--font-mono);font-size:12px;}
@@ -255,28 +255,24 @@ let LAST_WOS = [];
 // silently discarding.
 let CURRENT_USER = null;
 let drawerState = {woId: null, editable: false, dirty: false};
-// Enhancement backlog Phase 14 (PRD §13#15): urgency-tier rename. Old
-// and new names rank identically (both "Highest" and "Immediate" sort
-// first, etc.) so historic WOs — never rewritten to the new names, by
-// explicit decision — still sort correctly alongside new ones.
+// Enhancement backlog Phase 18 (PRD §13#15 follow-up, 7/30/26): back to
+// single entries — this briefly paired each new name with its old
+// equivalent so already-existing old-named WOs sorted correctly
+// alongside new ones; migration f4a8d1c6e3b2 converted every row in the
+// system to the new names (all 2026 data was test data, not real
+// history), so there's nothing left in the old names to sort.
 const PRIORITY_ORDER = {
-  "Highest":0, "Immediate":0,
-  "High":1, "Same Day":1,
-  "Medium":2, "Next Day":2,
-  "Low":3, "2 Days":3,
-  "Lowest":4, "3 Days":4,
+  "Immediate":0,
+  "Same Day":1,
+  "Next Day":2,
+  "2 Days":3,
+  "3 Days":4,
 };
-// What a WO's priority may be newly SET to — old names are deliberately
-// excluded (see schemas.PRIORITIES on the backend, which enforces the
-// same thing). Used for the edit drawer's priority dropdown and the
-// filter dropdown; see renderWODrawer for how an already-old-style WO's
-// current value still displays correctly even though it's not
-// selectable as a new choice.
 const PRIORITIES = ["Immediate","Same Day","Next Day","2 Days","3 Days"];
 // Enhancement backlog Phase 14 (PRD §13#15): the priority value gets
 // interpolated directly into a CSS class name (`chip-${...}`) — the new
 // names contain spaces, which aren't valid in a single class name, so
-// this slugifies first. Old names (no spaces) pass through unchanged.
+// this slugifies first.
 function priorityClass(p){ return (p || '').replace(/\s+/g, '-'); }
 const STATUSES = ["Requested","Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
 const WORK_TYPES = ["NJ Maintenance","NJ IT","NJ Items/Parts","NJ Transportation"];
@@ -782,16 +778,13 @@ function renderWODrawer(w, lockBanner){
   const teamOpts = `<option value="" ${!w.assigned_team?'selected':''}>— Unassigned —</option>` +
     TEAMS.map(t=>`<option value="${t.id}" ${w.assigned_team && w.assigned_team.id===t.id?'selected':''}>${escapeHtml(t.name)}</option>`).join('');
   const statusOpts = STATUSES.map(s=>`<option value="${s}" ${w.status===s?'selected':''}>${s}</option>`).join('');
-  // Enhancement backlog Phase 14 (PRD §13#15): PRIORITIES only lists the
-  // new, assignable names — but an already-old-style WO (historic data,
-  // never rewritten) needs its actual current value visible and
-  // selected too, even though it can't be newly re-chosen once changed
-  // away from. Prepending it (disabled, so it can't be re-selected once
-  // the user picks something else, but shows correctly on open) avoids
-  // silently misrepresenting the WO's real state.
-  const priorityOpts =
-    (PRIORITIES.includes(w.priority) ? '' : `<option value="${w.priority}" disabled selected>${w.priority} (legacy)</option>`)
-    + PRIORITIES.map(p=>`<option value="${p}" ${w.priority===p?'selected':''}>${p}</option>`).join('');
+  // Enhancement backlog Phase 18 (PRD §13#15 follow-up, 7/30/26): back
+  // to a plain mapping — this briefly had to handle an already-old-style
+  // WO's current value not being in PRIORITIES (a disabled "(legacy)"
+  // fallback option) since historic data was left unrewritten at the
+  // time; migration f4a8d1c6e3b2 converted every row in the system, so
+  // every WO's priority is guaranteed to be one of PRIORITIES now.
+  const priorityOpts = PRIORITIES.map(p=>`<option value="${p}" ${w.priority===p?'selected':''}>${p}</option>`).join('');
   const workTypeOpts = WORK_TYPES.map(t=>`<option value="${t}" ${w.work_type===t?'selected':''}>${t}</option>`).join('')
     + `<option value="" ${!w.work_type?'selected':''}>Other / blank</option>`;
   // Enhancement backlog Phase 3 (PRD §14#15): show who wrote each note,

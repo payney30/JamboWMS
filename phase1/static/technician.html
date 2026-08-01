@@ -66,9 +66,9 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
 .wo-desc{font-size:14px;margin:6px 0;line-height:1.35;white-space:pre-wrap;}
 .wo-meta{font-size:11px;color:var(--ink-soft);display:flex;gap:10px;flex-wrap:wrap;}
 .chip{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;}
-.chip-Highest,.chip-High,.chip-Immediate,.chip-Same-Day{background:var(--danger-bg);color:var(--hivis);}
-.chip-Medium,.chip-Next-Day{background:#FBF0D6;color:var(--amber);}
-.chip-Low,.chip-Lowest,.chip-2-Days,.chip-3-Days{background:#E7E4DC;color:var(--ink-soft);}
+.chip-Immediate,.chip-Same-Day{background:var(--danger-bg);color:var(--hivis);}
+.chip-Next-Day{background:#FBF0D6;color:var(--amber);}
+.chip-2-Days,.chip-3-Days{background:#E7E4DC;color:var(--ink-soft);}
 .status-pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:#F1EDDF;color:var(--ink-soft);}
 .empty-state{color:var(--ink-soft);text-align:center;padding:40px 12px;font-size:14px;}
 
@@ -442,14 +442,13 @@ function renderStats(wos){
   const inProgress = wos.filter(w => w.status === 'Work In Progress').length;
   const onHold = wos.filter(w => w.status === 'On Hold').length;
   const newAssigned = wos.filter(w => w.status === 'Assigned').length;
-  // Bug fix (PRD §17#11, found while adding SLA markers): this only
-  // ever recognized the pre-rename priority names — since §13#15, new
-  // WOs use "Immediate"/"Same Day" instead of "Highest"/"High", so this
-  // tile was silently undercounting every urgent WO created after that
-  // rename shipped. Same fix as crud.URGENT_PRIORITIES elsewhere:
-  // recognize both old and new names for the urgent tier.
+  // Enhancement backlog Phase 18 (PRD §13#15 follow-up, 7/30/26): back
+  // to new-only — this briefly recognized both old and new names
+  // (§17#11's bug fix) since old-named WOs still existed at the time;
+  // migration f4a8d1c6e3b2 converted every row in the system, so
+  // there's nothing left in the old names to count.
   const highestHigh = wos.filter(w => !w.status.startsWith('Closed') &&
-    ['Highest','High','Immediate','Same Day'].includes(w.priority)).length;
+    ['Immediate','Same Day'].includes(w.priority)).length;
   const items = [
     {n: newAssigned, l:'New'}, {n: inProgress, l:'In progress'},
     {n: onHold, l:'On hold'}, {n: highestHigh, l:'High priority open'},

@@ -51,7 +51,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;}
 th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--khaki-line);}
 th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:var(--ink-soft);}
 .chip{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;}
-.chip-Highest,.chip-High,.chip-Immediate,.chip-Same-Day{background:#FBE4D6;color:var(--hivis);}
+.chip-Immediate,.chip-Same-Day{background:#FBE4D6;color:var(--hivis);}
 .empty-note{color:var(--ink-soft);font-size:12px;padding:8px 0;}
 
 #toastStack{position:fixed;bottom:16px;left:16px;right:16px;z-index:50;display:flex;flex-direction:column;gap:8px;align-items:center;}
@@ -269,7 +269,7 @@ async function load(){
   // breakdown once any exist. Historic WOs still use the old names
   // (never rewritten, by explicit decision), so both sets need to stay
   // listed indefinitely.
-  renderBars('byPriority', breakdowns.by_priority, ['Highest','Immediate','High','Same Day','Medium','Next Day','Low','2 Days','Lowest','3 Days']);
+  renderBars('byPriority', breakdowns.by_priority, ['Immediate','Same Day','Next Day','2 Days','3 Days']);
   renderBars('byWorkType', breakdowns.by_work_type);
   renderBars('byLocation', breakdowns.by_location);
   renderTeamTable(breakdowns.by_team, breakdowns.by_status);
