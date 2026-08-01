@@ -271,3 +271,68 @@ def get_public_settings(db: Session = Depends(get_db)):
     screens read via GET /admin/settings. Read-only; only an admin can
     change the value (see app/routers/admin.py)."""
     return crud.get_all_settings(db)
+
+
+# ---------------------------------------------------------------------------
+# Enhancement backlog Phase 20 (PRD §17#15): public "management" dashboard —
+# a shareable link, no sign-in required, for leadership/stakeholders who
+# just want the trend picture without needing an account.
+#
+# Deliberately aggregate-only, mirroring this whole router's existing
+# "public surface stays narrower than the authenticated one" principle
+# (see the module docstring above): these wrap the exact same
+# crud.get_kpis/get_breakdowns/get_daily_trend functions the authenticated
+# /dashboard/* endpoints use, but with NO filter params exposed at all (no
+# status/priority/location/team/search — every one of those could be used
+# to slice toward something identifiable) and a fixed scope (the overall
+# system view, not audience-scoped) — there's nothing here to configure,
+# on purpose. None of these three functions have ever returned WO-level
+# detail (no requester name/phone/email, no description text) — they're
+# pure counts/aggregates — so reusing them as-is is safe; the real
+# access-control decision here is "no login," not "different data."
+#
+# Rate-limited the same way the phone-based status lookup is (per-IP,
+# app/rate_limit.py) — a public, no-auth GET endpoint is exactly the kind
+# of thing that can get scraped/hammered, and there's no requester action
+# (like submitting a real work order) forcing a natural pace here the way
+# there is on the submission endpoint.
+# ---------------------------------------------------------------------------
+
+def _check_public_dashboard_rate_limit(request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    retry_after = rate_limit.check_public_lookup_limit(client_ip)
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests from this connection. Please wait a few minutes and try again.",
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
+    rate_limit.record_public_lookup(client_ip)
+
+
+@router.get("/dashboard/kpis", response_model=schemas.KPIOut)
+def public_dashboard_kpis(request: Request, db: Session = Depends(get_db)):
+    _check_public_dashboard_rate_limit(request)
+    return crud.get_kpis(db, scope="main")
+
+
+@router.get("/dashboard/breakdowns", response_model=schemas.BreakdownOut)
+def public_dashboard_breakdowns(request: Request, db: Session = Depends(get_db)):
+    _check_public_dashboard_rate_limit(request)
+    return crud.get_breakdowns(db, scope="main")
+
+
+@router.get("/dashboard/trend")
+def public_dashboard_trend(
+    request: Request,
+    days: int = 14,
+    db: Session = Depends(get_db),
+):
+    _check_public_dashboard_rate_limit(request)
+    # Bounded rather than trusting the query param outright — same
+    # min/max the authenticated /dashboard/trend endpoint enforces
+    # (app/routers/dashboard.py), kept here explicitly since this one
+    # can't lean on FastAPI's Query(..., le=90) the authenticated route
+    # uses without pulling in Query for one parameter.
+    days = max(1, min(days, 90))
+    return crud.get_daily_trend(db, scope="main", days=days)
