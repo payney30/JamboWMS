@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fulfillment Queue — National Jamboree Work Orders</title>
+<title>Dispatcher Console — National Jamboree Work Orders</title>
 <style>
 :root{
   --pine:#1C3829;
@@ -140,7 +140,7 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
   <div class="topbar">
     <div>
       <p class="brand-eyebrow" id="teamLabel">Live &middot; National Jamboree Work Orders</p>
-      <h1 class="brand-title" id="pageTitle">Fulfillment Queue</h1>
+      <h1 class="brand-title" id="pageTitle">Dispatcher Console</h1>
     </div>
     <button class="btn" onclick="logout()">Sign out</button>
   </div>
@@ -159,6 +159,7 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
     <select id="fStatus" onchange="load()"><option value="">All statuses</option></select>
     <select id="fPriority" onchange="load()"><option value="">All priorities</option></select>
     <input id="fSearch" placeholder="Search description or WO#…" oninput="debouncedLoad()">
+    <button class="btn btn-ghost" onclick="exportQueueCsv()">Export CSV</button>
   </div>
   <!-- Enhancement backlog Phase 12 (PRD §16#5): filter the queue by
        exact location, using the same hierarchical LocationPicker
@@ -184,6 +185,9 @@ let ME = null, TEAMS = [];
 // Enhancement backlog Phase 12 (PRD §16#5): set by the LocationPicker
 // filter's onChange; null means no location filter applied.
 let locationFilterAssetId = null;
+// Enhancement backlog Phase 17 (PRD §17#13): holds whatever's currently
+// loaded/filtered, for CSV export.
+let LAST_WOS = [];
 // Enhancement backlog Phase 4 (PRD §15#1): same pattern as index.html —
 // admin-configured display time zone, fetched from the no-auth public
 // settings endpoint so this screen agrees with LOC triage and the
@@ -276,6 +280,35 @@ async function login() {
   }
 }
 function logout(){ localStorage.removeItem('tech_token'); TOKEN=''; location.reload(); }
+
+// Enhancement backlog Phase 17 (PRD §17#13): CSV export matching LOC
+// triage's (§14#12) — exports exactly what's currently filtered in
+// this screen's queue, not a raw full dump.
+function csvEscape(v){
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function exportQueueCsv(){
+  if (!LAST_WOS.length) { showToast('Nothing to export — no work orders match the current filters.', 'err'); return; }
+  const headers = ['WO Number', 'Priority', 'Status', 'Description', 'Location', 'Created At'];
+  const lines = [headers.map(csvEscape).join(',')];
+  for (const w of LAST_WOS) {
+    lines.push([
+      w.wo_number, w.priority, w.status, w.description || '',
+      w.asset ? w.asset.name : '', fmtDateTime(w.created_at),
+    ].map(csvEscape).join(','));
+  }
+  const blob = new Blob([lines.join('\n')], {type: 'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `dispatcher-queue-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 async function boot() {
   try {
@@ -399,6 +432,7 @@ async function load() {
     wos = wos.filter(w => !w.status.startsWith('Closed'));
   }
 
+  LAST_WOS = wos;
   renderStats(wos);
   renderCards(wos);
 }
@@ -408,7 +442,14 @@ function renderStats(wos){
   const inProgress = wos.filter(w => w.status === 'Work In Progress').length;
   const onHold = wos.filter(w => w.status === 'On Hold').length;
   const newAssigned = wos.filter(w => w.status === 'Assigned').length;
-  const highestHigh = wos.filter(w => !w.status.startsWith('Closed') && (w.priority === 'Highest' || w.priority === 'High')).length;
+  // Bug fix (PRD §17#11, found while adding SLA markers): this only
+  // ever recognized the pre-rename priority names — since §13#15, new
+  // WOs use "Immediate"/"Same Day" instead of "Highest"/"High", so this
+  // tile was silently undercounting every urgent WO created after that
+  // rename shipped. Same fix as crud.URGENT_PRIORITIES elsewhere:
+  // recognize both old and new names for the urgent tier.
+  const highestHigh = wos.filter(w => !w.status.startsWith('Closed') &&
+    ['Highest','High','Immediate','Same Day'].includes(w.priority)).length;
   const items = [
     {n: newAssigned, l:'New'}, {n: inProgress, l:'In progress'},
     {n: onHold, l:'On hold'}, {n: highestHigh, l:'High priority open'},
@@ -431,10 +472,24 @@ function renderCards(wos){
     wrap.innerHTML = '<div class="empty-state">Nothing here right now.</div>';
     return;
   }
-  wrap.innerHTML = wos.map(w => `
+  wrap.innerHTML = wos.map(w => {
+    // Enhancement backlog Phase 17 (PRD §17#11): SLA deadline flag,
+    // same computation/thresholds as LOC triage (§14#10) — ⚠ yellow
+    // past 75% of the priority's SLA window, red past the full
+    // deadline. Not shown for closed WOs.
+    let deadlineIcon = '';
+    if (w.sla_deadline && !w.status.startsWith('Closed')) {
+      const nowMs = Date.now();
+      if (nowMs >= new Date(w.sla_deadline).getTime()) {
+        deadlineIcon = `<span title="Past due — target was ${fmtDateTime(w.sla_deadline)}" style="margin-right:5px;color:#B3261E;cursor:help;">⚠</span>`;
+      } else if (w.sla_warn_at && nowMs >= new Date(w.sla_warn_at).getTime()) {
+        deadlineIcon = `<span title="Approaching deadline — due ${fmtDateTime(w.sla_deadline)}" style="margin-right:5px;color:#B08900;cursor:help;">⚠</span>`;
+      }
+    }
+    return `
     <div class="wo-card" onclick="openDetail(${w.id})">
       <div class="wo-card-top">
-        <span class="wo-num">${escapeHtml(w.wo_number)}</span>
+        <span class="wo-num">${deadlineIcon}${escapeHtml(w.wo_number)}</span>
         <span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span>
       </div>
       <div class="wo-desc">${escapeHtml((w.description || '').slice(0,140))}${(w.description||'').length>140?'…':''}</div>
@@ -444,7 +499,8 @@ function renderCards(wos){
         <span>${fmtDate(w.created_at)}</span>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 // Enhancement backlog Phase 12 (PRD §16#1): unsaved-changes tracking,
@@ -480,6 +536,20 @@ async function openDetail(id){
     return;
   }
   drawerState = {woId: id, dirty: false};
+
+  // Enhancement backlog Phase 17 (PRD §17#12): SLA status marker on the
+  // WO detail screen, same thresholds as the queue-card icon above and
+  // LOC triage (§14#10). Text label here (not just an icon) since this
+  // is the single-WO detail view, not a scannable list.
+  let slaStatusHtml = '';
+  if (w.sla_deadline && !w.status.startsWith('Closed')) {
+    const nowMs = Date.now();
+    if (nowMs >= new Date(w.sla_deadline).getTime()) {
+      slaStatusHtml = ` &middot; <span style="color:#B3261E;font-weight:600;">⚠ Past due</span> <span style="color:var(--ink-soft);">(target was ${fmtDateTime(w.sla_deadline)})</span>`;
+    } else if (w.sla_warn_at && nowMs >= new Date(w.sla_warn_at).getTime()) {
+      slaStatusHtml = ` &middot; <span style="color:#B08900;font-weight:600;">⚠ Approaching deadline</span> <span style="color:var(--ink-soft);">(due ${fmtDateTime(w.sla_deadline)})</span>`;
+    }
+  }
 
   const statusOpts = TECH_STATUSES.map(s => `<option value="${s}" ${s===w.status?'selected':''}>${s}</option>`).join('');
   const teamOpts = TEAMS.filter(t => t.id !== w.assigned_team.id)
@@ -536,7 +606,7 @@ async function openDetail(id){
   openDrawer(`
     <button class="close-btn" onclick="closeDrawer()">×</button>
     <h2>${escapeHtml(w.wo_number)}</h2>
-    <div class="sub">${escapeHtml(w.work_type || 'No work type')} &middot; <span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span></div>
+    <div class="sub">${escapeHtml(w.work_type || 'No work type')} &middot; <span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span>${slaStatusHtml}</div>
 
     <div class="readonly-block"><strong>${escapeHtml(w.asset ? w.asset.name : 'No location')}</strong><br>${escapeHtml(w.description)}</div>
     ${attachmentsHtml}
