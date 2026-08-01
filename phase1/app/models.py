@@ -114,7 +114,7 @@ class Asset(Base):
 
 class ReportingGroup(Base):
     """Admin-editable reporting-group catalog (PRD 4.5b) — e.g. 'Program
-    Areas', 'Base Camp Ops'. Assigned to Asset nodes via
+    Areas', 'Base Camps'. Assigned to Asset nodes via
     Asset.reporting_group_id; see that column's docstring for the
     inheritance model. Set once at the start of an event and read live —
     no versioning/snapshotting, per PRD 4.5b."""

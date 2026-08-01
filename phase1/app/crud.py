@@ -676,18 +676,27 @@ def _apply_filters(db: Session, query, scope: str, status: str | None = None,
     elif scope == "basecamp":
         # Bug fix (PRD §17#14 follow-up, 7/30/26): this used to hardcode
         # "camp_letter IN ('C','D','E')" as a stand-in for "camps that
-        # report under Base Camp Ops" — a real, documented exception
-        # exists (Base Camps A/B report under "Program Areas" instead,
-        # per seed.py), which the letter list was working around rather
-        # than reading directly. Per explicit direction: this should
-        # follow the actual location-hierarchy → reporting-group mapping
-        # maintained in Admin (Asset.location_group, resolved through
-        # reporting_group_id/crud.recompute_effective_groups), not a
-        # hardcoded proxy for it — so a future admin reassignment (e.g.
-        # if a camp's reporting group ever changes) is reflected
-        # automatically here instead of silently going stale. Mirrors
-        # the "program" branch above, which already did this correctly.
-        ids = db.query(models.Asset.id).filter(models.Asset.location_group == "Base Camp Ops")
+        # report under the Base Camps reporting group" — a real,
+        # documented exception exists (Base Camps A/B report under
+        # "Program Areas" instead, per seed.py), which the letter list
+        # was working around rather than reading directly. Per explicit
+        # direction: this should follow the actual location-hierarchy →
+        # reporting-group mapping maintained in Admin (Asset.location_group,
+        # resolved through reporting_group_id/crud.recompute_effective_groups),
+        # not a hardcoded proxy for it.
+        #
+        # Bug fix (7/31/26): the first attempt at this fix used
+        # "Base Camp Ops" as the reporting-group name — that string
+        # doesn't exist anywhere in the real data (confirmed against
+        # name_to_branch.json, the authoritative branch-label source
+        # seed.py reads from) and was actually just descriptive shorthand
+        # used in a seed.py *comment*, not a real value. The real branch
+        # label is "Base Camps" (plural, no "Ops") — using the wrong
+        # string meant this filter matched nothing, so the Base Camp Ops
+        # dashboard showed no data at all. Verify any reporting-group
+        # name used in a filter against the actual data (name_to_branch.json
+        # or the live reporting_groups table), not a comment describing it.
+        ids = db.query(models.Asset.id).filter(models.Asset.location_group == "Base Camps")
         query = query.filter(models.WorkOrder.asset_id.in_(ids))
 
     if status:
