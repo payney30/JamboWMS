@@ -1,48 +1,35 @@
-# Priority Rename Follow-Up Cleanup (Phase 18) — IMPORTANT: run the migration
+# Program HQ / Contingent Ops HQ Dashboards (Phase 19, §17#14)
 
-Full cumulative state. New migration this round — this one changes
-existing data, not just schema, so read this before deploying.
+Full cumulative state. No new migration this round — only application
+code changed (backend query logic + the two dashboard pages).
 
-## What this does
+## What's new this round
 
-Reverses the original "don't touch historic data" decision from the
-urgency-tier rename (§13#15) — confirmed all 2026 data (including the
-Fiix backfill import) is test data, not real history worth preserving
-under the old labels. Per your direction: converts **all** work_orders
-rows regardless of origin, and the Fiix backfill is confirmed done for
-good.
+Built out `dashboard-program.html` and `dashboard-basecamp.html` per
+the finalized spec (PRD §17#14):
 
-**New migration (`f4a8d1c6e3b2`):**
-1. Converts every `work_orders.priority` value old→new (same 1:1
-   mapping as the original rename).
-2. Converts `wo_status_history`'s `priority_change` audit rows the same
-   way, so the audit trail stays consistent.
-3. Narrows `ck_wo_priority` back down to the 5 new names only (data
-   conversion happens first — narrowing the constraint before the data
-   is converted would fail the migration outright, same lesson as the
-   original widen migration in reverse).
+- **4 clickable KPI tiles** — Total WO, Requested, Active, Closed —
+  replacing the richer LOC-triage-style tile row. Clicking one filters
+  everything on the page consistently (KPIs, breakdowns, trend, and the
+  inbox), not just the table underneath.
+- **Full sortable read-only inbox**, replacing the old top-15-urgent
+  "Needing attention" table. Click any column header to sort. No row is
+  clickable to an edit view.
+- **No aging/SLA info** — the old "Age" column is gone; nothing on this
+  page computes or shows elapsed time or deadline status.
+- **Location search upgraded** to the full hierarchical LocationPicker
+  (same component LOC triage and the technician queue use), replacing
+  the old broad location_group dropdown.
 
-**Code simplified back to a single naming system** — `SLA_HOURS`,
-`_PRIORITY_RANK`, `URGENT_PRIORITIES`, the LOC triage priority
-dropdown's "(legacy)" fallback, CSS chip rules, and the dashboards'
-breakdown-chart order array all collapsed back down from
-old+new-supporting to new-only. `schemas.LEGACY_PRIORITIES` removed
-entirely.
+**Backend:** the inbox reuses `GET /work-orders` directly — no new
+endpoint. `crud._apply_filters` (backing all `/dashboard/*` endpoints)
+gained `exclude_closed`, `closed_only`, and `asset_id` support, which is
+what makes the clickable tiles and location picker actually filter
+everything consistently.
 
-## Two more bugs found while cleaning up
-
-1. **`backfill_fiix_history.py`** stored the raw old-style priority
-   value with no translation — harmless while the DB accepted both old
-   and new names, but would have thrown a CHECK-constraint error if this
-   "done for good" script were ever run again. Fixed to translate
-   old→new before storing.
-2. **`cutover_check.py`**'s priority breakdown comparison never
-   normalized labels the way its status/work_type comparisons already
-   did for the same reason (the backfill transforms values) — so it
-   started reporting false mismatches (same counts, different current
-   labels) the moment the backfill began translating old→new. Fixed
-   using the same normalization pattern already in place for
-   status/work_type.
+`dashboard-basecamp.html` was rebuilt directly from the transformed
+`dashboard-program.html` (they're near-identical apart from 5
+scope-specific strings) to guarantee the two stay in lockstep.
 
 ## How to apply
 
@@ -61,20 +48,22 @@ entirely.
     #   tests/test_enhancement_phase15.py
     alembic upgrade head
 
-**This migration changes existing data, not just schema** — recommend a
-DB backup/snapshot before running it, standard practice for any data
-migration, even a well-tested one.
-
-## Verify after deploying
-
-Check a WO created before this deploy — its priority should now show
-one of the 5 new names (Immediate/Same Day/Next Day/2 Days/3 Days), not
-an old one. Check its status history — any `priority_change` entries
-should show new names on both sides too.
+No new migration for this round specifically — the `alembic upgrade
+head` above is only needed if you're catching up on migrations from
+earlier rounds (locking, app_settings, priority constraint, pin-drop,
+priority data conversion).
 
 ## Test status
 
-**244 passing, 0 failing** — fully green. Removed one test that
-verified a backward-compatibility guarantee this cleanup deliberately
-eliminated; added two new ones (the DB now genuinely rejects an
-old-style value even bypassing the API, and all 5 new names still work).
+**249 passing, 0 failing** — fully green. Added 5 new tests covering
+the new filter capabilities (`exclude_closed`, `closed_only`,
+`asset_id`) on the dashboard endpoints, plus confirmed the inbox
+(`GET /work-orders?location_group=...`) returns the same result set as
+the matching dashboard scope.
+
+## What's NOT in this package
+
+§17#15 — the separate public, no-sign-in-required management dashboard
+(graphs/trends only, open/close graph). That's a bigger, separate piece
+of work — new unauthenticated backend route(s) and a real decision
+about what's safe to expose with zero auth. Not started yet.

@@ -2,6 +2,7 @@
  M app/models.py
  M app/rate_limit.py
  M app/routers/admin.py
+ M app/routers/dashboard.py
  M app/routers/public.py
  M app/routers/reference.py
  M app/routers/users.py
