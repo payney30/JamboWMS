@@ -17,11 +17,15 @@ def _filter_params(
     work_type: Optional[str] = None,
     team_id: Optional[int] = None,
     location_group: Optional[str] = None,
+    asset_id: Optional[int] = None,  # PRD §17#14: LocationPicker upgrade
     search: Optional[str] = None,
+    exclude_closed: bool = False,  # PRD §17#14: clickable KPI tiles
+    closed_only: bool = False,
 ) -> dict:
     return {
         "status": status, "priority": priority, "work_type": work_type,
-        "team_id": team_id, "location_group": location_group, "search": search,
+        "team_id": team_id, "location_group": location_group, "asset_id": asset_id,
+        "search": search, "exclude_closed": exclude_closed, "closed_only": closed_only,
     }
 
 
