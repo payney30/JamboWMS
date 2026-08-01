@@ -93,10 +93,16 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
     <select id="fStatus" onchange="load()"><option value="">All statuses</option></select>
     <select id="fPriority" onchange="load()"><option value="">All priorities</option></select>
     <select id="fWorkType" onchange="load()"><option value="">All work types</option></select>
-    <select id="fLocation" onchange="load()"><option value="">All locations</option></select>
     <select id="fTeam" onchange="load()"><option value="">All teams</option></select>
     <input id="fSearch" placeholder="Search description or WO#…" oninput="debouncedLoad()">
     <button class="reset-btn" onclick="clearFilters()">Reset filters</button>
+  </div>
+  <!-- Enhancement backlog Phase 19 (PRD §17#14): exact-location filter,
+       upgraded from a broad location_group dropdown to the full
+       hierarchical LocationPicker, same component LOC triage and the
+       technician queue use. -->
+  <div style="margin:10px 0;max-width:360px;">
+    <div id="fLocationPicker"></div>
   </div>
 
   <div class="stats" id="statRow"></div>
@@ -115,27 +121,54 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
     <div class="card" style="grid-column:1 / -1;"><h3>Assigned team — total vs closed</h3><div id="byTeam"></div></div>
   </div>
 
-  <div class="section-title">Needing attention — Urgent priority, open, oldest first</div>
+  <!-- Enhancement backlog Phase 19 (PRD §17#14): full sortable read-only
+       inbox, replacing the old top-15 "Needing attention" table. No
+       aging/SLA info by design (explicit requirement) — nothing here
+       computes or displays elapsed time or deadline status. Read-only:
+       no row is clickable to an edit view, this is display only. -->
+  <div class="section-title">Inbox <span class="refresh-note" id="inboxCount" style="color:var(--ink-soft);"></span></div>
   <div class="card">
     <table>
-      <thead><tr><th>WO#</th><th>Priority</th><th>Status</th><th>Description</th><th>Location</th><th>Age</th></tr></thead>
-      <tbody id="attentionBody"></tbody>
+      <thead><tr>
+        <th class="sortable" onclick="setSort('wo_number')" style="cursor:pointer;">WO# <span id="sortIcon-wo_number"></span></th>
+        <th class="sortable" onclick="setSort('priority')" style="cursor:pointer;">Priority <span id="sortIcon-priority"></span></th>
+        <th class="sortable" onclick="setSort('status')" style="cursor:pointer;">Status <span id="sortIcon-status"></span></th>
+        <th>Description</th>
+        <th>Location</th>
+        <th class="sortable" onclick="setSort('created_at')" style="cursor:pointer;">Submitted <span id="sortIcon-created_at"></span></th>
+      </tr></thead>
+      <tbody id="inboxBody"></tbody>
     </table>
   </div>
 </div>
 
 <div id="toastStack"></div>
 
+<script src="location-picker.js"></script>
 <script>
 const API = '';
 let TOKEN = localStorage.getItem('loc_token') || '';
 const currentScope = 'basecamp'; // fixed — this page is scope-locked, see dash-nav for the other two
+// Enhancement backlog Phase 19 (PRD §17#14): the same reporting-group
+// name _apply_filters' scope="program" branch resolves to — used here
+// to also scope the inbox fetch (GET /work-orders), which has no
+// `scope` concept of its own, only location_group.
+const SCOPE_LOCATION_GROUP = 'Base Camp Ops';
 let refreshTimer = null;
 let TEAMS = [], ASSETS = [];
 const STATUSES = ["Requested","Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
 const PRIORITIES = ["Immediate","Same Day","Next Day","2 Days","3 Days"];
+const PRIORITY_ORDER = {"Immediate":0,"Same Day":1,"Next Day":2,"2 Days":3,"3 Days":4};
 function priorityClass(p){ return (p || "").replace(/\s+/g, "-"); }
 const WORK_TYPES = ["NJ IT","NJ Items/Parts","NJ Maintenance","NJ Transportation"];
+// Enhancement backlog Phase 19 (PRD §17#14): quick-view tile state
+// (Total/Requested/Active/Closed) and inbox sort state, same pattern as
+// LOC triage.
+let activeQuickView = '';
+let locationFilterAssetId = null;
+let currentSort = {key: null, dir: 'asc'};
+let LAST_INBOX_WOS = [];
+let drawerFilterLocationPicker = null;
 
 function escapeHtml(s){
   const d = document.createElement('div');
@@ -197,6 +230,19 @@ async function boot(){
     showToast('Could not load filter reference data: ' + e.message, 'err');
   }
   populateFilterOptions();
+  // Enhancement backlog Phase 19 (PRD §17#14). Best-effort — if the
+  // location tree fails to load, the filter just isn't offered rather
+  // than blocking the rest of the dashboard.
+  try {
+    drawerFilterLocationPicker = LocationPicker.mount(document.getElementById('fLocationPicker'), {
+      treeUrl: '/locations/tree',
+      fetchOpts: { headers: { Authorization: 'Bearer ' + TOKEN } },
+      placeholder: 'Filter by exact location…',
+      onChange: (assetId) => { locationFilterAssetId = assetId; load(); },
+    });
+  } catch (e) {
+    console.error('Location filter failed to load:', e);
+  }
   load();
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = setInterval(load, 60000);
@@ -211,14 +257,24 @@ function populateFilterOptions(){
   WORK_TYPES.forEach(w => fWorkType.insertAdjacentHTML('beforeend', `<option value="${w}">${w}</option>`));
   const fTeam = document.getElementById('fTeam');
   TEAMS.forEach(t => fTeam.insertAdjacentHTML('beforeend', `<option value="${t.id}">${escapeHtml(t.name)}</option>`));
-  const fLocation = document.getElementById('fLocation');
-  const locations = Array.from(new Set(ASSETS.map(a => a.location_group))).sort();
-  locations.forEach(l => fLocation.insertAdjacentHTML('beforeend', `<option value="${l}">${escapeHtml(l)}</option>`));
 }
 
 function clearFilters(){
-  ['fStatus','fPriority','fWorkType','fLocation','fTeam'].forEach(id => document.getElementById(id).value = '');
+  ['fStatus','fPriority','fWorkType','fTeam'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('fSearch').value = '';
+  if (drawerFilterLocationPicker) drawerFilterLocationPicker.setValue(null, null);
+  locationFilterAssetId = null;
+  activeQuickView = '';
+  load();
+}
+
+// Enhancement backlog Phase 19 (PRD §17#14): clicking a KPI tile sets
+// this, same pattern as LOC triage — Total clears it, Requested sets a
+// plain status filter, Active/Closed map to exclude_closed/closed_only
+// (booleans currentFilterParams below translates into request params).
+function applyQuickView(key){
+  activeQuickView = key;
+  document.getElementById('fStatus').value = '';
   load();
 }
 
@@ -228,33 +284,99 @@ function currentFilterParams(){
   const status = document.getElementById('fStatus').value;
   const priority = document.getElementById('fPriority').value;
   const workType = document.getElementById('fWorkType').value;
-  const location = document.getElementById('fLocation').value;
   const team = document.getElementById('fTeam').value;
   const search = document.getElementById('fSearch').value;
-  if (status) params.set('status', status);
+  if (activeQuickView === 'Requested') {
+    params.set('status', 'Requested');
+  } else if (activeQuickView === 'Active') {
+    params.set('exclude_closed', 'true');
+  } else if (activeQuickView === 'Closed') {
+    params.set('closed_only', 'true');
+  } else if (status) {
+    params.set('status', status);
+  }
   if (priority) params.set('priority', priority);
   if (workType) params.set('work_type', workType);
-  if (location) params.set('location_group', location);
   if (team) params.set('team_id', team);
+  if (locationFilterAssetId) params.set('asset_id', locationFilterAssetId);
   if (search) params.set('search', search);
-  document.getElementById('filterCount').textContent =
-    [status, priority, workType, location, team, search].filter(Boolean).length
-      ? `(${[status, priority, workType, location, team, search].filter(Boolean).length} active)` : '';
+  const activeCount = [activeQuickView, priority, workType, team, locationFilterAssetId, search]
+    .filter(Boolean).length + (status && !activeQuickView ? 1 : 0);
+  document.getElementById('filterCount').textContent = activeCount ? `(${activeCount} active)` : '';
   return params;
 }
 
 let debounceTimer;
 function debouncedLoad(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(load, 300); }
 
+// Enhancement backlog Phase 19 (PRD §17#14): currentFilterParams() now
+// returns the raw filter state once, so both the /dashboard/* calls
+// (which use scope=program) and the /work-orders inbox call (which has
+// no scope concept, only location_group) can build their own param
+// sets from the same underlying state without re-reading the DOM twice
+// or duplicating the quick-view logic.
+function currentFilterState(){
+  const status = document.getElementById('fStatus').value;
+  return {
+    status: activeQuickView === 'Requested' ? 'Requested' : (activeQuickView ? '' : status),
+    excludeClosed: activeQuickView === 'Active',
+    closedOnly: activeQuickView === 'Closed',
+    priority: document.getElementById('fPriority').value,
+    workType: document.getElementById('fWorkType').value,
+    team: document.getElementById('fTeam').value,
+    search: document.getElementById('fSearch').value,
+    assetId: locationFilterAssetId,
+  };
+}
+
+function currentFilterParams(){
+  const s = currentFilterState();
+  const params = new URLSearchParams();
+  params.set('scope', currentScope);
+  if (s.status) params.set('status', s.status);
+  if (s.excludeClosed) params.set('exclude_closed', 'true');
+  if (s.closedOnly) params.set('closed_only', 'true');
+  if (s.priority) params.set('priority', s.priority);
+  if (s.workType) params.set('work_type', s.workType);
+  if (s.team) params.set('team_id', s.team);
+  if (s.assetId) params.set('asset_id', s.assetId);
+  if (s.search) params.set('search', s.search);
+  const activeCount = [activeQuickView, s.priority, s.workType, s.team, s.assetId, s.search]
+    .filter(Boolean).length + (s.status && !activeQuickView ? 1 : 0);
+  document.getElementById('filterCount').textContent = activeCount ? `(${activeCount} active)` : '';
+  return params;
+}
+
+function inboxFilterParams(){
+  const s = currentFilterState();
+  const params = new URLSearchParams();
+  // Enhancement backlog Phase 19 (PRD §17#14): GET /work-orders has no
+  // `scope` concept of its own — location_group is the exact same
+  // reporting-group filter _apply_filters' scope="program" branch uses
+  // internally, so this keeps the inbox locked to the same scope as
+  // everything else on this page.
+  params.set('location_group', SCOPE_LOCATION_GROUP);
+  if (s.status) params.set('status', s.status);
+  if (s.excludeClosed) params.set('exclude_closed', 'true');
+  if (s.closedOnly) params.set('closed_only', 'true');
+  if (s.priority) params.set('priority', s.priority);
+  if (s.workType) params.set('work_type', s.workType);
+  if (s.team) params.set('team_id', s.team);
+  if (s.assetId) params.set('asset_id', s.assetId);
+  if (s.search) params.set('search', s.search);
+  params.set('limit', '500');
+  return params;
+}
+
 async function load(){
   const params = currentFilterParams();
-  let kpis, breakdowns, trend, attention;
+  let kpis, breakdowns, trend, inboxWos;
   try {
-    [kpis, breakdowns, trend, attention] = await Promise.all([
+    [kpis, breakdowns, trend, inboxWos] = await Promise.all([
       api(`/dashboard/kpis?${params.toString()}`),
       api(`/dashboard/breakdowns?${params.toString()}`),
       api(`/dashboard/trend?${params.toString()}&days=14`),
-      api(`/dashboard/attention?${params.toString()}&limit=15`),
+      api(`/work-orders?${inboxFilterParams().toString()}`),
     ]);
   } catch (e) {
     if (e.message !== 'session expired') showToast('Could not refresh dashboard: ' + e.message, 'err');
@@ -274,16 +396,25 @@ async function load(){
   renderBars('byLocation', breakdowns.by_location);
   renderTeamTable(breakdowns.by_team, breakdowns.by_status);
   renderTrend(trend);
-  renderAttention(attention);
+  LAST_INBOX_WOS = inboxWos;
+  renderInbox(sortInboxWos(inboxWos));
 }
 
+// Enhancement backlog Phase 19 (PRD §17#14): simplified to the 4 tiles
+// explicitly requested — Total/Requested/Active/Closed — dropping the
+// richer LOC triage-style tile row (Urgent Open, Completion Rate,
+// Opened/Closed Today) for this "simple tiles" informational view. All
+// four are clickable filters, same pattern as LOC triage's KPI row.
 function renderStats(k){
   const items = [
-    {num:k.total, lbl:'Total'}, {num:k.requested, lbl:'Requested'}, {num:k.open, lbl:'Open / Active'},
-    {num:k.highest_high_open, lbl:'Highest+High Open'}, {num:k.closed, lbl:'Closed'},
-    {num:k.completion_rate+'%', lbl:'Completion Rate'}, {num:k.opened_today, lbl:'Opened Today'}, {num:k.closed_today, lbl:'Closed Today'},
+    {num:k.total, lbl:'Total WO', key:''},
+    {num:k.requested, lbl:'Requested', key:'Requested'},
+    {num:k.open, lbl:'Active', key:'Active'},
+    {num:k.closed, lbl:'Closed', key:'Closed'},
   ];
-  document.getElementById('statRow').innerHTML = items.map(i=>`<div class="stat"><div class="num">${i.num}</div><div class="lbl">${i.lbl}</div></div>`).join('');
+  document.getElementById('statRow').innerHTML = items.map(i =>
+    `<div class="stat" onclick="applyQuickView('${i.key}')" style="cursor:pointer;${activeQuickView===i.key?'border-color:var(--pine);':''}"><div class="num">${i.num}</div><div class="lbl">${i.lbl}</div></div>`
+  ).join('');
 }
 
 function renderBars(elId, dataObj, order){
@@ -343,23 +474,53 @@ function renderTrend(trend){
   `;
 }
 
-function renderAttention(rows){
-  const tbody = document.getElementById('attentionBody');
-  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-note">Nothing needs attention right now.</td></tr>'; return; }
-  const now = Date.now();
-  tbody.innerHTML = rows.map(w => {
-    const ageMs = now - new Date(w.created_at).getTime();
-    const hours = Math.floor(ageMs / 3600000);
-    const age = hours < 24 ? `${hours}h` : `${Math.floor(hours/24)}d ${hours%24}h`;
-    return `<tr>
+// Enhancement backlog Phase 19 (PRD §17#14): full sortable inbox,
+// replacing the old top-15-urgent "Needing attention" table. No
+// age/elapsed-time column — explicit requirement, this dashboard shows
+// no aging or SLA information anywhere. Read-only: no click handler on
+// rows, nothing here opens an edit view.
+function setSort(key){
+  if (currentSort.key === key) {
+    currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    currentSort = {key, dir: 'asc'};
+  }
+  ['wo_number','priority','status','created_at'].forEach(k => {
+    document.getElementById('sortIcon-' + k).textContent = '';
+  });
+  document.getElementById('sortIcon-' + key).textContent = currentSort.dir === 'asc' ? '▲' : '▼';
+  renderInbox(sortInboxWos(LAST_INBOX_WOS));
+}
+
+function sortInboxWos(wos){
+  if (!currentSort.key) return wos;
+  const key = currentSort.key;
+  const dir = currentSort.dir === 'asc' ? 1 : -1;
+  return [...wos].sort((a, b) => {
+    let av, bv;
+    if (key === 'wo_number') { av = parseInt(a.wo_number, 10) || 0; bv = parseInt(b.wo_number, 10) || 0; }
+    else if (key === 'priority') { av = PRIORITY_ORDER[a.priority] ?? 99; bv = PRIORITY_ORDER[b.priority] ?? 99; }
+    else if (key === 'created_at') { av = new Date(a.created_at).getTime(); bv = new Date(b.created_at).getTime(); }
+    else { av = a[key] || ''; bv = b[key] || ''; }
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
+  });
+}
+
+function renderInbox(rows){
+  const countEl = document.getElementById('inboxCount');
+  if (countEl) countEl.textContent = `(${rows.length})`;
+  const tbody = document.getElementById('inboxBody');
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-note">No work orders match the current filters.</td></tr>'; return; }
+  tbody.innerHTML = rows.map(w => `<tr>
       <td>${escapeHtml(w.wo_number)}</td>
       <td><span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span></td>
       <td>${w.status}</td>
       <td style="white-space:pre-wrap;">${escapeHtml((w.description||'').slice(0,90))}</td>
       <td>${escapeHtml(w.asset ? w.asset.name : '')}</td>
-      <td>${age}</td>
-    </tr>`;
-  }).join('');
+      <td>${new Date(w.created_at).toLocaleString()}</td>
+    </tr>`).join('');
 }
 
 if (TOKEN) boot();
