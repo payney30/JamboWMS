@@ -227,3 +227,67 @@ def test_router_passes_through_extra_filters(client, auth_headers, asset, team, 
 
     resp3 = client.get("/dashboard/attention?scope=main", headers=auth_headers)
     assert resp3.status_code == 200
+
+
+# ---- Enhancement backlog Phase 19 (PRD §17#14): dashboard clickable tiles ----
+
+def test_dashboard_kpis_exclude_closed(db, asset, admin_user):
+    open_wo = _make_wo(db, asset)
+    closed_wo = _make_wo(db, asset)
+    crud.change_status(
+        db, closed_wo, schemas.StatusChangeRequest(status="Closed, Completed"), changed_by=admin_user.id
+    )
+
+    kpis = crud.get_kpis(db, scope="main", exclude_closed=True)
+    assert kpis["total"] == 1
+
+
+def test_dashboard_kpis_closed_only(db, asset, admin_user):
+    open_wo = _make_wo(db, asset)
+    closed_wo = _make_wo(db, asset)
+    crud.change_status(
+        db, closed_wo, schemas.StatusChangeRequest(status="Closed, Completed"), changed_by=admin_user.id
+    )
+
+    kpis = crud.get_kpis(db, scope="main", closed_only=True)
+    assert kpis["total"] == 1
+
+
+def test_dashboard_kpis_asset_id_filter(db):
+    a1 = _asset(db, location_group="Program Areas", name="Program Asset One")
+    a2 = _asset(db, location_group="Program Areas", name="Program Asset Two")
+    _make_wo(db, a1)
+    _make_wo(db, a2)
+
+    kpis = crud.get_kpis(db, scope="program", asset_id=a1.id)
+    assert kpis["total"] == 1
+
+
+def test_dashboard_router_accepts_exclude_closed_and_asset_id(client, auth_headers, asset):
+    resp = client.get(
+        "/dashboard/kpis",
+        params={"scope": "main", "exclude_closed": "true", "asset_id": asset.id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+
+
+def test_inbox_via_work_orders_scoped_by_location_group_matches_dashboard_scope(
+    client, auth_headers, db
+):
+    """The new Program HQ/Contingent Ops HQ dashboard inbox reuses
+    GET /work-orders (not a new endpoint) — location_group is the exact
+    same reporting-group filter _apply_filters' scope="program" branch
+    uses internally, so filtering /work-orders by "Program Areas" should
+    return the same set of WOs as scope=program does."""
+    program_asset = _asset(db, location_group="Program Areas")
+    other_asset = _asset(db, location_group="Medical")
+    _make_wo(db, program_asset)
+    _make_wo(db, other_asset)
+
+    scope_resp = client.get("/dashboard/kpis?scope=program", headers=auth_headers)
+    inbox_resp = client.get(
+        "/work-orders", params={"location_group": "Program Areas"}, headers=auth_headers
+    )
+    assert scope_resp.json()["total"] == 1
+    assert len(inbox_resp.json()) == 1
