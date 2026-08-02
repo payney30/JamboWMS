@@ -315,3 +315,38 @@ def test_untasking_worker_logs_tasking_event_to_unassigned(client, auth_headers,
     assert len(tasking_events) == 2
     assert tasking_events[-1]["from_value"] == "Riley"
     assert tasking_events[-1]["to_value"] == "Unassigned"
+
+
+# ---- Enhancement backlog Phase 24 follow-up: reset a Task Worker's PIN ----
+
+def test_tech_can_reset_own_teams_worker_pin(client, tech_auth_headers, tech_user, db):
+    worker, old_pin = crud.create_task_worker(db, tech_user.team_id, schemas.TaskWorkerCreate(name="Riley"))
+
+    resp = client.post(f"/my-team/workers/{worker.id}/reset-pin", headers=tech_auth_headers)
+    assert resp.status_code == 200
+    new_pin = resp.json()["pin"]
+    assert new_pin != old_pin
+
+    # Old PIN no longer works.
+    old_login = client.post("/public/worker-login", json={"worker_id": worker.id, "pin": old_pin})
+    assert old_login.status_code == 401
+    # New PIN works.
+    new_login = client.post("/public/worker-login", json={"worker_id": worker.id, "pin": new_pin})
+    assert new_login.status_code == 200
+
+
+def test_tech_cannot_reset_pin_for_another_teams_worker(client, tech_auth_headers, db):
+    other_team = models.Team(name="Other Team Reset Test", is_active=True)
+    db.add(other_team)
+    db.commit()
+    db.refresh(other_team)
+    other_worker, _ = crud.create_task_worker(db, other_team.id, schemas.TaskWorkerCreate(name="NotMine"))
+
+    resp = client.post(f"/my-team/workers/{other_worker.id}/reset-pin", headers=tech_auth_headers)
+    assert resp.status_code == 404
+
+
+def test_loc_cannot_reset_worker_pin(client, auth_headers, tech_user, db):
+    worker, _ = crud.create_task_worker(db, tech_user.team_id, schemas.TaskWorkerCreate(name="Riley"))
+    resp = client.post(f"/my-team/workers/{worker.id}/reset-pin", headers=auth_headers)
+    assert resp.status_code == 403
