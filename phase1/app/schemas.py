@@ -261,6 +261,13 @@ class WorkOrderListItem(BaseModel):
     description: str
     asset: AssetOut
     assigned_team: Optional[TeamOut] = None
+    # Bug fix (found in Dispatcher Console testing, 8/1/26): this was
+    # only ever added to WorkOrderDetail, never here — the queue/list
+    # endpoint (GET /work-orders) never actually sent it, so the "→
+    # Worker Name" indicator added to queue cards (§17#10 follow-up)
+    # never had data to show, even though the frontend code for it was
+    # correct all along.
+    assigned_person: Optional[UserOut] = None
     created_at: UTCDateTime
     # Enhancement backlog Phase 1 (PRD §14#1) — read from
     # WorkOrder.locked_by, already None if the lock has gone stale.
@@ -276,6 +283,17 @@ class WorkOrderListItem(BaseModel):
     # closed WOs client-side.
     sla_warn_at: Optional[UTCDateTime] = None
     sla_deadline: Optional[UTCDateTime] = None
+    # Enhancement backlog Phase 24 (found in LOC/Dispatcher CSV export
+    # testing, 8/1/26): the CSV exports need requester/POC contact info
+    # and the closed date, none of which were previously on the list
+    # endpoint (only on the single-WO detail view) — added here rather
+    # than have the export make one detail request per row.
+    requester_name: str
+    requester_phone: Optional[str] = None
+    poc_is_requester: bool = True
+    poc_name: Optional[str] = None
+    poc_phone: Optional[str] = None
+    closed_at: Optional[UTCDateTime] = None
 
 
 class AttachmentOut(BaseModel):
@@ -291,17 +309,10 @@ class AttachmentOut(BaseModel):
 
 
 class WorkOrderDetail(WorkOrderListItem):
-    requester_name: str
     requester_email: Optional[str]
-    requester_phone: Optional[str]
-    poc_is_requester: bool = True
-    poc_name: Optional[str] = None
-    poc_phone: Optional[str] = None
     notify_preference: Optional[str] = None
     work_type: str
-    assigned_person: Optional[UserOut] = None
     updated_at: UTCDateTime
-    closed_at: Optional[UTCDateTime]
     # Enhancement backlog Phase 1 (PRD §14#5).
     note_to_requester: Optional[str] = None
     # Enhancement backlog Phase 5 (PRD §14#10).

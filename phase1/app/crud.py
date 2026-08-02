@@ -601,7 +601,7 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
                       exclude_closed=False, closed_only=False, priority_in=None,
                       opened_today=False, closed_today=False, handled_by=None,
                       approaching_deadline=False, past_deadline=False,
-                      assigned_person_id=None, status_in=None,
+                      assigned_person_id=None, status_in=None, unassigned_person=False,
                       limit=100, offset=0):
     q = db.query(models.WorkOrder)
     if status:
@@ -621,6 +621,13 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
     # the router), same pattern as team_id already is for tech.
     if assigned_person_id:
         q = q.filter(models.WorkOrder.assigned_person_id == assigned_person_id)
+    # Enhancement backlog Phase 24 (found in Dispatcher Console testing,
+    # 8/1/26): "filter by assigned worker" needed an explicit way to ask
+    # for *unassigned* WOs too — a sentinel value on assigned_person_id
+    # (e.g. 0) wouldn't work, since that would just never match any real
+    # id and silently return nothing rather than the intended set.
+    if unassigned_person:
+        q = q.filter(models.WorkOrder.assigned_person_id.is_(None))
     if work_type:
         q = q.filter(models.WorkOrder.work_type == work_type)
     if location_group:
