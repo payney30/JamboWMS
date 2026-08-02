@@ -95,6 +95,47 @@ def test_priority_in_filter(db, asset):
     assert ids == {highest.id, high.id}
 
 
+def test_status_in_filter(db, asset, admin_user, team):
+    """Bug fix (found in LOC triage testing, 8/1/26): backs the
+    "Open/Active" tile's click-to-filter — Assigned/On Hold/Work In
+    Progress specifically, not "everything not closed" (which would
+    wrongly include "Requested")."""
+    requested = _make_wo(db, asset, "Next Day", dt.datetime.utcnow())
+    assigned = _make_wo(db, asset, "Next Day", dt.datetime.utcnow())
+    crud.assign_work_order(db, assigned, schemas.AssignRequest(team_id=team.id), changed_by=admin_user.id)
+    closed = _make_wo(db, asset, "Next Day", dt.datetime.utcnow())
+    crud.change_status(
+        db, closed, schemas.StatusChangeRequest(status="Closed, Completed"), changed_by=admin_user.id
+    )
+
+    results = crud.list_work_orders(db, status_in=["Assigned", "On Hold", "Work In Progress"])
+    ids = {w.id for w in results}
+    assert ids == {assigned.id}
+    assert requested.id not in ids
+    assert closed.id not in ids
+
+
+def test_router_status_in_param(client, auth_headers, asset, team):
+    requested = client.post(
+        "/work-orders",
+        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Next Day"},
+        headers=auth_headers,
+    ).json()
+    assigned = client.post(
+        "/work-orders",
+        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Next Day"},
+        headers=auth_headers,
+    ).json()
+    client.post(f"/work-orders/{assigned['id']}/assign", json={"team_id": team.id}, headers=auth_headers)
+
+    resp = client.get(
+        "/work-orders", params={"status_in": "Assigned,On Hold,Work In Progress"}, headers=auth_headers
+    )
+    ids = {w["id"] for w in resp.json()}
+    assert ids == {assigned["id"]}
+    assert requested["id"] not in ids
+
+
 def test_router_opened_today_param(client, auth_headers, asset):
     now_wo = client.post(
         "/work-orders",

@@ -123,8 +123,15 @@ def test_today_boundary_follows_configured_timezone_not_naive_utc(db, asset):
     assert (kpis["opened_today"] == 1) == is_within_pacific_today
 
 
-def test_open_and_closed_and_completion_rate(db, asset, admin_user):
-    _make_wo(db, asset)  # stays open
+def test_open_and_closed_and_completion_rate(db, asset, admin_user, team):
+    # Bug fix (found in LOC triage testing, 8/1/26): "open" now means
+    # specifically Assigned/On Hold/Work In Progress, not "anything not
+    # closed" (which would wrongly include Requested — that has its own
+    # separate "requested" tile). Updated this fixture to actually put
+    # a WO into one of those 3 statuses, rather than leaving it at the
+    # default "Requested" and expecting it to count as open.
+    wo1 = _make_wo(db, asset)
+    crud.assign_work_order(db, wo1, schemas.AssignRequest(team_id=team.id), changed_by=admin_user.id)
     wo2 = _make_wo(db, asset)
     crud.change_status(
         db, wo2, schemas.StatusChangeRequest(status="Closed, Completed"), changed_by=admin_user.id
@@ -135,6 +142,17 @@ def test_open_and_closed_and_completion_rate(db, asset, admin_user):
     assert kpis["closed"] == 1
     assert kpis["open"] == 1
     assert kpis["completion_rate"] == 50.0
+
+
+def test_open_excludes_requested_status(db, asset):
+    """The bug this fix addresses directly: a brand-new, un-triaged WO
+    (status still "Requested") must NOT count toward "open" — it has
+    its own separate "requested" tile."""
+    _make_wo(db, asset)  # stays at "Requested", never assigned
+
+    kpis = crud.get_kpis(db)
+    assert kpis["requested"] == 1
+    assert kpis["open"] == 0
 
 
 def test_breakdowns_group_by_status_and_priority(db, asset):
