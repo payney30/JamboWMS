@@ -1,76 +1,57 @@
-# LOC Triage End-to-End Testing Round (Phase 23)
+# Dispatcher Console Testing Round + CSV Export Fields (Phase 24)
 
-Full cumulative state. No new migration this round — pure bug fixes and
-frontend/label changes.
+Full cumulative state. No new migration this round — pure bug fixes,
+schema field additions (existing tables, no new columns), and frontend
+changes.
 
-## Bug found: "Urgent Open" tile completely broken (real regression)
+## Real bugs found and fixed
 
-Clicking it always returned zero results. The frontend still sent the
-pre-rename priority names (priority_in=Highest,High) — the priority
-data migration converted everything to the new names weeks ago, but
-this one hardcoded frontend string was never updated in sync. **This is
-the most likely explanation for "tiles not filtering correctly."**
-Fixed to Immediate,Same Day.
+1. **Tasked worker never showed on queue cards.** assigned_person had
+   only ever been added to WorkOrderDetail, never to
+   WorkOrderListItem (what the queue/list endpoint actually returns).
+   The frontend code was correct all along - the data just never
+   arrived. Fixed by moving the field onto the shared base schema.
 
-## Bug found: "Open/Active" tile didn't match the precise spec given
+2. **No auto-refresh at all on Dispatcher Console.** Confirmed by direct
+   inspection - every other screen had one, this didn't. A saved change
+   only appeared after a manual reload. Added (30s, paused while the
+   drawer's open, same as everywhere else).
 
-Was computed as "everything not closed," which silently included
-"Requested" (not-yet-triaged WOs). Per the exact spec given during this
-testing round:
+3. **Status history didn't show who made a change**, even though LOC
+   triage's did. Confirmed by comparing the two templates directly -
+   simply missing changed_by_name. Fixed to match.
 
-- **Total** = all statuses
-- **Requested** = submitted, not yet assigned/hold/in-process/complete
-- **Open/Active** = specifically Assigned, On Hold, or Work In Progress
-- **Urgent Open** = Immediate/Same Day priority, still open
-- **Closed** = both Closed sub-statuses
-- **Opened/Closed Today**, **Approaching/Past Deadline** — checked
-  against spec, already correct, no change needed
+4. **Print output had orphaned form-field labels.** The print CSS only
+   hid the actual form controls, not their label text - "Status
+   Note (required when closing)," "Reassign - wrong team?," etc. all
+   printed with nothing underneath. LOC triage already had this right;
+   Dispatcher Console's narrower rule didn't. Fixed to match - per
+   request, these sections (Status Note, Reassign, Task to worker, Add
+   a work note) are now gone from print entirely; Notes, History, and
+   everything else stays. Added the assigned worker's name to the print
+   summary as data (was missing entirely before).
 
-Fixed get_kpis' open computation to the exact 3-status list, and
-added a new status_in filter (mirrors the existing priority_in
-pattern) so clicking the tile filters the inbox to the same 3 statuses
-it counts.
+5. **Stat tiles (New/In progress/On hold/High Urgency) shrank with any
+   filter applied.** They were computed from the already-filtered queue
+   list. Fixed by fetching a separate, filter-independent team-wide
+   dataset just for the tiles - same principle already used for the HQ
+   dashboards' KPI tiles. Renamed "High priority open" -> "High Urgency."
 
-**Verified against real historical data** via cutover_check.py: old
-(buggy) value was 177, new (correct) value 170 — the 7-WO gap exactly
-equals the Requested count, confirming this is the fix working as
-intended, not a new bug. cutover_check.py updated to document this as
-a deliberate difference from the old dashboard, same treatment as the
-pre-existing "Closed Today" exclusion.
+## Enhancements added
 
-## Bug found: location picker didn't reset properly
-
-After submitting a WO and the form resetting, the location picker
-showed stale leftover search text (and possibly stale results/tree
-content) instead of a clean search view. Fixed in the shared
-location-picker.js component — applies everywhere it's used (Submit
-WO, LOC triage, Dispatcher Console, both HQ dashboards), not just where
-it was found.
-
-## Investigated, no bug found
-
-**"Handled By" dropdown showing only "Anyone."** Checked the role
-gating (GET /users already allows both admin and loc) and the
-frontend population logic end-to-end — both correct. Most likely the
-test account's environment just had no other users yet. Worth
-confirming on your end.
-
-## Other fixes/changes this round
-
-- **Inbox pagination raised** (200->2000, backend cap 500->2000) — best
-  available explanation for "inbox didn't update for new WOs," though
-  not confirmed as the sole cause.
-- Renamed "Priority" -> "Urgency" (column header + filter label).
-- Removed the redundant "Highest + High, open" quick-view chip (the
-  Urgent Open KPI tile already does the same thing).
-- Added the signed-in user's name/role to the LOC triage header.
-
-## Related, NOT fixed this round (flagged for later)
-
-The Program HQ/Contingent Ops HQ dashboards' "Active" tile (§17#14)
-likely has the same "not closed vs. correct 3 statuses" bug — it was
-built with the same pattern before this fix existed. Kept out of scope
-for this round since it was specifically about LOC triage.
+- **PDF filename** - both LOC triage and Dispatcher Console now set
+  document.title to "NJ WO Details #[WO number]" before printing, so
+  browsers suggest that as the Save-as-PDF filename.
+- **"Clear filters" button** on Dispatcher Console (every other
+  filterable screen already had one).
+- **"Filter by assigned worker" dropdown**, including a proper
+  "Unassigned" option - added a real unassigned_person backend filter
+  rather than an unreliable sentinel value.
+- **CSV export fields**, both LOC triage and Dispatcher Console: Closed
+  At, Assigned Worker, Requester Name/Phone, POC Name/Phone (blank when
+  the requester is their own POC). Required adding these fields to the
+  list endpoint's schema (WorkOrderListItem) - they only existed on
+  the single-WO detail view before.
 
 ## How to apply
 
@@ -97,20 +78,25 @@ No new migration this round specifically.
 
 ## Verify after deploying
 
-1. Click the "Urgent Open" tile — confirm it returns results (not zero).
-2. Click "Open/Active" — confirm a brand-new "Requested" WO does NOT
-   appear in the filtered results.
-3. Compare the "Open/Active" tile's number against a manual count of
-   Assigned + On Hold + Work In Progress WOs.
-4. On Submit WO, select a location, submit, and confirm the location
-   picker shows a clean search view (no stale text) if you submit
-   another request.
-5. Confirm the inbox column header now reads "Urgency," and the
-   "Highest + High, open" chip is gone from the quick-view row.
-6. Confirm your name and role show in the LOC triage header.
+1. Task a worker on Dispatcher Console - confirm the queue card
+   immediately shows "-> Worker Name."
+2. Make a change without touching the page for 30+ seconds - confirm
+   the queue refreshes on its own.
+3. Check a WO's status history on Dispatcher Console - confirm each
+   entry shows who made the change.
+4. Print a WO with an assigned worker - confirm the Status Note/
+   Reassign/Task-to-worker/Add-a-work-note sections are gone, the
+   worker's name appears in the summary, and the suggested PDF filename
+   is "NJ WO Details #[number]".
+5. Apply a status filter on Dispatcher Console - confirm the stat tiles
+   at the top do NOT change.
+6. Try the new "Clear filters" button and the "filter by assigned
+   worker" dropdown (including "Unassigned").
+7. Export CSV from both LOC triage and Dispatcher Console - confirm the
+   new columns (Closed At, Assigned Worker, Requester Phone, POC
+   Name/Phone) are present and correct.
 
 ## Test status
 
-**285 passing, 0 failing** — fully green, including the real historical
-data cutover-validation test. Added 4 new tests directly covering the
-status_in filter and the Open/Active semantics fix.
+**289 passing, 0 failing** - fully green. Added 4 new tests covering
+the new list-endpoint fields and the unassigned_person filter.

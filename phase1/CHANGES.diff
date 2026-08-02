@@ -1,5 +1,5 @@
 diff --git a/phase1/app/crud.py b/phase1/app/crud.py
-index ec75c56..79488d0 100644
+index ec75c56..e7df6c6 100644
 --- a/phase1/app/crud.py
 +++ b/phase1/app/crud.py
 @@ -8,25 +8,45 @@ mutation later, ask "does this need a history row?" before wiring it up.
@@ -294,7 +294,7 @@ index ec75c56..79488d0 100644
      if payload.status not in schemas.STATUSES:
          raise HTTPException(400, f"invalid status: {payload.status}")
  
-@@ -235,39 +364,274 @@ def change_status(db: Session, wo: models.WorkOrder, payload: schemas.StatusChan
+@@ -235,39 +364,281 @@ def change_status(db: Session, wo: models.WorkOrder, payload: schemas.StatusChan
              note_text=payload.note, note_type=note_type,
          ))
  
@@ -542,7 +542,7 @@ index ec75c56..79488d0 100644
 -                      opened_today=False, closed_today=False,
 +                      opened_today=False, closed_today=False, handled_by=None,
 +                      approaching_deadline=False, past_deadline=False,
-+                      assigned_person_id=None, status_in=None,
++                      assigned_person_id=None, status_in=None, unassigned_person=False,
                        limit=100, offset=0):
      q = db.query(models.WorkOrder)
      if status:
@@ -562,6 +562,13 @@ index ec75c56..79488d0 100644
 +    # the router), same pattern as team_id already is for tech.
 +    if assigned_person_id:
 +        q = q.filter(models.WorkOrder.assigned_person_id == assigned_person_id)
++    # Enhancement backlog Phase 24 (found in Dispatcher Console testing,
++    # 8/1/26): "filter by assigned worker" needed an explicit way to ask
++    # for *unassigned* WOs too — a sentinel value on assigned_person_id
++    # (e.g. 0) wouldn't work, since that would just never match any real
++    # id and silently return nothing rather than the intended set.
++    if unassigned_person:
++        q = q.filter(models.WorkOrder.assigned_person_id.is_(None))
      if work_type:
          q = q.filter(models.WorkOrder.work_type == work_type)
      if location_group:
@@ -576,7 +583,7 @@ index ec75c56..79488d0 100644
      if search:
          like = f"%{search}%"
          q = q.filter(
-@@ -275,6 +639,21 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -275,6 +646,21 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
              (models.WorkOrder.wo_number.ilike(like)) |
              (models.WorkOrder.external_ref.ilike(like))
          )
@@ -598,7 +605,7 @@ index ec75c56..79488d0 100644
      # These back the LOC triage KPI-card quick views (Open/Active,
      # Highest+High Open, Closed, Opened Today, Closed Today). They used to
      # be applied client-side against whatever page the default limit
-@@ -292,12 +671,17 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -292,12 +678,17 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
      if priority_in:
          q = q.filter(models.WorkOrder.priority.in_(priority_in))
      if opened_today:
@@ -621,7 +628,7 @@ index ec75c56..79488d0 100644
      # PRD 4.2: inbox sorts highest-priority first, oldest first within a
      # priority tier — matches the old dashboard's "needing attention" table.
      return (
-@@ -311,24 +695,64 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -311,24 +702,64 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
  def _apply_filters(db: Session, query, scope: str, status: str | None = None,
                      priority: str | None = None, work_type: str | None = None,
                      team_id: int | None = None, location_group: str | None = None,
@@ -690,7 +697,7 @@ index ec75c56..79488d0 100644
      if priority:
          query = query.filter(models.WorkOrder.priority == priority)
      if work_type:
-@@ -338,11 +762,17 @@ def _apply_filters(db: Session, query, scope: str, status: str | None = None,
+@@ -338,11 +769,17 @@ def _apply_filters(db: Session, query, scope: str, status: str | None = None,
      if location_group:
          ids = db.query(models.Asset.id).filter(models.Asset.location_group == location_group)
          query = query.filter(models.WorkOrder.asset_id.in_(ids))
@@ -708,7 +715,7 @@ index ec75c56..79488d0 100644
      return query
  
  
-@@ -352,33 +782,61 @@ def get_kpis(db: Session, scope: str = "main", **filters) -> dict:
+@@ -352,33 +789,61 @@ def get_kpis(db: Session, scope: str = "main", **filters) -> dict:
      closed = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
          models.WorkOrder.status.like("Closed%")
      ).count()
@@ -782,7 +789,7 @@ index ec75c56..79488d0 100644
      }
  
  
-@@ -451,14 +909,14 @@ def get_daily_trend(db: Session, scope: str = "main", days: int = 14, **filters)
+@@ -451,14 +916,14 @@ def get_daily_trend(db: Session, scope: str = "main", days: int = 14, **filters)
  
  
  def get_needing_attention(db: Session, scope: str = "main", limit: int = 15, **filters) -> list[models.WorkOrder]:
@@ -801,7 +808,7 @@ index ec75c56..79488d0 100644
          ),
          scope, **filters,
      )
-@@ -529,6 +987,103 @@ def reset_password(db: Session, user: models.User) -> str:
+@@ -529,6 +994,103 @@ def reset_password(db: Session, user: models.User) -> str:
      return password
  
  
@@ -905,7 +912,7 @@ index ec75c56..79488d0 100644
  # ============================================================
  # Admin configuration (PRD 4.5)
  # ============================================================
-@@ -865,3 +1420,40 @@ def update_team(db: Session, team: models.Team, payload: schemas.TeamUpdate) ->
+@@ -865,3 +1427,40 @@ def update_team(db: Session, team: models.Team, payload: schemas.TeamUpdate) ->
      db.commit()
      db.refresh(team)
      return team
@@ -1694,7 +1701,7 @@ index 8f4b0d2..9ee0082 100644
  def list_users(
      role: Optional[str] = None,
 diff --git a/phase1/app/routers/work_orders.py b/phase1/app/routers/work_orders.py
-index c3e80e3..82d6948 100644
+index c3e80e3..27aff56 100644
 --- a/phase1/app/routers/work_orders.py
 +++ b/phase1/app/routers/work_orders.py
 @@ -1,10 +1,13 @@
@@ -1772,7 +1779,7 @@ index c3e80e3..82d6948 100644
  
  
  @router.get("", response_model=list[schemas.WorkOrderListItem])
-@@ -42,13 +81,22 @@ def list_work_orders(
+@@ -42,13 +81,23 @@ def list_work_orders(
      team_id: Optional[int] = None,
      work_type: Optional[str] = None,
      location_group: Optional[str] = None,
@@ -1783,6 +1790,7 @@ index c3e80e3..82d6948 100644
 -    priority_in: Optional[str] = None,  # comma-separated, e.g. "Highest,High"
 +    priority_in: Optional[str] = None,  # comma-separated, e.g. "Immediate,Same Day"
 +    status_in: Optional[str] = None,  # comma-separated, e.g. "Assigned,On Hold,Work In Progress"
++    unassigned_person: bool = False,  # PRD §17 Phase 24: "filter by assigned worker" -> Unassigned
      opened_today: bool = False,
      closed_today: bool = False,
 -    limit: int = Query(100, le=500),
@@ -1797,7 +1805,7 @@ index c3e80e3..82d6948 100644
      offset: int = 0,
      db: Session = Depends(get_db),
      user: models.User = Depends(get_current_user),
-@@ -57,12 +105,24 @@ def list_work_orders(
+@@ -57,12 +106,24 @@ def list_work_orders(
      # the query string — the server, not the frontend, owns this boundary.
      if user.role == "tech":
          team_id = user.team_id
@@ -1817,14 +1825,14 @@ index c3e80e3..82d6948 100644
 +        work_type=work_type, location_group=location_group, asset_id=asset_id, search=search,
          exclude_closed=exclude_closed, closed_only=closed_only, priority_in=priority_list,
 -        opened_today=opened_today, closed_today=closed_today,
-+        status_in=status_list,
++        status_in=status_list, unassigned_person=unassigned_person,
 +        opened_today=opened_today, closed_today=closed_today, handled_by=handled_by,
 +        approaching_deadline=approaching_deadline, past_deadline=past_deadline,
 +        assigned_person_id=assigned_person_id,
          limit=limit, offset=offset,
      )
  
-@@ -89,6 +149,7 @@ def update_work_order(wo_id: int, payload: schemas.WorkOrderUpdate,
+@@ -89,6 +150,7 @@ def update_work_order(wo_id: int, payload: schemas.WorkOrderUpdate,
                         db: Session = Depends(get_db),
                         user: models.User = Depends(loc_or_admin)):
      wo = _get_wo_or_404(db, wo_id)
@@ -1832,7 +1840,7 @@ index c3e80e3..82d6948 100644
      return crud.update_work_order_fields(db, wo, payload, changed_by=user.id)
  
  
-@@ -103,6 +164,7 @@ def assign_work_order(wo_id: int, payload: schemas.AssignRequest,
+@@ -103,6 +165,7 @@ def assign_work_order(wo_id: int, payload: schemas.AssignRequest,
      # unassigned WOs from a tech's reach, so this only opens up the
      # "mis-routed, hand it to the right team" case from PRD 4.3.
      _enforce_team_scope(wo, user)
@@ -1840,7 +1848,7 @@ index c3e80e3..82d6948 100644
      return crud.assign_work_order(db, wo, payload, changed_by=user.id)
  
  
-@@ -112,6 +174,7 @@ def change_status(wo_id: int, payload: schemas.StatusChangeRequest,
+@@ -112,6 +175,7 @@ def change_status(wo_id: int, payload: schemas.StatusChangeRequest,
                     user: models.User = Depends(get_current_user)):
      wo = _get_wo_or_404(db, wo_id)
      _enforce_team_scope(wo, user)
@@ -1848,7 +1856,7 @@ index c3e80e3..82d6948 100644
      if user.role == "tech" and payload.status not in TECH_ALLOWED_STATUSES:
          raise HTTPException(
              403,
-@@ -127,6 +190,108 @@ def add_note(wo_id: int, payload: schemas.NoteCreate,
+@@ -127,6 +191,108 @@ def add_note(wo_id: int, payload: schemas.NoteCreate,
               user: models.User = Depends(get_current_user)):
      wo = _get_wo_or_404(db, wo_id)
      _enforce_team_scope(wo, user)
@@ -1958,7 +1966,7 @@ index c3e80e3..82d6948 100644
 +        out.write(contents)
 +    return crud.add_attachment(db, wo, f"/uploads/{safe_name}", uploaded_by=user.id, stage="completion")
 diff --git a/phase1/app/schemas.py b/phase1/app/schemas.py
-index 8500922..23763b6 100644
+index 8500922..7e0f1ad 100644
 --- a/phase1/app/schemas.py
 +++ b/phase1/app/schemas.py
 @@ -1,8 +1,58 @@
@@ -2169,11 +2177,18 @@ index 8500922..23763b6 100644
  class WorkOrderListItem(BaseModel):
      model_config = ConfigDict(from_attributes=True)
      id: int
-@@ -117,14 +261,33 @@ class WorkOrderListItem(BaseModel):
+@@ -117,28 +261,74 @@ class WorkOrderListItem(BaseModel):
      description: str
      asset: AssetOut
      assigned_team: Optional[TeamOut] = None
 -    created_at: dt.datetime
++    # Bug fix (found in Dispatcher Console testing, 8/1/26): this was
++    # only ever added to WorkOrderDetail, never here — the queue/list
++    # endpoint (GET /work-orders) never actually sent it, so the "→
++    # Worker Name" indicator added to queue cards (§17#10 follow-up)
++    # never had data to show, even though the frontend code for it was
++    # correct all along.
++    assigned_person: Optional[UserOut] = None
 +    created_at: UTCDateTime
 +    # Enhancement backlog Phase 1 (PRD §14#1) — read from
 +    # WorkOrder.locked_by, already None if the lock has gone stale.
@@ -2189,6 +2204,17 @@ index 8500922..23763b6 100644
 +    # closed WOs client-side.
 +    sla_warn_at: Optional[UTCDateTime] = None
 +    sla_deadline: Optional[UTCDateTime] = None
++    # Enhancement backlog Phase 24 (found in LOC/Dispatcher CSV export
++    # testing, 8/1/26): the CSV exports need requester/POC contact info
++    # and the closed date, none of which were previously on the list
++    # endpoint (only on the single-WO detail view) — added here rather
++    # than have the export make one detail request per row.
++    requester_name: str
++    requester_phone: Optional[str] = None
++    poc_is_requester: bool = True
++    poc_name: Optional[str] = None
++    poc_phone: Optional[str] = None
++    closed_at: Optional[UTCDateTime] = None
  
  
  class AttachmentOut(BaseModel):
@@ -2205,14 +2231,18 @@ index 8500922..23763b6 100644
  
  
  class WorkOrderDetail(WorkOrderListItem):
-@@ -137,8 +300,24 @@ class WorkOrderDetail(WorkOrderListItem):
+-    requester_name: str
+     requester_email: Optional[str]
+-    requester_phone: Optional[str]
+-    poc_is_requester: bool = True
+-    poc_name: Optional[str] = None
+-    poc_phone: Optional[str] = None
      notify_preference: Optional[str] = None
      work_type: str
-     assigned_person: Optional[UserOut] = None
+-    assigned_person: Optional[UserOut] = None
 -    updated_at: dt.datetime
 -    closed_at: Optional[dt.datetime]
 +    updated_at: UTCDateTime
-+    closed_at: Optional[UTCDateTime]
 +    # Enhancement backlog Phase 1 (PRD §14#5).
 +    note_to_requester: Optional[str] = None
 +    # Enhancement backlog Phase 5 (PRD §14#10).
@@ -2232,7 +2262,7 @@ index 8500922..23763b6 100644
      notes: List[NoteOut] = []
      history: List[HistoryOut] = []
      attachments: List[AttachmentOut] = []
-@@ -158,16 +337,30 @@ class PublicWorkOrderConfirmation(BaseModel):
+@@ -158,16 +348,30 @@ class PublicWorkOrderConfirmation(BaseModel):
  
  
  class PublicWorkOrderStatus(BaseModel):
@@ -2268,7 +2298,7 @@ index 8500922..23763b6 100644
  
  
  class KPIOut(BaseModel):
-@@ -175,9 +368,14 @@ class KPIOut(BaseModel):
+@@ -175,9 +379,14 @@ class KPIOut(BaseModel):
      open: int
      closed: int
      highest_high_open: int
@@ -2283,7 +2313,7 @@ index 8500922..23763b6 100644
  
  
  class BreakdownOut(BaseModel):
-@@ -199,7 +397,7 @@ class UserAdminOut(BaseModel):
+@@ -199,7 +408,7 @@ class UserAdminOut(BaseModel):
      role: str
      team: Optional[TeamOut] = None
      is_active: bool
@@ -2292,7 +2322,7 @@ index 8500922..23763b6 100644
  
  
  class UserCreate(BaseModel):
-@@ -340,4 +538,17 @@ class AssetChangeLogOut(BaseModel):
+@@ -340,4 +549,17 @@ class AssetChangeLogOut(BaseModel):
      from_value: Optional[str]
      to_value: Optional[str]
      changed_by: Optional[int]
@@ -3818,7 +3848,7 @@ index 2ecf37e..e882a00 100644
        <td>${escapeHtml((w.description||'').slice(0,90))}</td>
        <td>${escapeHtml(w.asset ? w.asset.name : '')}</td>
 diff --git a/phase1/static/index.html b/phase1/static/index.html
-index 430ff1e..ac5e22b 100644
+index 430ff1e..b61aff9 100644
 --- a/phase1/static/index.html
 +++ b/phase1/static/index.html
 @@ -70,9 +70,9 @@ th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--khaki-line)
@@ -4018,7 +4048,22 @@ index 430ff1e..ac5e22b 100644
    {key:'Closed', label:'Closed'},
  ];
  
-@@ -241,14 +351,39 @@ async function boot() {
+@@ -237,18 +347,54 @@ async function login() {
+ }
+ function logout(){ localStorage.removeItem('loc_token'); TOKEN=''; location.reload(); }
+ 
++// Bug fix (found in Dispatcher Console testing, 8/1/26 — applied here
++// too for consistency): browsers suggest document.title as the default
++// filename in the "Save as PDF" print destination.
++function printDrawer(woNumber){
++  const originalTitle = document.title;
++  document.title = `NJ WO Details #${woNumber}`;
++  window.print();
++  const restore = () => { document.title = originalTitle; window.removeEventListener('afterprint', restore); };
++  window.addEventListener('afterprint', restore);
++}
++
+ async function boot() {
    document.getElementById('loginBox').style.display = 'none';
    document.getElementById('app').style.display = 'block';
    try {
@@ -4058,7 +4103,7 @@ index 430ff1e..ac5e22b 100644
    await load();
  }
  
-@@ -262,8 +397,22 @@ function populateFilterOptions(){
+@@ -262,8 +408,22 @@ function populateFilterOptions(){
    const fTeam = document.getElementById('fTeam');
    TEAMS.forEach(t => fTeam.insertAdjacentHTML('beforeend', `<option value="${t.id}">${t.name}</option>`));
    const fLocation = document.getElementById('fLocation');
@@ -4083,7 +4128,7 @@ index 430ff1e..ac5e22b 100644
  }
  
  function renderQuickViews(){
-@@ -275,7 +424,7 @@ function renderQuickViews(){
+@@ -275,7 +435,7 @@ function renderQuickViews(){
  function applyQuickView(key){
    activeQuickView = key;
    renderQuickViews();
@@ -4092,7 +4137,7 @@ index 430ff1e..ac5e22b 100644
      document.getElementById('fStatus').value = '';
      document.getElementById('fPriority').value = '';
    } else {
-@@ -286,8 +435,12 @@ function applyQuickView(key){
+@@ -286,8 +446,12 @@ function applyQuickView(key){
  }
  
  function clearFilters(){
@@ -4106,7 +4151,7 @@ index 430ff1e..ac5e22b 100644
    activeQuickView = '';
    renderQuickViews();
    load();
-@@ -296,8 +449,13 @@ function clearFilters(){
+@@ -296,8 +460,13 @@ function clearFilters(){
  let debounceTimer;
  function debouncedLoad(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(load, 300); }
  
@@ -4122,7 +4167,7 @@ index 430ff1e..ac5e22b 100644
  
    const params = new URLSearchParams();
    const status = document.getElementById('fStatus').value;
-@@ -305,6 +463,7 @@ async function load() {
+@@ -305,6 +474,7 @@ async function load() {
    const workType = document.getElementById('fWorkType').value;
    const location = document.getElementById('fLocation').value;
    const team = document.getElementById('fTeam').value;
@@ -4130,7 +4175,7 @@ index 430ff1e..ac5e22b 100644
    const search = document.getElementById('fSearch').value;
  
    // These quick views used to be applied client-side against whatever
-@@ -316,26 +475,46 @@ async function load() {
+@@ -316,26 +486,46 @@ async function load() {
    // the WO existed. These are now real server-side filters, so
    // pagination is applied *after* filtering and nothing gets silently
    // excluded before the client ever sees it.
@@ -4180,7 +4225,7 @@ index 430ff1e..ac5e22b 100644
  
    let wos, kpis;
    try {
-@@ -354,9 +533,51 @@ async function load() {
+@@ -354,9 +544,60 @@ async function load() {
    renderTable(sortWOs(wos));
  }
  
@@ -4196,7 +4241,10 @@ index 430ff1e..ac5e22b 100644
 +function exportInboxCsv(){
 +  const rows = sortWOs(LAST_WOS);
 +  if (!rows.length) { showToast('Nothing to export — no work orders match the current filters.', 'err'); return; }
-+  const headers = ['WO Number', 'Fiix #', 'Priority', 'Status', 'Description', 'Location', 'Team', 'Created At'];
++  // Enhancement backlog Phase 24 (found in CSV export testing, 8/1/26):
++  // added Closed At, Assigned Worker, Requester Phone, and POC Name/Phone.
++  const headers = ['WO Number', 'Fiix #', 'Priority', 'Status', 'Description', 'Location', 'Team',
++    'Assigned Worker', 'Requester Name', 'Requester Phone', 'POC Name', 'POC Phone', 'Created At', 'Closed At'];
 +  const lines = [headers.map(csvEscape).join(',')];
 +  for (const w of rows) {
 +    lines.push([
@@ -4207,7 +4255,13 @@ index 430ff1e..ac5e22b 100644
 +      w.description || '',
 +      w.asset ? w.asset.name : '',
 +      w.assigned_team ? w.assigned_team.name : '',
++      w.assigned_person ? w.assigned_person.name : '',
++      w.requester_name || '',
++      w.requester_phone || '',
++      w.poc_is_requester ? '' : (w.poc_name || ''),
++      w.poc_is_requester ? '' : (w.poc_phone || ''),
 +      fmtDateTime(w.created_at),
++      w.closed_at ? fmtDateTime(w.closed_at) : '',
 +    ].map(csvEscape).join(','));
 +  }
 +  const blob = new Blob([lines.join('\n')], {type: 'text/csv;charset=utf-8;'});
@@ -4233,7 +4287,7 @@ index 430ff1e..ac5e22b 100644
      case 'priority': return PRIORITY_ORDER[w.priority] ?? 99;
      case 'status': return w.status || '';
      case 'location': return (w.asset ? w.asset.name : '') || '';
-@@ -395,12 +616,17 @@ function setSort(key){
+@@ -395,12 +636,17 @@ function setSort(key){
  function renderKPIs(k){
    const items = [
      {num:k.total, lbl:'Total', key:''},
@@ -4252,7 +4306,7 @@ index 430ff1e..ac5e22b 100644
    ];
    document.getElementById('kpiRow').innerHTML = items.map(i => {
      const clickable = i.key !== null;
-@@ -413,16 +639,50 @@ function renderKPIs(k){
+@@ -413,16 +659,50 @@ function renderKPIs(k){
  }
  
  function renderTable(wos){
@@ -4309,7 +4363,7 @@ index 430ff1e..ac5e22b 100644
  }
  
  function escapeHtml(s){
-@@ -436,12 +696,59 @@ function openDrawer(html){
+@@ -436,12 +716,59 @@ function openDrawer(html){
    document.getElementById('drawer').classList.add('open');
    document.getElementById('drawerBackdrop').classList.add('open');
  }
@@ -4370,7 +4424,7 @@ index 430ff1e..ac5e22b 100644
    let w;
    try {
      w = await api('/work-orders/' + id);
-@@ -449,222 +756,374 @@ async function openWO(id){
+@@ -449,222 +776,374 @@ async function openWO(id){
      if (e.message !== 'session expired') showToast('Could not open work order: ' + e.message, 'err');
      return;
    }
@@ -4471,7 +4525,7 @@ index 430ff1e..ac5e22b 100644
 +          ${completionBadge}
 +        </a>`;
 +      }).join('') + `</div>`
-     : '';
++    : '';
 +  // Enhancement backlog Phase 15 (PRD §14#7): pin display, unblocked by
 +  // §13#14 (pin-drop on Submit WO) shipping. No pin -> no map section at
 +  // all, not a blank/broken one. "Expand" opens the point in
@@ -4483,8 +4537,8 @@ index 430ff1e..ac5e22b 100644
 +  // isn't the point of contact.
 +  const pocHtml = (!w.poc_is_requester && (w.poc_name || w.poc_phone))
 +    ? `<p style="font-size:12px;color:var(--ink-soft);margin:2px 0 0;"><strong>POC:</strong> ${escapeHtml(w.poc_name||'')} ${escapeHtml(w.poc_phone||'')}</p>`
-+    : '';
-+
+     : '';
+ 
 +  // Enhancement backlog Phase 3 (PRD §14#12): plain-text summary shown
 +  // only when printing (see the .print-only / @media print CSS) — the
 +  // editable form controls above get hidden on print instead, since a
@@ -4527,7 +4581,7 @@ index 430ff1e..ac5e22b 100644
 +      <label>Completed at <a href="https://www.openstreetmap.org/?mlat=${w.completion_latitude}&mlon=${w.completion_longitude}&zoom=17" target="_blank" rel="noopener" style="font-weight:400;font-size:12px;">Open full map ↗</a></label>
 +      <div id="drawerCompletionPinMap"></div>
 +    </div>` : '';
- 
++
    openDrawer(`
      <button class="close-btn" onclick="closeDrawer()">×</button>
      <h2>${w.wo_number}${w.external_ref ? ` <span style="font-size:12px;font-weight:400;color:var(--ink-soft);">(Fiix #${escapeHtml(w.external_ref)})</span>` : ''}</h2>
@@ -4591,13 +4645,13 @@ index 430ff1e..ac5e22b 100644
 +      <!-- Enhancement backlog Phase 1 (PRD §14#5) -->
 +      <label>Note to requestor <span style="font-weight:400;color:var(--ink-soft);">(visible to the requester when they check status)</span></label>
 +      <textarea id="dNoteToRequester" placeholder="e.g. \u201cA tech is on the way, ETA 30 min.\u201d" oninput="markDirty()" ${dis}>${escapeHtml(w.note_to_requester||'')}</textarea>
-+    </div>
-+
+     </div>
+ 
 +    <div class="drawer-group">
 +      <label>Add an internal note</label>
 +      <textarea id="dNote" placeholder="Add a note…" oninput="markDirty()" ${dis}></textarea>
-     </div>
- 
++    </div>
++
 +    <!-- Enhancement backlog Phase 13 (PRD §14#39): visual separation
 +         between the note field above and the Save/Cancel/Print row
 +         below — companion to the divider already below this row
@@ -4611,7 +4665,7 @@ index 430ff1e..ac5e22b 100644
 +        ? `<button class="btn" id="saveDrawerBtn" onclick="saveDrawer()">Save changes</button>
 +           <button class="btn btn-ghost" onclick="closeDrawer()">Cancel</button>`
 +        : `<button class="btn btn-ghost" onclick="closeDrawer()">Close</button>`}
-+      <button class="btn btn-ghost" onclick="window.print()">Print / Save as PDF</button>
++      <button class="btn btn-ghost" onclick="printDrawer(${JSON.stringify(w.wo_number)})">Print / Save as PDF</button>
 +    </div>
 +
 +    <!-- Enhancement backlog Phase 11 (PRD §14#27): visual separation
@@ -5380,7 +5434,7 @@ index c3ebaa9..cf5ff3e 100644
      resultEl.innerHTML = '<div class="field-err">Network error — try again.</div>';
    } finally {
 diff --git a/phase1/static/technician.html b/phase1/static/technician.html
-index 71d59e6..813dac5 100644
+index 71d59e6..82cc895 100644
 --- a/phase1/static/technician.html
 +++ b/phase1/static/technician.html
 @@ -3,7 +3,7 @@
@@ -5413,7 +5467,7 @@ index 71d59e6..813dac5 100644
  .status-pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:#F1EDDF;color:var(--ink-soft);}
  .empty-state{color:var(--ink-soft);text-align:center;padding:40px 12px;font-size:14px;}
  
-@@ -99,6 +100,30 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
+@@ -99,6 +100,41 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
  @media (min-width:640px){
    .wrap{padding:28px 24px 60px;}
  }
@@ -5437,14 +5491,25 @@ index 71d59e6..813dac5 100644
 +    border: none !important;
 +    transition: none !important;
 +  }
-+  #drawer .close-btn, #drawer .drawer-actions, #drawer select, #drawer textarea { display: none !important; }
++  // Bug fix (found in Dispatcher Console testing, 8/1/26): this only
++  // hid the actual <select>/<textarea> controls, leaving their <label>
++  // text (e.g. "Status Note (required when closing)", "Reassign — wrong
++  // team? Send it to the right one") printed with nothing underneath —
++  // orphaned, meaningless clutter once the control itself is gone.
++  // LOC triage's equivalent already correctly hid the whole
++  // .drawer-group section; matched here. Per explicit request: this
++  // removes the Status/status-note, Reassign, Task-to-worker, and
++  // Add-a-work-note sections from print entirely (Notes, History, and
++  // everything else stays) — the assigned worker's name still shows,
++  // now added to the print-only summary below as data instead.
++  #drawer .close-btn, #drawer .drawer-actions, #drawer .drawer-group { display: none !important; }
 +  #drawer .print-only { display: block !important; }
 +}
 +.print-only { display: none; }
  </style>
  </head>
  <body>
-@@ -115,7 +140,7 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
+@@ -115,7 +151,7 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
    <div class="topbar">
      <div>
        <p class="brand-eyebrow" id="teamLabel">Live &middot; National Jamboree Work Orders</p>
@@ -5453,10 +5518,15 @@ index 71d59e6..813dac5 100644
      </div>
      <button class="btn" onclick="logout()">Sign out</button>
    </div>
-@@ -134,10 +159,35 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
+@@ -133,11 +169,40 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
+   <div class="filters">
      <select id="fStatus" onchange="load()"><option value="">All statuses</option></select>
      <select id="fPriority" onchange="load()"><option value="">All priorities</option></select>
++    <!-- Enhancement backlog Phase 24 (found in Dispatcher Console
++         testing, 8/1/26): filter by assigned worker/team member. -->
++    <select id="fWorker" onchange="load()"><option value="">All workers</option></select>
      <input id="fSearch" placeholder="Search description or WO#…" oninput="debouncedLoad()">
++    <button class="btn btn-ghost" onclick="clearFilters()">Clear filters</button>
 +    <button class="btn btn-ghost" onclick="exportQueueCsv()">Export CSV</button>
 +  </div>
 +  <!-- Enhancement backlog Phase 12 (PRD §16#5): filter the queue by
@@ -5490,7 +5560,7 @@ index 71d59e6..813dac5 100644
    <div class="cards" id="woCards"><div class="empty-state">Loading…</div></div>
  </div>
  
-@@ -145,14 +195,45 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
+@@ -145,14 +210,49 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
  <div id="drawer"></div>
  <div id="toastStack"></div>
  
@@ -5503,6 +5573,10 @@ index 71d59e6..813dac5 100644
 +// Enhancement backlog Phase 12 (PRD §16#5): set by the LocationPicker
 +// filter's onChange; null means no location filter applied.
 +let locationFilterAssetId = null;
++// Enhancement backlog Phase 24 (found in Dispatcher Console testing,
++// 8/1/26): stored so clearFilters() can actually reset its visual
++// state, not just the underlying assetId value.
++let fLocationPicker = null;
 +// Enhancement backlog Phase 17 (PRD §17#13): holds whatever's currently
 +// loaded/filtered, for CSV export.
 +let LAST_WOS = [];
@@ -5537,7 +5611,7 @@ index 71d59e6..813dac5 100644
  const STATUS_LABELS = ["Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
  const QUICK_VIEWS = [
    {key:'', label:'All open'},
-@@ -224,6 +305,97 @@ async function login() {
+@@ -224,6 +324,131 @@ async function login() {
  }
  function logout(){ localStorage.removeItem('tech_token'); TOKEN=''; location.reload(); }
  
@@ -5551,12 +5625,22 @@ index 71d59e6..813dac5 100644
 +
 +function exportQueueCsv(){
 +  if (!LAST_WOS.length) { showToast('Nothing to export — no work orders match the current filters.', 'err'); return; }
-+  const headers = ['WO Number', 'Priority', 'Status', 'Description', 'Location', 'Created At'];
++  // Enhancement backlog Phase 24 (found in CSV export testing, 8/1/26):
++  // added Closed At, Assigned Worker, Requester Phone, and POC Name/Phone.
++  const headers = ['WO Number', 'Priority', 'Status', 'Description', 'Location', 'Assigned Worker',
++    'Requester Name', 'Requester Phone', 'POC Name', 'POC Phone', 'Created At', 'Closed At'];
 +  const lines = [headers.map(csvEscape).join(',')];
 +  for (const w of LAST_WOS) {
 +    lines.push([
 +      w.wo_number, w.priority, w.status, w.description || '',
-+      w.asset ? w.asset.name : '', fmtDateTime(w.created_at),
++      w.asset ? w.asset.name : '',
++      w.assigned_person ? w.assigned_person.name : '',
++      w.requester_name || '',
++      w.requester_phone || '',
++      w.poc_is_requester ? '' : (w.poc_name || ''),
++      w.poc_is_requester ? '' : (w.poc_phone || ''),
++      fmtDateTime(w.created_at),
++      w.closed_at ? fmtDateTime(w.closed_at) : '',
 +    ].map(csvEscape).join(','));
 +  }
 +  const blob = new Blob([lines.join('\n')], {type: 'text/csv;charset=utf-8;'});
@@ -5602,6 +5686,17 @@ index 71d59e6..813dac5 100644
 +        </div>
 +      `).join('')
 +    : '<div class="empty-state" style="padding:6px 0;">No workers yet — add one below.</div>';
++
++  // Enhancement backlog Phase 24 (found in Dispatcher Console testing,
++  // 8/1/26): filter-by-worker dropdown, populated alongside the My
++  // Workers panel since it's the same underlying data.
++  const workerSel = document.getElementById('fWorker');
++  if (workerSel) {
++    const currentVal = workerSel.value;
++    workerSel.innerHTML = '<option value="">All workers</option><option value="unassigned">Unassigned</option>' +
++      MY_WORKERS.map(w => `<option value="${w.id}">${escapeHtml(w.name)}</option>`).join('');
++    workerSel.value = currentVal;
++  }
 +}
 +
 +async function addWorker(){
@@ -5632,10 +5727,23 @@ index 71d59e6..813dac5 100644
 +  }
 +}
 +
++// Bug fix (found in Dispatcher Console testing, 8/1/26): browsers
++// suggest document.title as the default filename in the "Save as PDF"
++// print destination — set it to something meaningful right before
++// printing, restore it once the print dialog closes ('afterprint'
++// fires reliably whether the user actually printed or cancelled).
++function printDrawer(woNumber){
++  const originalTitle = document.title;
++  document.title = `NJ WO Details #${woNumber}`;
++  window.print();
++  const restore = () => { document.title = originalTitle; window.removeEventListener('afterprint', restore); };
++  window.addEventListener('afterprint', restore);
++}
++
  async function boot() {
    try {
      ME = await api('/auth/me');
-@@ -244,6 +416,10 @@ async function boot() {
+@@ -244,6 +469,10 @@ async function boot() {
      showToast('Could not load teams: ' + e.message, 'err');
      return;
    }
@@ -5646,7 +5754,7 @@ index 71d59e6..813dac5 100644
  
    if (ME.role === 'tech') {
      scopeTeamId = ME.team ? ME.team.id : null;
-@@ -252,6 +428,10 @@ async function boot() {
+@@ -252,6 +481,10 @@ async function boot() {
      if (!scopeTeamId) {
        showToast('Your account has no team assigned — contact the LOC to get set up.', 'err');
      }
@@ -5657,7 +5765,7 @@ index 71d59e6..813dac5 100644
    } else {
      document.getElementById('teamLabel').textContent = 'LOC/admin view · ' + ME.name;
      document.getElementById('teamSelectWrap').style.display = 'block';
-@@ -263,6 +443,21 @@ async function boot() {
+@@ -263,6 +496,21 @@ async function boot() {
  
    populateFilterOptions();
    renderQuickViews();
@@ -5666,7 +5774,7 @@ index 71d59e6..813dac5 100644
 +  // location tree fails to load, the filter just isn't offered rather
 +  // than blocking the rest of the queue from loading.
 +  try {
-+    LocationPicker.mount(document.getElementById('fLocationPicker'), {
++    fLocationPicker = LocationPicker.mount(document.getElementById('fLocationPicker'), {
 +      treeUrl: '/locations/tree',
 +      fetchOpts: { headers: { Authorization: 'Bearer ' + TOKEN } },
 +      placeholder: 'Filter by location…',
@@ -5679,23 +5787,95 @@ index 71d59e6..813dac5 100644
    await load();
  }
  
-@@ -309,6 +504,7 @@ async function load() {
+@@ -294,6 +542,34 @@ function applyQuickView(key){
+ let debounceTimer;
+ function debouncedLoad(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(load, 300); }
+ 
++// Enhancement backlog Phase 24 (found in Dispatcher Console testing,
++// 8/1/26): LOC triage and both HQ dashboards already had this; the
++// Dispatcher Console never did.
++function clearFilters(){
++  ['fStatus', 'fPriority', 'fWorker'].forEach(id => {
++    const el = document.getElementById(id);
++    if (el) el.value = '';
++  });
++  document.getElementById('fSearch').value = '';
++  if (fLocationPicker) fLocationPicker.setValue(null, null);
++  locationFilterAssetId = null;
++  activeQuickView = '';
++  renderQuickViews();
++  load();
++}
++
++// Bug fix (found in Dispatcher Console testing, 8/1/26): this screen
++// never had auto-refresh at all — a saved change (by this Dispatcher or
++// anyone else on the team) only showed up after a manual page reload.
++// Same quiet-refresh/paused-while-editing principle as LOC triage and
++// the worker app: skipped while the drawer is open so a background
++// refresh can't disrupt someone mid-edit.
++setInterval(() => {
++  if (!TOKEN) return;
++  if (document.getElementById('drawer').classList.contains('open')) return;
++  load();
++}, 30000);
++
+ async function load() {
+   if (!scopeTeamId) {
+     document.getElementById('woCards').innerHTML = '<div class="empty-state">No team to show a queue for.</div>';
+@@ -306,14 +582,40 @@ async function load() {
+   const status = document.getElementById('fStatus').value;
+   const priority = document.getElementById('fPriority').value;
+   const search = document.getElementById('fSearch').value;
++  const worker = document.getElementById('fWorker') ? document.getElementById('fWorker').value : '';
    if (status) params.set('status', status);
    if (priority) params.set('priority', priority);
    if (search) params.set('search', search);
 +  if (locationFilterAssetId) params.set('asset_id', locationFilterAssetId);
++  // Enhancement backlog Phase 24 (found in Dispatcher Console testing,
++  // 8/1/26): filter the queue to a specific assigned worker (or
++  // "Unassigned"). assigned_person_id already existed as a backend
++  // filter param (used server-side for the task_worker role's own
++  // forced scoping) — this is the first UI to actually offer it as a
++  // voluntary filter.
++  if (worker === 'unassigned') params.set('unassigned_person', 'true');
++  else if (worker) params.set('assigned_person_id', worker);
    params.set('limit', '200');
  
-   let wos;
-@@ -326,6 +522,7 @@ async function load() {
+-  let wos;
++  // Bug fix (found in Dispatcher Console testing, 8/1/26): the stat
++  // tiles (New/In progress/On hold/High Urgency) used to be computed
++  // from this same filtered fetch — applying any filter shrank the
++  // tiles along with the queue list, when they're supposed to always
++  // reflect the whole team's queue regardless of what's filtered below.
++  // Fetched here as a genuinely separate, filter-independent request
++  // (team_id only), same principle already applied to the Program HQ/
++  // Contingent Ops HQ dashboards' KPI tiles (§17#14 follow-up).
++  const statsParams = new URLSearchParams();
++  statsParams.set('team_id', scopeTeamId);
++  statsParams.set('exclude_closed', 'true');
++  statsParams.set('limit', '2000');
++
++  let wos, statsWos;
+   try {
+-    wos = await api('/work-orders?' + params.toString());
++    [wos, statsWos] = await Promise.all([
++      api('/work-orders?' + params.toString()),
++      api('/work-orders?' + statsParams.toString()),
++    ]);
+   } catch (e) {
+     if (e.message !== 'session expired') showToast('Could not load queue: ' + e.message, 'err');
+     document.getElementById('woCards').innerHTML = '<div class="empty-state">Could not load the queue.</div>';
+@@ -326,7 +628,8 @@ async function load() {
      wos = wos.filter(w => !w.status.startsWith('Closed'));
    }
  
+-  renderStats(wos);
 +  LAST_WOS = wos;
-   renderStats(wos);
++  renderStats(statsWos);
    renderCards(wos);
  }
-@@ -335,7 +532,13 @@ function renderStats(wos){
+ 
+@@ -335,10 +638,16 @@ function renderStats(wos){
    const inProgress = wos.filter(w => w.status === 'Work In Progress').length;
    const onHold = wos.filter(w => w.status === 'On Hold').length;
    const newAssigned = wos.filter(w => w.status === 'Assigned').length;
@@ -5709,8 +5889,12 @@ index 71d59e6..813dac5 100644
 +    ['Immediate','Same Day'].includes(w.priority)).length;
    const items = [
      {n: newAssigned, l:'New'}, {n: inProgress, l:'In progress'},
-     {n: onHold, l:'On hold'}, {n: highestHigh, l:'High priority open'},
-@@ -346,33 +549,81 @@ function renderStats(wos){
+-    {n: onHold, l:'On hold'}, {n: highestHigh, l:'High priority open'},
++    {n: onHold, l:'On hold'}, {n: highestHigh, l:'High Urgency'},
+   ];
+   document.getElementById('statRow').innerHTML = items.map(i =>
+     `<div class="stat"><div class="num">${i.n}</div><div class="lbl">${i.l}</div></div>`
+@@ -346,33 +655,81 @@ function renderStats(wos){
  }
  
  function renderCards(wos){
@@ -5798,7 +5982,7 @@ index 71d59e6..813dac5 100644
    document.getElementById('drawer').classList.remove('open');
    document.getElementById('drawerBackdrop').classList.remove('open');
  }
-@@ -385,55 +636,155 @@ async function openDetail(id){
+@@ -385,55 +742,161 @@ async function openDetail(id){
      if (e.message !== 'session expired') showToast('Could not load work order: ' + e.message, 'err');
      return;
    }
@@ -5826,6 +6010,7 @@ index 71d59e6..813dac5 100644
 -    <div class="note">${escapeHtml(n.note_text)}
 -      <div class="meta">${n.note_type} &middot; ${n.author ? escapeHtml(n.author.name) : 'system'} &middot; ${new Date(n.created_at).toLocaleString()}</div>
 -    </div>`).join('') || '<div class="empty-state" style="padding:10px 0;">No notes yet.</div>';
+-
 +  // Enhancement backlog Phase 21 (PRD §17#10): assign this WO to a
 +  // specific worker on my team — tech (Dispatcher) role only, and only
 +  // once MY_WORKERS has loaded (boot() loads it for tech role). Saved
@@ -5855,10 +6040,13 @@ index 71d59e6..813dac5 100644
 +      <div class="meta">${n.note_type} &middot; ${n.author ? escapeHtml(n.author.name) : 'system'} &middot; ${fmtDateTime(n.created_at)}</div>
 +    </div>`;
 +  }).join('') || '<div class="empty-state" style="padding:10px 0;">No notes yet.</div>';
- 
++
++  // Bug fix (found in Dispatcher Console testing, 8/1/26): this never
++  // showed who made each change — LOC triage's equivalent already did
++  // (h.changed_by_name). Matched here.
    const histHtml = w.history.slice().reverse().map(h => `
 -    <div class="hist">${h.event_type}: ${h.from_value ? escapeHtml(h.from_value) + ' → ' : ''}${escapeHtml(h.to_value)} &middot; ${new Date(h.changed_at).toLocaleString()}</div>
-+    <div class="hist">${h.event_type}: ${h.from_value ? escapeHtml(h.from_value) + ' → ' : ''}${escapeHtml(h.to_value)} &middot; ${fmtDateTime(h.changed_at)}</div>
++    <div class="hist">${h.event_type}: ${h.from_value ? escapeHtml(h.from_value) + ' → ' : ''}${escapeHtml(h.to_value)}${h.changed_by_name ? ' &middot; ' + escapeHtml(h.changed_by_name) : ''} &middot; ${fmtDateTime(h.changed_at)}</div>
    `).join('') || '<div class="empty-state" style="padding:10px 0;">No history yet.</div>';
  
 +  // Enhancement backlog Phase 12 (PRD §16#2): submitted photos/PDFs,
@@ -5912,6 +6100,9 @@ index 71d59e6..813dac5 100644
 +      <p><strong>Location:</strong> ${escapeHtml(w.asset ? w.asset.name : '—')}</p>
 +      <p><strong>Work type:</strong> ${escapeHtml(w.work_type || '—')} &nbsp; <strong>Priority:</strong> ${escapeHtml(w.priority)}</p>
 +      <p><strong>Status:</strong> ${escapeHtml(w.status)} &nbsp; <strong>Team:</strong> ${escapeHtml(w.assigned_team ? w.assigned_team.name : '—')}</p>
++      <!-- Bug fix (found in Dispatcher Console testing, 8/1/26): the
++           assigned worker wasn't shown anywhere in the print output. -->
++      <p><strong>Assigned worker:</strong> ${escapeHtml(w.assigned_person ? w.assigned_person.name : '—')}</p>
 +      <p><strong>Description:</strong><br>${escapeHtml(w.description)}</p>
 +      ${hasPin ? `<div style="margin-top:10px;"><strong>Scan for exact location:</strong><br><div id="qrCodeContainer"></div></div>` : ''}
 +      <p style="font-size:11px;color:#666;">Printed ${fmtDateTime(new Date().toISOString())}</p>
@@ -5971,11 +6162,11 @@ index 71d59e6..813dac5 100644
 +    <div class="drawer-actions" style="margin-top:8px;">
 +      <button class="btn" id="saveDrawerBtn" onclick="saveDrawer()">Save changes</button>
 +      <button class="btn btn-ghost" onclick="closeDrawer()">Cancel</button>
-+      <button class="btn btn-ghost" onclick="window.print()">Print / Save as PDF</button>
++      <button class="btn btn-ghost" onclick="printDrawer('${escapeHtml(w.wo_number)}')">Print / Save as PDF</button>
      </div>
  
      <div class="section-title" style="margin-top:20px;">Notes</div>
-@@ -441,73 +792,89 @@ async function openDetail(id){
+@@ -441,73 +904,89 @@ async function openDetail(id){
      <div class="section-title">History</div>
      ${histHtml}
    `);
@@ -7172,7 +7363,7 @@ index 2d39355..e4da108 100644
      )
      wo = resp.json()
 diff --git a/phase1/tests/test_work_order_listing.py b/phase1/tests/test_work_order_listing.py
-index 9ef1271..af0e6e9 100644
+index 9ef1271..058500a 100644
 --- a/phase1/tests/test_work_order_listing.py
 +++ b/phase1/tests/test_work_order_listing.py
 @@ -23,11 +23,11 @@ def _make_wo(db, asset, priority, created_at):
@@ -7294,7 +7485,7 @@ index 9ef1271..af0e6e9 100644
          headers=auth_headers,
      ).json()
  
-@@ -111,16 +152,16 @@ def test_router_opened_today_param(client, auth_headers, asset):
+@@ -111,16 +152,77 @@ def test_router_opened_today_param(client, auth_headers, asset):
  def test_router_priority_in_param(client, auth_headers, asset):
      highest = client.post(
          "/work-orders",
@@ -7314,3 +7505,64 @@ index 9ef1271..af0e6e9 100644
      ids = [w["id"] for w in resp.json()]
      assert highest["id"] in ids
      assert medium["id"] not in ids
++
++
++# ---- Enhancement backlog Phase 24 (found in Dispatcher/CSV testing, 8/1/26) ----
++
++def test_list_endpoint_exposes_requester_and_poc_fields(client, auth_headers, asset):
++    """Bug fix: these were only ever on WorkOrderDetail, so the CSV
++    exports (which use the list endpoint) couldn't include them without
++    a detail request per row."""
++    resp = client.post(
++        "/work-orders",
++        json={
++            "requester_name": "Scout Leader", "requester_phone": "555-0100",
++            "asset_id": asset.id, "description": "x", "priority": "Next Day",
++            "poc_is_requester": False, "poc_name": "Camp Director", "poc_phone": "555-0200",
++        },
++        headers=auth_headers,
++    )
++    wo_id = resp.json()["id"]
++
++    listed = client.get("/work-orders", headers=auth_headers).json()
++    row = next(w for w in listed if w["id"] == wo_id)
++    assert row["requester_name"] == "Scout Leader"
++    assert row["requester_phone"] == "555-0100"
++    assert row["poc_is_requester"] is False
++    assert row["poc_name"] == "Camp Director"
++    assert row["poc_phone"] == "555-0200"
++
++
++def test_list_endpoint_exposes_closed_at(client, auth_headers, wo_payload):
++    wo = client.post("/work-orders", json=wo_payload, headers=auth_headers).json()
++    listed = client.get("/work-orders", headers=auth_headers).json()
++    row = next(w for w in listed if w["id"] == wo["id"])
++    assert row["closed_at"] is None
++
++    client.post(f"/work-orders/{wo['id']}/status", json={"status": "Closed, Completed", "note": "done"}, headers=auth_headers)
++    listed2 = client.get("/work-orders", headers=auth_headers).json()
++    row2 = next(w for w in listed2 if w["id"] == wo["id"])
++    assert row2["closed_at"] is not None
++
++
++def test_list_endpoint_exposes_assigned_person(client, auth_headers, wo_payload, team, db):
++    worker, _ = crud.create_task_worker(db, team.id, schemas.TaskWorkerCreate(name="Riley"))
++    wo = client.post("/work-orders", json=wo_payload, headers=auth_headers).json()
++    client.post(f"/work-orders/{wo['id']}/assign", json={"team_id": team.id, "person_id": worker.id}, headers=auth_headers)
++
++    listed = client.get("/work-orders", headers=auth_headers).json()
++    row = next(w for w in listed if w["id"] == wo["id"])
++    assert row["assigned_person"]["name"] == "Riley"
++
++
++def test_unassigned_person_filter(client, auth_headers, wo_payload, team, db):
++    worker, _ = crud.create_task_worker(db, team.id, schemas.TaskWorkerCreate(name="Riley"))
++    tasked = client.post("/work-orders", json=wo_payload, headers=auth_headers).json()
++    client.post(f"/work-orders/{tasked['id']}/assign", json={"team_id": team.id, "person_id": worker.id}, headers=auth_headers)
++    not_tasked = client.post("/work-orders", json=wo_payload, headers=auth_headers).json()
++    client.post(f"/work-orders/{not_tasked['id']}/assign", json={"team_id": team.id}, headers=auth_headers)
++
++    resp = client.get("/work-orders", params={"unassigned_person": "true", "team_id": team.id}, headers=auth_headers)
++    ids = {w["id"] for w in resp.json()}
++    assert not_tasked["id"] in ids
++    assert tasked["id"] not in ids
