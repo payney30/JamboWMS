@@ -1,10 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+import os
+import uuid
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 from typing import Optional
 
 from .. import crud, schemas, models
 from ..database import get_db
 from ..auth import require_roles, get_current_user
+from .public import UPLOAD_DIR, ALLOWED_CONTENT_TYPES, MAX_FILE_BYTES
 
 router = APIRouter(prefix="/work-orders", tags=["work-orders"])
 
@@ -30,9 +33,17 @@ def _get_wo_or_404(db: Session, wo_id: int) -> models.WorkOrder:
 def _enforce_team_scope(wo: models.WorkOrder, user: models.User):
     """A tech can only touch a WO currently assigned to their own team —
     this is the server-side backing for PRD 4.3's 'each team sees only
-    their queue.' LOC/admin are unrestricted."""
+    their queue.' LOC/admin are unrestricted.
+
+    Enhancement backlog Phase 21 (PRD §17#10): a Task Worker is scoped
+    one level narrower still — only a WO assigned to *them personally*,
+    not just their team. Checked here (not a separate function) so
+    every existing caller of this — get_work_order, status changes,
+    etc. — picks up the restriction automatically."""
     if user.role == "tech" and wo.assigned_team_id != user.team_id:
         raise HTTPException(403, "this work order is not assigned to your team")
+    if user.role == "task_worker" and wo.assigned_person_id != user.id:
+        raise HTTPException(403, "this work order is not assigned to you")
 
 
 def _enforce_not_locked(wo: models.WorkOrder, user: models.User):
@@ -89,6 +100,14 @@ def list_work_orders(
     # the query string — the server, not the frontend, owns this boundary.
     if user.role == "tech":
         team_id = user.team_id
+    # Enhancement backlog Phase 21 (PRD §17#10): same principle, one
+    # level narrower — a Task Worker only ever sees WOs assigned to them
+    # personally, never their whole team's queue (that's the Dispatcher's
+    # view). assigned_person_id is a query param a client *could* try to
+    # pass, but it's always overridden to the caller's own id here.
+    assigned_person_id = None
+    if user.role == "task_worker":
+        assigned_person_id = user.id
     priority_list = [p.strip() for p in priority_in.split(",")] if priority_in else None
     return crud.list_work_orders(
         db, status=status, priority=priority, team_id=team_id,
@@ -96,6 +115,7 @@ def list_work_orders(
         exclude_closed=exclude_closed, closed_only=closed_only, priority_in=priority_list,
         opened_today=opened_today, closed_today=closed_today, handled_by=handled_by,
         approaching_deadline=approaching_deadline, past_deadline=past_deadline,
+        assigned_person_id=assigned_person_id,
         limit=limit, offset=offset,
     )
 
@@ -227,3 +247,44 @@ def save_work_order(wo_id: int, payload: schemas.WorkOrderSaveRequest,
         raise HTTPException(403, "instructions are LOC-authored; technicians can add work notes")
 
     return crud.save_work_order(db, wo, payload, changed_by=user.id)
+
+
+# ---- Enhancement backlog Phase 21 (PRD §17#10): Task Team assignment ----
+
+task_worker_only = require_roles("task_worker")
+
+
+@router.post("/{wo_id}/complete", response_model=schemas.WorkOrderDetail)
+def complete_work_order(wo_id: int, payload: schemas.CompleteWorkOrderRequest,
+                         db: Session = Depends(get_db),
+                         user: models.User = Depends(task_worker_only)):
+    """The 'simple Completed button' — a Task Worker's single-action way
+    to close out their own assigned WO. Locking (§14#1) doesn't apply
+    here — that's a LOC/tech edit-drawer concept for the fuller editing
+    surface, not this narrower action."""
+    wo = _get_wo_or_404(db, wo_id)
+    _enforce_team_scope(wo, user)  # covers the task_worker "must be assigned to me" check
+    return crud.complete_work_order(db, wo, payload, changed_by=user.id)
+
+
+@router.post("/{wo_id}/attachments", response_model=schemas.AttachmentOut, status_code=201)
+async def upload_completion_photo(wo_id: int, file: UploadFile = File(...),
+                                   db: Session = Depends(get_db),
+                                   user: models.User = Depends(task_worker_only)):
+    """A Task Worker's completion photo — deliberately its own endpoint
+    (not reusing the public submission upload path) since it's
+    authenticated, scoped to the worker's own assigned WO, and always
+    tagged stage='completion'. Same validation (allowed types, size
+    limit) as the public upload."""
+    wo = _get_wo_or_404(db, wo_id)
+    _enforce_team_scope(wo, user)
+    if file.content_type not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(400, "unsupported file type")
+    contents = await file.read()
+    if len(contents) > MAX_FILE_BYTES:
+        raise HTTPException(400, "file too large (10 MB max)")
+    ext = os.path.splitext(file.filename or "")[1][:10]
+    safe_name = f"{wo.wo_number}-completion-{uuid.uuid4().hex}{ext}"
+    with open(os.path.join(UPLOAD_DIR, safe_name), "wb") as out:
+        out.write(contents)
+    return crud.add_attachment(db, wo, f"/uploads/{safe_name}", uploaded_by=user.id, stage="completion")

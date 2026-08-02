@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from .. import crud, models, rate_limit, schemas
 from ..database import get_db
+from ..auth import create_access_token
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -336,3 +337,46 @@ def public_dashboard_trend(
     # uses without pulling in Query for one parameter.
     days = max(1, min(days, 90))
     return crud.get_daily_trend(db, scope="main", days=days)
+
+
+# ---------------------------------------------------------------------------
+# Enhancement backlog Phase 21 (PRD §17#10): Task Worker PIN login flow.
+# Unauthenticated by necessity (the worker hasn't logged in yet) — but
+# every response here is deliberately minimal: team names, worker names,
+# and (only on successful login) a JWT. No PINs, no WO data, nothing
+# else is ever exposed through this flow. Rate-limited the same way the
+# phone-based status lookup is, same reasoning as the public dashboard
+# endpoints above — an unauthenticated endpoint that accepts a guessable
+# secret (a 4-digit PIN) absolutely needs a brute-force backstop.
+# ---------------------------------------------------------------------------
+
+@router.get("/worker-login/teams", response_model=list[schemas.TeamOut])
+def worker_login_teams(db: Session = Depends(get_db)):
+    return db.query(models.Team).filter(models.Team.is_active == True).order_by(models.Team.name).all()  # noqa: E712
+
+
+@router.get("/worker-login/workers", response_model=list[schemas.TaskWorkerOut])
+def worker_login_workers(team_id: int, db: Session = Depends(get_db)):
+    """Names only, for the worker-login page's 'pick who you are' step
+    — never includes a PIN or anything else. A worker still needs to
+    know their own PIN to actually log in; this just saves them from
+    typing their own name exactly right."""
+    return crud.list_task_workers(db, team_id)
+
+
+@router.post("/worker-login")
+def worker_login(request: Request, payload: schemas.WorkerLoginRequest, db: Session = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+    retry_after = rate_limit.check_public_lookup_limit(client_ip)
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many attempts from this connection. Please wait a few minutes and try again.",
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
+    rate_limit.record_public_lookup(client_ip)
+
+    worker = crud.verify_worker_login(db, payload.worker_id, payload.pin)
+    if not worker:
+        raise HTTPException(401, "incorrect PIN")
+    return {"access_token": create_access_token(worker.id), "token_type": "bearer"}
