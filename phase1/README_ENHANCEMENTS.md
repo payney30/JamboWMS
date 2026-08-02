@@ -1,49 +1,77 @@
-# Print Output Consistency Fixes
+# SMS + Email Notifications (Phase 25)
 
 Full cumulative state. No new migration this round.
 
-## The real bug, found from your actual PDFs
+## What this is
 
-Your uploaded PDFs caught something code review alone would have
-missed: the previous round's "hide the drawer-group sections from
-print" fix on Dispatcher Console had NOT actually worked, despite
-reading correctly in the source.
+Submission / Work In Progress / Closed notifications via Twilio (SMS)
+and SendGrid (email), to the requester and, if a distinct one exists,
+the POC. Worker-assignment notification (the 4th trigger discussed
+earlier) was explicitly descoped, not deferred - internal to the team,
+the requester doesn't need it.
 
-Root cause, found twice in the same spot:
-1. The print-hiding CSS rule had been written using JavaScript-style
-   "//" line comments inside a style block - not valid CSS syntax
-   (CSS only has block comments) - which silently broke the stylesheet
-   parser and meant the actual hiding rule never took effect.
-2. Converting to a real CSS comment should have fixed it, except that
-   comment's own explanatory text happened to describe the comment
-   syntax by literally writing out the comment-close sequence as an
-   example - which closed the comment early and turned the rest of the
-   explanation into garbage CSS, breaking the parser a second time.
+## New dependencies
 
-Fixed properly this time, and actually verified with a headless-browser
-print-media render (not just a read-through) that the target elements
-compute to display:none under print media before calling it done.
+    twilio==9.10.9
+    sendgrid==6.12.5
 
-## Print output made consistent between LOC triage and Dispatcher Console
+Added to requirements.txt - Render will install these automatically on
+next deploy.
 
-Comparing your two actual PDFs side by side surfaced real gaps:
+## New environment variables (see render.yaml)
 
-- Dispatcher Console's print output never included requester
-  name/email/phone or POC info at all (LOC triage's did). Added the
-  same always-visible requester/POC header block to Dispatcher
-  Console, matching LOC triage's exact pattern - so it's consistent
-  live on-screen too, not just on paper.
-- LOC triage's print output was missing "Assigned worker."
-- Dispatcher Console's print output was missing "Note to requestor."
+**Secrets - set these in Render's dashboard (Environment tab), NOT in
+render.yaml:**
+- TWILIO_ACCOUNT_SID
+- TWILIO_AUTH_TOKEN
+- TWILIO_FROM_NUMBER
+- SENDGRID_API_KEY
 
-Both fixed - both screens' print output now shows the same field set.
+**Not secrets - already filled in in render.yaml:**
+- SENDGRID_FROM_EMAIL = graeme@cybersecurity4executives.com
+- SENDGRID_FROM_NAME = JamboWMS
+- SENDGRID_REPLY_TO = marketing@cybersecurity4executives.com
 
-## PDF filename, per your request
+**Kill switch - defaults to disabled:**
+- NOTIFICATIONS_ENABLED = "false" (set to "true" in Render's dashboard
+  once ready to actually send real messages)
 
-- LOC triage's saved PDF now titles as "NJ LOC - Detailed WO#[number]"
-- Dispatcher Console's as "NJ Dispatcher - Detailed WO#[number]"
-  (parallel convention, screen-specific text so it's still clear which
-  screen a saved PDF came from)
+## Built for easy swap-out later
+
+Everything reads from environment variables at call time - nothing
+hardcoded or cached at import. Switching from the trial Twilio/SendGrid
+accounts to production ones later is purely an env var update in
+Render's dashboard, no code change or redeploy needed. A full provider
+swap (different SMS/email vendor entirely) would only mean rewriting
+the two send functions in app/notifications.py - every call site
+elsewhere in the app stays untouched either way.
+
+## How it works
+
+- **Fire-and-forget**: every send happens on a background thread and
+  never raises - a WO submission or status change is never delayed or
+  failed by a slow or down notification provider.
+- **Trigger points**: work order submission, status change to Work In
+  Progress, status change to Closed (either sub-status), including the
+  worker's "Completed" button path.
+- **Respects notify_preference**: only sends if the requester opted in
+  (email / text / both) at submission - no preference on file means no
+  notification.
+- **POC gets texted too** (if distinct from the requester and a phone
+  number was given) - but never emailed, since the data model has no
+  POC email field at all.
+- **Guarded against duplicate sends**: re-saving the same status, or a
+  worker double-tapping "Mark completed," won't re-send a notification
+  that already went out.
+
+## SendGrid setup note
+
+Domain authentication for cybersecurity4executives.com hit a DNS
+mismatch during setup (a stale CNAME record in Squarespace from an
+earlier authentication attempt). Single Sender Verification was used
+in the meantime so this build wasn't blocked on DNS propagation -
+worth finishing domain authentication when you have a few minutes, but
+not required for sending to work.
 
 ## How to apply
 
@@ -64,31 +92,37 @@ Both fixed - both screens' print output now shows the same field set.
     #   tests/test_enhancement_phase15.py
     #   tests/test_enhancement_phase20.py
     #   tests/test_enhancement_phase21.py
+    #   tests/test_enhancement_phase25.py
     alembic upgrade head
 
 No new migration this round.
 
-## Verify after deploying
+**After deploying, set the 4 secret env vars in Render's dashboard**
+(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER,
+SENDGRID_API_KEY) - the app will run fine without them (notifications
+just silently no-op), but nothing will actually send until they're set
+AND NOTIFICATIONS_ENABLED is flipped to "true".
 
-This is the important one - please actually print/save a PDF from both
-screens this time (not just check on-screen) and confirm:
+## Verify after deploying and enabling
 
-1. Dispatcher Console's PDF: no Status/Note/Reassign/Task-to-worker
-   text boxes or buttons anywhere - just the clean summary, Notes, and
-   History.
-2. Dispatcher Console's PDF now shows requester name/email/phone and
-   POC (if applicable) - both on screen and in the printed output.
-3. LOC triage's PDF now shows "Assigned worker."
-4. Dispatcher Console's PDF now shows "Note to requestor" when one
-   exists.
-5. Save-as-PDF from LOC triage suggests filename "NJ LOC - Detailed
-   WO#[number]"; from Dispatcher Console, "NJ Dispatcher - Detailed
-   WO#[number]".
+1. Set NOTIFICATIONS_ENABLED=true and the 4 secrets in Render.
+2. Submit a test WO with your own (Twilio-trial-verified) phone number
+   and notify_preference set to "both" - confirm you get both a text
+   and an email.
+3. Move it to Work In Progress - confirm a second notification.
+4. Close it - confirm a third.
+5. Try a WO with a distinct POC phone number - confirm the POC also
+   gets texted (never emailed).
+6. Try re-saving the same status without changing it - confirm NO
+   duplicate notification.
+
+Remember: on a Twilio trial account, SMS only works to phone numbers
+you've manually verified in the Twilio console first.
 
 ## Test status
 
-**292 passing, 0 failing** - unchanged (these were frontend/CSS/print
-fixes; automated tests can't easily catch print-CSS regressions like
-this one, which is exactly why I verified this round with an actual
-headless-browser print-media render rather than trusting the source
-read-through).
+**313 passing, 0 failing** - fully green. Added 21 new tests, all
+mocked (no real Twilio/SendGrid calls needed) - provider-call
+correctness, the kill switch, the email/text/both decision logic, the
+POC-texted-never-emailed behavior, and that every actual crud.py
+trigger point fires (or correctly doesn't, for no-op transitions).

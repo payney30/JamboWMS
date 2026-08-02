@@ -1,8 +1,8 @@
 diff --git a/phase1/app/crud.py b/phase1/app/crud.py
-index ec75c56..6b1ab99 100644
+index ec75c56..4e36d88 100644
 --- a/phase1/app/crud.py
 +++ b/phase1/app/crud.py
-@@ -8,25 +8,45 @@ mutation later, ask "does this need a history row?" before wiring it up.
+@@ -8,25 +8,46 @@ mutation later, ask "does this need a history row?" before wiring it up.
  """
  import datetime as dt
  import secrets
@@ -15,6 +15,7 @@ index ec75c56..6b1ab99 100644
  from . import models, schemas
 -from .auth import hash_password
 +from .auth import hash_password, verify_password
++from . import notifications
  
  # Lower rank = higher priority = sorts first. Ties (an unrecognized value,
  # which the CHECK constraint shouldn't allow, but belt-and-suspenders)
@@ -55,7 +56,7 @@ index ec75c56..6b1ab99 100644
  def build_location_tree(db: Session, include_inactive: bool = False) -> list[dict]:
      """Reconstruct the nested location hierarchy (PRD 4.2a) from the flat
      assets table. Every Asset row (branch, camp, subcamp, shower house,
-@@ -67,9 +87,45 @@ def build_location_tree(db: Session, include_inactive: bool = False) -> list[dic
+@@ -67,9 +88,45 @@ def build_location_tree(db: Session, include_inactive: bool = False) -> list[dic
  
  
  def _next_wo_number(db: Session) -> str:
@@ -104,7 +105,7 @@ index ec75c56..6b1ab99 100644
  
  
  def _validate_work_type(db: Session, work_type: str):
-@@ -87,11 +143,35 @@ def _validate_work_type(db: Session, work_type: str):
+@@ -87,11 +144,35 @@ def _validate_work_type(db: Session, work_type: str):
          raise HTTPException(400, f"invalid or inactive request type: {work_type}")
  
  
@@ -140,7 +141,7 @@ index ec75c56..6b1ab99 100644
  
      wo = models.WorkOrder(
          wo_number=_next_wo_number(db),
-@@ -107,6 +187,8 @@ def create_work_order(db: Session, payload: schemas.WorkOrderCreate) -> models.W
+@@ -107,6 +188,8 @@ def create_work_order(db: Session, payload: schemas.WorkOrderCreate) -> models.W
          priority=payload.priority,
          notify_preference=payload.notify_preference,
          external_ref=payload.external_ref,
@@ -149,7 +150,15 @@ index ec75c56..6b1ab99 100644
          status="Requested",
      )
      db.add(wo)
-@@ -125,11 +207,16 @@ def create_work_order(db: Session, payload: schemas.WorkOrderCreate) -> models.W
+@@ -121,15 +204,24 @@ def create_work_order(db: Session, payload: schemas.WorkOrderCreate) -> models.W
+     ))
+     db.commit()
+     db.refresh(wo)
++    # Enhancement backlog Phase 25 (PRD §17#6-8): fire-and-forget,
++    # never affects this function's return or timing even if a
++    # provider is slow/down — see notifications.py.
++    notifications.notify_work_order_event(wo, "submitted")
+     return wo
  
  
  def add_attachment(db: Session, wo: models.WorkOrder, file_url: str,
@@ -169,7 +178,7 @@ index ec75c56..6b1ab99 100644
      db.add(att)
      db.commit()
      db.refresh(att)
-@@ -137,11 +224,23 @@ def add_attachment(db: Session, wo: models.WorkOrder, file_url: str,
+@@ -137,11 +229,23 @@ def add_attachment(db: Session, wo: models.WorkOrder, file_url: str,
  
  
  def update_work_order_fields(db: Session, wo: models.WorkOrder, payload: schemas.WorkOrderUpdate,
@@ -197,7 +206,7 @@ index ec75c56..6b1ab99 100644
          db.add(models.WOStatusHistory(
              work_order_id=wo.id,
              event_type="priority_change",
-@@ -161,18 +260,22 @@ def update_work_order_fields(db: Session, wo: models.WorkOrder, payload: schemas
+@@ -161,18 +265,22 @@ def update_work_order_fields(db: Session, wo: models.WorkOrder, payload: schemas
          if not asset:
              raise HTTPException(404, "asset not found")
          wo.asset_id = payload.asset_id
@@ -223,7 +232,7 @@ index ec75c56..6b1ab99 100644
      if payload.person_id is not None:
          person = db.get(models.User, payload.person_id)
          if not person or person.team_id != payload.team_id:
-@@ -183,6 +286,17 @@ def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Assign
+@@ -183,6 +291,17 @@ def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Assign
          raise HTTPException(400, "a reason note is required when reassigning to a different team")
  
      from_team_name = wo.assigned_team.name if wo.assigned_team else None
@@ -241,7 +250,7 @@ index ec75c56..6b1ab99 100644
      wo.assigned_team_id = payload.team_id
      wo.assigned_person_id = payload.person_id
      if wo.status == "Requested":
-@@ -192,13 +306,27 @@ def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Assign
+@@ -192,13 +311,27 @@ def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Assign
              from_value="Requested", to_value="Assigned", changed_by=changed_by,
          ))
  
@@ -276,7 +285,7 @@ index ec75c56..6b1ab99 100644
  
      if payload.note:
          db.add(models.WONote(
-@@ -206,13 +334,14 @@ def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Assign
+@@ -206,13 +339,14 @@ def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Assign
              note_text=payload.note, note_type="internal",
          ))
  
@@ -294,7 +303,7 @@ index ec75c56..6b1ab99 100644
      if payload.status not in schemas.STATUSES:
          raise HTTPException(400, f"invalid status: {payload.status}")
  
-@@ -235,39 +364,281 @@ def change_status(db: Session, wo: models.WorkOrder, payload: schemas.StatusChan
+@@ -235,39 +369,316 @@ def change_status(db: Session, wo: models.WorkOrder, payload: schemas.StatusChan
              note_text=payload.note, note_type=note_type,
          ))
  
@@ -303,6 +312,21 @@ index ec75c56..6b1ab99 100644
 +    if commit:
 +        db.commit()
 +        db.refresh(wo)
++
++        # Enhancement backlog Phase 25 (PRD §17#6-8): only fires here
++        # when this call owns its own commit — when commit=False (this
++        # function is one step inside save_work_order's larger
++        # transaction), the notification instead fires from
++        # save_work_order itself, after ITS commit succeeds. Firing
++        # here unconditionally would risk sending a notification for a
++        # status change that a later step in the same outer transaction
++        # then rolled back.
++        if from_status != payload.status:
++            if payload.status == "Work In Progress":
++                notifications.notify_work_order_event(wo, "in_progress")
++            elif payload.status.startswith("Closed"):
++                notifications.notify_work_order_event(wo, "closed")
++
      return wo
  
  
@@ -399,11 +423,19 @@ index ec75c56..6b1ab99 100644
 +        )
 +
 +    if payload.status is not None:
++        # Enhancement backlog Phase 25 (PRD §17#6-8): captured before
++        # change_status mutates wo.status, so the notification fired
++        # below (after THIS function's own commit, not change_status'
++        # internal one — see change_status' commit=False branch) can
++        # tell whether this was a real transition.
++        status_from = wo.status
 +        change_status(
 +            db, wo,
 +            schemas.StatusChangeRequest(status=payload.status, note=payload.status_note),
 +            changed_by=changed_by, commit=False,
 +        )
++    else:
++        status_from = None
 +
 +    if payload.new_note_text:
 +        add_note(
@@ -420,6 +452,18 @@ index ec75c56..6b1ab99 100644
 +
 +    db.commit()
 +    db.refresh(wo)
++
++    # Enhancement backlog Phase 25 (PRD §17#6-8): fires here, after this
++    # function's own commit, rather than inside change_status' commit=False
++    # branch — see the comment there for why (avoids notifying for a
++    # status change a later step in this same transaction might still roll
++    # back).
++    if status_from is not None and status_from != wo.status:
++        if wo.status == "Work In Progress":
++            notifications.notify_work_order_event(wo, "in_progress")
++        elif wo.status.startswith("Closed"):
++            notifications.notify_work_order_event(wo, "closed")
++
 +    return wo
 +
 +
@@ -583,7 +627,7 @@ index ec75c56..6b1ab99 100644
      if search:
          like = f"%{search}%"
          q = q.filter(
-@@ -275,6 +646,21 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -275,6 +686,21 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
              (models.WorkOrder.wo_number.ilike(like)) |
              (models.WorkOrder.external_ref.ilike(like))
          )
@@ -605,7 +649,7 @@ index ec75c56..6b1ab99 100644
      # These back the LOC triage KPI-card quick views (Open/Active,
      # Highest+High Open, Closed, Opened Today, Closed Today). They used to
      # be applied client-side against whatever page the default limit
-@@ -292,12 +678,17 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -292,12 +718,17 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
      if priority_in:
          q = q.filter(models.WorkOrder.priority.in_(priority_in))
      if opened_today:
@@ -628,7 +672,7 @@ index ec75c56..6b1ab99 100644
      # PRD 4.2: inbox sorts highest-priority first, oldest first within a
      # priority tier — matches the old dashboard's "needing attention" table.
      return (
-@@ -311,24 +702,64 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -311,24 +742,64 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
  def _apply_filters(db: Session, query, scope: str, status: str | None = None,
                      priority: str | None = None, work_type: str | None = None,
                      team_id: int | None = None, location_group: str | None = None,
@@ -697,7 +741,7 @@ index ec75c56..6b1ab99 100644
      if priority:
          query = query.filter(models.WorkOrder.priority == priority)
      if work_type:
-@@ -338,11 +769,17 @@ def _apply_filters(db: Session, query, scope: str, status: str | None = None,
+@@ -338,11 +809,17 @@ def _apply_filters(db: Session, query, scope: str, status: str | None = None,
      if location_group:
          ids = db.query(models.Asset.id).filter(models.Asset.location_group == location_group)
          query = query.filter(models.WorkOrder.asset_id.in_(ids))
@@ -715,7 +759,7 @@ index ec75c56..6b1ab99 100644
      return query
  
  
-@@ -352,33 +789,61 @@ def get_kpis(db: Session, scope: str = "main", **filters) -> dict:
+@@ -352,33 +829,61 @@ def get_kpis(db: Session, scope: str = "main", **filters) -> dict:
      closed = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
          models.WorkOrder.status.like("Closed%")
      ).count()
@@ -735,16 +779,16 @@ index ec75c56..6b1ab99 100644
          ~models.WorkOrder.status.like("Closed%"),
 -        models.WorkOrder.priority.in_(["Highest", "High"]),
 +        models.WorkOrder.priority.in_(URGENT_PRIORITIES),
-+    ).count()
-+
+     ).count()
+ 
+-    today = dt.date.today()
 +    # Enhancement backlog Phase 11 (PRD §14#25): count of WOs still
 +    # sitting in the initial "Requested" state — not yet triaged/
 +    # assigned to a team at all.
 +    requested = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
 +        models.WorkOrder.status == "Requested"
-     ).count()
- 
--    today = dt.date.today()
++    ).count()
++
 +    start, end = _today_bounds_utc(db)
      opened_today = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
 -        func.date(models.WorkOrder.created_at) == today
@@ -789,7 +833,7 @@ index ec75c56..6b1ab99 100644
      }
  
  
-@@ -451,14 +916,14 @@ def get_daily_trend(db: Session, scope: str = "main", days: int = 14, **filters)
+@@ -451,14 +956,14 @@ def get_daily_trend(db: Session, scope: str = "main", days: int = 14, **filters)
  
  
  def get_needing_attention(db: Session, scope: str = "main", limit: int = 15, **filters) -> list[models.WorkOrder]:
@@ -808,7 +852,7 @@ index ec75c56..6b1ab99 100644
          ),
          scope, **filters,
      )
-@@ -529,6 +994,116 @@ def reset_password(db: Session, user: models.User) -> str:
+@@ -529,6 +1034,121 @@ def reset_password(db: Session, user: models.User) -> str:
      return password
  
  
@@ -919,13 +963,18 @@ index ec75c56..6b1ab99 100644
 +        ))
 +    db.commit()
 +    db.refresh(wo)
++    # Enhancement backlog Phase 25 (PRD §17#6-8): guarded the same way
++    # as change_status — only fires on a real transition, so an
++    # accidental double-tap on an already-closed WO can't re-send.
++    if from_status != "Closed, Completed":
++        notifications.notify_work_order_event(wo, "closed")
 +    return wo
 +
 +
  # ============================================================
  # Admin configuration (PRD 4.5)
  # ============================================================
-@@ -865,3 +1440,40 @@ def update_team(db: Session, team: models.Team, payload: schemas.TeamUpdate) ->
+@@ -865,3 +1485,40 @@ def update_team(db: Session, team: models.Team, payload: schemas.TeamUpdate) ->
      db.commit()
      db.refresh(team)
      return team
@@ -2504,7 +2553,7 @@ index 6b13e65..1dee02a 100644
      print()
      print(f"{'Breakdown':45} {'OLD':>8} {'NEW':>8}  MATCH")
 diff --git a/phase1/render.yaml b/phase1/render.yaml
-index 5551215..7914dd4 100644
+index 5551215..dea3823 100644
 --- a/phase1/render.yaml
 +++ b/phase1/render.yaml
 @@ -14,6 +14,22 @@ services:
@@ -2530,7 +2579,7 @@ index 5551215..7914dd4 100644
      # seed.py re-runs on every deploy, not just the first one -- it's
      # idempotent (upserts by name), and this is what closes the gap that
      # caused the location picker to silently go flat in production: a
-@@ -31,6 +47,13 @@ services:
+@@ -31,11 +47,51 @@ services:
            property: connectionString
        - key: JWT_SECRET
          generateValue: true
@@ -2544,6 +2593,54 @@ index 5551215..7914dd4 100644
        # CORS_ALLOWED_ORIGINS intentionally left unset — the triage UI and
        # requester form are served by this same app (see app/main.py), so
        # same-origin requests never need it. Only set this if a separate
+       # frontend origin needs to call the API directly.
+ 
++      # Enhancement backlog Phase 25 (PRD §17#6-8): SMS + email
++      # notifications. Everything here is read by app/notifications.py
++      # at call time (not cached at import), so switching from the
++      # trial Twilio/SendGrid accounts to production ones later is just
++      # updating these values in Render's dashboard — no redeploy of
++      # application code needed either way.
++      #
++      # NOTIFICATIONS_ENABLED is the kill switch — defaults to "false"
++      # here on purpose. Flip to "true" only once ready to actually
++      # send real messages (e.g. after verifying test phone numbers in
++      # Twilio's trial console, and confirming SendGrid sender
++      # verification/domain auth has passed).
++      - key: NOTIFICATIONS_ENABLED
++        value: "false"
++      # Secrets — set these directly in the Render dashboard (Environment
++      # tab), not in this file. sync: false means Render won't overwrite
++      # whatever's already set there on future blueprint syncs.
++      - key: TWILIO_ACCOUNT_SID
++        sync: false
++      - key: TWILIO_AUTH_TOKEN
++        sync: false
++      - key: TWILIO_FROM_NUMBER
++        sync: false
++      - key: SENDGRID_API_KEY
++        sync: false
++      # Not secrets — safe to keep in version control.
++      - key: SENDGRID_FROM_EMAIL
++        value: graeme@cybersecurity4executives.com
++      - key: SENDGRID_FROM_NAME
++        value: JamboWMS
++      - key: SENDGRID_REPLY_TO
++        value: marketing@cybersecurity4executives.com
++
+ databases:
+   - name: nj-loc-work-orders-db
+     # Confirm this plan name in Render's dashboard before deploying —
+diff --git a/phase1/requirements.txt b/phase1/requirements.txt
+index 0166411..2242a4c 100644
+--- a/phase1/requirements.txt
++++ b/phase1/requirements.txt
+@@ -8,3 +8,5 @@ python-jose[cryptography]==3.3.0
+ passlib[bcrypt]==1.7.4
+ bcrypt==4.0.1
+ python-multipart==0.0.9
++twilio==9.10.9
++sendgrid==6.12.5
 diff --git a/phase1/static/admin.html b/phase1/static/admin.html
 index 719f0d9..bfcd6b1 100644
 --- a/phase1/static/admin.html

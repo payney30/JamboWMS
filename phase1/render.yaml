@@ -59,6 +59,39 @@ services:
       # same-origin requests never need it. Only set this if a separate
       # frontend origin needs to call the API directly.
 
+      # Enhancement backlog Phase 25 (PRD §17#6-8): SMS + email
+      # notifications. Everything here is read by app/notifications.py
+      # at call time (not cached at import), so switching from the
+      # trial Twilio/SendGrid accounts to production ones later is just
+      # updating these values in Render's dashboard — no redeploy of
+      # application code needed either way.
+      #
+      # NOTIFICATIONS_ENABLED is the kill switch — defaults to "false"
+      # here on purpose. Flip to "true" only once ready to actually
+      # send real messages (e.g. after verifying test phone numbers in
+      # Twilio's trial console, and confirming SendGrid sender
+      # verification/domain auth has passed).
+      - key: NOTIFICATIONS_ENABLED
+        value: "false"
+      # Secrets — set these directly in the Render dashboard (Environment
+      # tab), not in this file. sync: false means Render won't overwrite
+      # whatever's already set there on future blueprint syncs.
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+      - key: SENDGRID_API_KEY
+        sync: false
+      # Not secrets — safe to keep in version control.
+      - key: SENDGRID_FROM_EMAIL
+        value: graeme@cybersecurity4executives.com
+      - key: SENDGRID_FROM_NAME
+        value: JamboWMS
+      - key: SENDGRID_REPLY_TO
+        value: marketing@cybersecurity4executives.com
+
 databases:
   - name: nj-loc-work-orders-db
     # Confirm this plan name in Render's dashboard before deploying —
