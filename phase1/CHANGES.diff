@@ -3861,7 +3861,7 @@ index 2ecf37e..e882a00 100644
        <td>${escapeHtml((w.description||'').slice(0,90))}</td>
        <td>${escapeHtml(w.asset ? w.asset.name : '')}</td>
 diff --git a/phase1/static/index.html b/phase1/static/index.html
-index 430ff1e..b61aff9 100644
+index 430ff1e..223fdef 100644
 --- a/phase1/static/index.html
 +++ b/phase1/static/index.html
 @@ -70,9 +70,9 @@ th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--khaki-line)
@@ -4070,7 +4070,7 @@ index 430ff1e..b61aff9 100644
 +// filename in the "Save as PDF" print destination.
 +function printDrawer(woNumber){
 +  const originalTitle = document.title;
-+  document.title = `NJ WO Details #${woNumber}`;
++  document.title = `NJ LOC - Detailed WO#${woNumber}`;
 +  window.print();
 +  const restore = () => { document.title = originalTitle; window.removeEventListener('afterprint', restore); };
 +  window.addEventListener('afterprint', restore);
@@ -4437,7 +4437,7 @@ index 430ff1e..b61aff9 100644
    let w;
    try {
      w = await api('/work-orders/' + id);
-@@ -449,222 +776,374 @@ async function openWO(id){
+@@ -449,222 +776,377 @@ async function openWO(id){
      if (e.message !== 'session expired') showToast('Could not open work order: ' + e.message, 'err');
      return;
    }
@@ -4570,6 +4570,9 @@ index 430ff1e..b61aff9 100644
 +      <p><strong>Location:</strong> ${escapeHtml(w.asset ? w.asset.name : '—')}</p>
 +      <p><strong>Work type:</strong> ${escapeHtml(w.work_type || '—')} &nbsp; <strong>Priority:</strong> ${escapeHtml(w.priority)}</p>
 +      <p><strong>Status:</strong> ${escapeHtml(w.status)} &nbsp; <strong>Team:</strong> ${escapeHtml(w.assigned_team ? w.assigned_team.name : '—')}</p>
++      <!-- Bug fix (found in print-consistency testing, 8/1/26): only
++           Dispatcher Console's print output showed this. -->
++      <p><strong>Assigned worker:</strong> ${escapeHtml(w.assigned_person ? w.assigned_person.name : '—')}</p>
 +      <p><strong>Description:</strong><br>${escapeHtml(w.description)}</p>
 +      ${w.note_to_requester ? `<p><strong>Note to requestor:</strong><br>${escapeHtml(w.note_to_requester)}</p>` : ''}
 +      ${hasPin ? `<div style="margin-top:10px;"><strong>Scan for exact location:</strong><br><div id="qrCodeContainer"></div></div>` : ''}
@@ -5447,7 +5450,7 @@ index c3ebaa9..cf5ff3e 100644
      resultEl.innerHTML = '<div class="field-err">Network error — try again.</div>';
    } finally {
 diff --git a/phase1/static/technician.html b/phase1/static/technician.html
-index 71d59e6..37a983f 100644
+index 71d59e6..2732f2a 100644
 --- a/phase1/static/technician.html
 +++ b/phase1/static/technician.html
 @@ -3,7 +3,7 @@
@@ -5480,7 +5483,7 @@ index 71d59e6..37a983f 100644
  .status-pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:#F1EDDF;color:var(--ink-soft);}
  .empty-state{color:var(--ink-soft);text-align:center;padding:40px 12px;font-size:14px;}
  
-@@ -99,6 +100,41 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
+@@ -99,6 +100,57 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
  @media (min-width:640px){
    .wrap{padding:28px 24px 60px;}
  }
@@ -5504,17 +5507,33 @@ index 71d59e6..37a983f 100644
 +    border: none !important;
 +    transition: none !important;
 +  }
-+  // Bug fix (found in Dispatcher Console testing, 8/1/26): this only
-+  // hid the actual <select>/<textarea> controls, leaving their <label>
-+  // text (e.g. "Status Note (required when closing)", "Reassign — wrong
-+  // team? Send it to the right one") printed with nothing underneath —
-+  // orphaned, meaningless clutter once the control itself is gone.
-+  // LOC triage's equivalent already correctly hid the whole
-+  // .drawer-group section; matched here. Per explicit request: this
-+  // removes the Status/status-note, Reassign, Task-to-worker, and
-+  // Add-a-work-note sections from print entirely (Notes, History, and
-+  // everything else stays) — the assigned worker's name still shows,
-+  // now added to the print-only summary below as data instead.
++  /* Bug fix (found in Dispatcher Console testing, 8/1/26): this only
++     hid the actual select/textarea controls, leaving their label text
++     (e.g. "Status Note (required when closing)", "Reassign — wrong
++     team? Send it to the right one") printed with nothing underneath —
++     orphaned, meaningless clutter once the control itself is gone.
++     LOC triage's equivalent already correctly hid the whole
++     .drawer-group section; matched here. Per explicit request: this
++     removes the Status/status-note, Reassign, Task-to-worker, and
++     Add-a-work-note sections from print entirely (Notes, History, and
++     everything else stays) — the assigned worker's name still shows,
++     now added to the print-only summary below as data instead.
++
++     Second bug fix (found via an actual printed PDF, 8/2/2026): this
++     whole block was written with JS-style double-slash line comments,
++     which are not valid CSS syntax (CSS only supports slash-star block
++     comments) — that silently broke the CSS parser's recovery here,
++     so the actual hiding rule below never took effect despite looking
++     correct in the source. Converted to a real CSS block comment.
++
++     Third bug fix (same session): the fix above still broke things —
++     this comment's own prose literally contained the CSS
++     comment-close sequence as example text, which closed the comment
++     early and turned the rest of the explanation into invalid CSS,
++     breaking the parser again. Lesson, twice over now: verify rendered
++     *output* (an actual printed PDF), not just that the code reads
++     correctly — and never write the literal comment-delimiter
++     characters inside a comment meant to explain them. */
 +  #drawer .close-btn, #drawer .drawer-actions, #drawer .drawer-group { display: none !important; }
 +  #drawer .print-only { display: block !important; }
 +}
@@ -5522,7 +5541,7 @@ index 71d59e6..37a983f 100644
  </style>
  </head>
  <body>
-@@ -115,7 +151,7 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
+@@ -115,7 +167,7 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
    <div class="topbar">
      <div>
        <p class="brand-eyebrow" id="teamLabel">Live &middot; National Jamboree Work Orders</p>
@@ -5531,7 +5550,7 @@ index 71d59e6..37a983f 100644
      </div>
      <button class="btn" onclick="logout()">Sign out</button>
    </div>
-@@ -133,11 +169,40 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
+@@ -133,11 +185,40 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
    <div class="filters">
      <select id="fStatus" onchange="load()"><option value="">All statuses</option></select>
      <select id="fPriority" onchange="load()"><option value="">All priorities</option></select>
@@ -5573,7 +5592,7 @@ index 71d59e6..37a983f 100644
    <div class="cards" id="woCards"><div class="empty-state">Loading…</div></div>
  </div>
  
-@@ -145,14 +210,49 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
+@@ -145,14 +226,49 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
  <div id="drawer"></div>
  <div id="toastStack"></div>
  
@@ -5624,7 +5643,7 @@ index 71d59e6..37a983f 100644
  const STATUS_LABELS = ["Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
  const QUICK_VIEWS = [
    {key:'', label:'All open'},
-@@ -224,6 +324,149 @@ async function login() {
+@@ -224,6 +340,149 @@ async function login() {
  }
  function logout(){ localStorage.removeItem('tech_token'); TOKEN=''; location.reload(); }
  
@@ -5765,7 +5784,7 @@ index 71d59e6..37a983f 100644
 +// fires reliably whether the user actually printed or cancelled).
 +function printDrawer(woNumber){
 +  const originalTitle = document.title;
-+  document.title = `NJ WO Details #${woNumber}`;
++  document.title = `NJ Dispatcher - Detailed WO#${woNumber}`;
 +  window.print();
 +  const restore = () => { document.title = originalTitle; window.removeEventListener('afterprint', restore); };
 +  window.addEventListener('afterprint', restore);
@@ -5774,7 +5793,7 @@ index 71d59e6..37a983f 100644
  async function boot() {
    try {
      ME = await api('/auth/me');
-@@ -244,6 +487,10 @@ async function boot() {
+@@ -244,6 +503,10 @@ async function boot() {
      showToast('Could not load teams: ' + e.message, 'err');
      return;
    }
@@ -5785,7 +5804,7 @@ index 71d59e6..37a983f 100644
  
    if (ME.role === 'tech') {
      scopeTeamId = ME.team ? ME.team.id : null;
-@@ -252,6 +499,10 @@ async function boot() {
+@@ -252,6 +515,10 @@ async function boot() {
      if (!scopeTeamId) {
        showToast('Your account has no team assigned — contact the LOC to get set up.', 'err');
      }
@@ -5796,7 +5815,7 @@ index 71d59e6..37a983f 100644
    } else {
      document.getElementById('teamLabel').textContent = 'LOC/admin view · ' + ME.name;
      document.getElementById('teamSelectWrap').style.display = 'block';
-@@ -263,6 +514,21 @@ async function boot() {
+@@ -263,6 +530,21 @@ async function boot() {
  
    populateFilterOptions();
    renderQuickViews();
@@ -5818,7 +5837,7 @@ index 71d59e6..37a983f 100644
    await load();
  }
  
-@@ -294,6 +560,34 @@ function applyQuickView(key){
+@@ -294,6 +576,34 @@ function applyQuickView(key){
  let debounceTimer;
  function debouncedLoad(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(load, 300); }
  
@@ -5853,7 +5872,7 @@ index 71d59e6..37a983f 100644
  async function load() {
    if (!scopeTeamId) {
      document.getElementById('woCards').innerHTML = '<div class="empty-state">No team to show a queue for.</div>';
-@@ -306,14 +600,40 @@ async function load() {
+@@ -306,14 +616,40 @@ async function load() {
    const status = document.getElementById('fStatus').value;
    const priority = document.getElementById('fPriority').value;
    const search = document.getElementById('fSearch').value;
@@ -5896,7 +5915,7 @@ index 71d59e6..37a983f 100644
    } catch (e) {
      if (e.message !== 'session expired') showToast('Could not load queue: ' + e.message, 'err');
      document.getElementById('woCards').innerHTML = '<div class="empty-state">Could not load the queue.</div>';
-@@ -326,7 +646,8 @@ async function load() {
+@@ -326,7 +662,8 @@ async function load() {
      wos = wos.filter(w => !w.status.startsWith('Closed'));
    }
  
@@ -5906,7 +5925,7 @@ index 71d59e6..37a983f 100644
    renderCards(wos);
  }
  
-@@ -335,10 +656,16 @@ function renderStats(wos){
+@@ -335,10 +672,16 @@ function renderStats(wos){
    const inProgress = wos.filter(w => w.status === 'Work In Progress').length;
    const onHold = wos.filter(w => w.status === 'On Hold').length;
    const newAssigned = wos.filter(w => w.status === 'Assigned').length;
@@ -5925,7 +5944,7 @@ index 71d59e6..37a983f 100644
    ];
    document.getElementById('statRow').innerHTML = items.map(i =>
      `<div class="stat"><div class="num">${i.n}</div><div class="lbl">${i.l}</div></div>`
-@@ -346,33 +673,81 @@ function renderStats(wos){
+@@ -346,33 +689,81 @@ function renderStats(wos){
  }
  
  function renderCards(wos){
@@ -6013,11 +6032,21 @@ index 71d59e6..37a983f 100644
    document.getElementById('drawer').classList.remove('open');
    document.getElementById('drawerBackdrop').classList.remove('open');
  }
-@@ -385,55 +760,161 @@ async function openDetail(id){
+@@ -385,55 +776,176 @@ async function openDetail(id){
      if (e.message !== 'session expired') showToast('Could not load work order: ' + e.message, 'err');
      return;
    }
 +  drawerState = {woId: id, dirty: false};
++
++  // Bug fix (found in print-consistency testing, 8/1/26): Dispatcher
++  // Console never showed requester/POC contact info anywhere — not on
++  // screen, not on print. LOC triage already had this (always-visible
++  // header, not print-only, so it naturally appears both places);
++  // matched here exactly for consistency between the two screens'
++  // printed output.
++  const pocHtml = (!w.poc_is_requester && (w.poc_name || w.poc_phone))
++    ? `<p style="font-size:12px;color:var(--ink-soft);margin:2px 0 0;"><strong>POC:</strong> ${escapeHtml(w.poc_name||'')} ${escapeHtml(w.poc_phone||'')}</p>`
++    : '';
 +
 +  // Enhancement backlog Phase 17 (PRD §17#12): SLA status marker on the
 +  // WO detail screen, same thresholds as the queue-card icon above and
@@ -6041,7 +6070,6 @@ index 71d59e6..37a983f 100644
 -    <div class="note">${escapeHtml(n.note_text)}
 -      <div class="meta">${n.note_type} &middot; ${n.author ? escapeHtml(n.author.name) : 'system'} &middot; ${new Date(n.created_at).toLocaleString()}</div>
 -    </div>`).join('') || '<div class="empty-state" style="padding:10px 0;">No notes yet.</div>';
--
 +  // Enhancement backlog Phase 21 (PRD §17#10): assign this WO to a
 +  // specific worker on my team — tech (Dispatcher) role only, and only
 +  // once MY_WORKERS has loaded (boot() loads it for tech role). Saved
@@ -6071,7 +6099,7 @@ index 71d59e6..37a983f 100644
 +      <div class="meta">${n.note_type} &middot; ${n.author ? escapeHtml(n.author.name) : 'system'} &middot; ${fmtDateTime(n.created_at)}</div>
 +    </div>`;
 +  }).join('') || '<div class="empty-state" style="padding:10px 0;">No notes yet.</div>';
-+
+ 
 +  // Bug fix (found in Dispatcher Console testing, 8/1/26): this never
 +  // showed who made each change — LOC triage's equivalent already did
 +  // (h.changed_by_name). Matched here.
@@ -6135,6 +6163,9 @@ index 71d59e6..37a983f 100644
 +           assigned worker wasn't shown anywhere in the print output. -->
 +      <p><strong>Assigned worker:</strong> ${escapeHtml(w.assigned_person ? w.assigned_person.name : '—')}</p>
 +      <p><strong>Description:</strong><br>${escapeHtml(w.description)}</p>
++      <!-- Bug fix (found in print-consistency testing, 8/1/26): only
++           LOC triage's print output showed this. -->
++      ${w.note_to_requester ? `<p><strong>Note to requestor:</strong><br>${escapeHtml(w.note_to_requester)}</p>` : ''}
 +      ${hasPin ? `<div style="margin-top:10px;"><strong>Scan for exact location:</strong><br><div id="qrCodeContainer"></div></div>` : ''}
 +      <p style="font-size:11px;color:#666;">Printed ${fmtDateTime(new Date().toISOString())}</p>
 +    </div>`;
@@ -6144,6 +6175,8 @@ index 71d59e6..37a983f 100644
      <h2>${escapeHtml(w.wo_number)}</h2>
 -    <div class="sub">${escapeHtml(w.work_type || 'No work type')} &middot; <span class="chip chip-${w.priority}">${w.priority}</span></div>
 +    <div class="sub">${escapeHtml(w.work_type || 'No work type')} &middot; <span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span>${slaStatusHtml}</div>
++    <p style="font-size:12px;color:var(--ink-soft);margin-top:0;">${escapeHtml(w.requester_name)} · ${escapeHtml(w.requester_email||'')} ${escapeHtml(w.requester_phone||'')}</p>
++    ${pocHtml}
  
      <div class="readonly-block"><strong>${escapeHtml(w.asset ? w.asset.name : 'No location')}</strong><br>${escapeHtml(w.description)}</div>
 +    ${attachmentsHtml}
@@ -6197,21 +6230,11 @@ index 71d59e6..37a983f 100644
      </div>
  
      <div class="section-title" style="margin-top:20px;">Notes</div>
-@@ -441,73 +922,89 @@ async function openDetail(id){
+@@ -441,73 +953,89 @@ async function openDetail(id){
      <div class="section-title">History</div>
      ${histHtml}
    `);
--}
- 
--async function withButtonLock(btn, fn){
--  if (!btn) { await fn(); return; }
--  btn.disabled = true;
--  const original = btn.textContent;
--  try {
--    await fn();
--  } finally {
--    btn.disabled = false;
--    btn.textContent = original;
++
 +  // Enhancement backlog Phase 21 (PRD §17#10): see index.html's
 +  // equivalent — needs a real DOM element to draw into, so this runs
 +  // after openDrawer() above, not inside the template string.
@@ -6223,8 +6246,33 @@ index 71d59e6..37a983f 100644
 +        width: 120, height: 120,
 +      });
 +    }
-   }
++  }
  }
+ 
+-async function withButtonLock(btn, fn){
+-  if (!btn) { await fn(); return; }
++async function saveDrawer(){
++  const id = drawerState.woId;
++  const btn = document.getElementById('saveDrawerBtn');
++  document.getElementById('dStatusErr').textContent = '';
++  document.getElementById('dAssignErr').textContent = '';
+   btn.disabled = true;
+-  const original = btn.textContent;
+-  try {
+-    await fn();
+-  } finally {
+-    btn.disabled = false;
+-    btn.textContent = original;
++  btn.textContent = 'Saving…';
++
++  const status = document.getElementById('dStatus').value;
++  const statusNote = document.getElementById('dStatusNote').value || null;
++  if (status.startsWith('Closed') && !statusNote) {
++    document.getElementById('dStatusErr').textContent = 'A note is required when closing.';
++    btn.disabled = false; btn.textContent = 'Save changes';
++    return;
+   }
+-}
  
 -async function saveStatus(id){
 -  const btn = event.target;
@@ -6246,13 +6294,18 @@ index 71d59e6..37a983f 100644
 -    }
 -  });
 -}
-+async function saveDrawer(){
-+  const id = drawerState.woId;
-+  const btn = document.getElementById('saveDrawerBtn');
-+  document.getElementById('dStatusErr').textContent = '';
-+  document.getElementById('dAssignErr').textContent = '';
-+  btn.disabled = true;
-+  btn.textContent = 'Saving…';
++  const teamVal = document.getElementById('dTeam').value;
++  const assignNote = document.getElementById('dAssignNote').value || null;
++  if (teamVal && !assignNote) {
++    document.getElementById('dAssignErr').textContent = 'A reason is required when reassigning.';
++    btn.disabled = false; btn.textContent = 'Save changes';
++    return;
++  }
++  // Enhancement backlog Phase 21 (PRD §17#10): a worker dropdown only
++  // exists in the DOM for tech role with workers loaded — guard for its
++  // absence rather than assuming it's always there.
++  const workerEl = document.getElementById('dWorker');
++  const workerVal = workerEl ? workerEl.value : '';
  
 -async function saveAssign(id){
 -  const btn = event.target;
@@ -6272,40 +6325,6 @@ index 71d59e6..37a983f 100644
 -    }
 -  });
 -}
-+  const status = document.getElementById('dStatus').value;
-+  const statusNote = document.getElementById('dStatusNote').value || null;
-+  if (status.startsWith('Closed') && !statusNote) {
-+    document.getElementById('dStatusErr').textContent = 'A note is required when closing.';
-+    btn.disabled = false; btn.textContent = 'Save changes';
-+    return;
-+  }
- 
--async function saveNote(id){
--  const btn = event.target;
--  await withButtonLock(btn, async () => {
--    const note_text = document.getElementById('dNote').value;
--    if (!note_text) { showToast('Write a note before saving.', 'err'); return; }
--    try {
--      await api(`/work-orders/${id}/notes`, {method:'POST', body:{note_text, note_type:'work_note'}});
--      showToast('Note added.', 'ok');
--      closeDrawer(); load();
--    } catch (e) {
--      if (e.message !== 'session expired') showToast('Could not add note: ' + e.message, 'err');
--    }
--  });
-+  const teamVal = document.getElementById('dTeam').value;
-+  const assignNote = document.getElementById('dAssignNote').value || null;
-+  if (teamVal && !assignNote) {
-+    document.getElementById('dAssignErr').textContent = 'A reason is required when reassigning.';
-+    btn.disabled = false; btn.textContent = 'Save changes';
-+    return;
-+  }
-+  // Enhancement backlog Phase 21 (PRD §17#10): a worker dropdown only
-+  // exists in the DOM for tech role with workers loaded — guard for its
-+  // absence rather than assuming it's always there.
-+  const workerEl = document.getElementById('dWorker');
-+  const workerVal = workerEl ? workerEl.value : '';
-+
 +  const payload = {
 +    status,
 +    status_note: statusNote,
@@ -6333,7 +6352,20 @@ index 71d59e6..37a983f 100644
 +    // a stale assignment pointing at a worker on the old team.
 +    payload.person_id = null;
 +  }
-+
+ 
+-async function saveNote(id){
+-  const btn = event.target;
+-  await withButtonLock(btn, async () => {
+-    const note_text = document.getElementById('dNote').value;
+-    if (!note_text) { showToast('Write a note before saving.', 'err'); return; }
+-    try {
+-      await api(`/work-orders/${id}/notes`, {method:'POST', body:{note_text, note_type:'work_note'}});
+-      showToast('Note added.', 'ok');
+-      closeDrawer(); load();
+-    } catch (e) {
+-      if (e.message !== 'session expired') showToast('Could not add note: ' + e.message, 'err');
+-    }
+-  });
 +  try {
 +    await api(`/work-orders/${id}/save`, {method:'POST', body:payload});
 +    showToast('Work order saved.', 'ok');

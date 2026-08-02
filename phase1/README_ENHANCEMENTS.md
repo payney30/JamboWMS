@@ -1,22 +1,49 @@
-# Task Worker "Reset PIN" (Phase 24 follow-up)
+# Print Output Consistency Fixes
 
 Full cumulative state. No new migration this round.
 
-## What's new
+## The real bug, found from your actual PDFs
 
-Closes a gap explicitly flagged when Task Worker creation first shipped
-- a Dispatcher had no way to get a new PIN for a worker who forgot
-theirs, short of deactivating and re-creating the account entirely.
+Your uploaded PDFs caught something code review alone would have
+missed: the previous round's "hide the drawer-group sections from
+print" fix on Dispatcher Console had NOT actually worked, despite
+reading correctly in the source.
 
-**New endpoint:** POST /my-team/workers/{id}/reset-pin (tech-only, own
-team scoped - same 404-not-403 pattern as the other worker-management
-endpoints, so probing another team's worker ID doesn't confirm it's
-real).
+Root cause, found twice in the same spot:
+1. The print-hiding CSS rule had been written using JavaScript-style
+   "//" line comments inside a style block - not valid CSS syntax
+   (CSS only has block comments) - which silently broke the stylesheet
+   parser and meant the actual hiding rule never took effect.
+2. Converting to a real CSS comment should have fixed it, except that
+   comment's own explanatory text happened to describe the comment
+   syntax by literally writing out the comment-close sequence as an
+   example - which closed the comment early and turned the rest of the
+   explanation into garbage CSS, breaking the parser a second time.
 
-**New UI:** a "Reset PIN" button next to each worker in the My Workers
-panel. Confirms first (the old PIN stops working immediately), then
-shows the new PIN once in a blocking alert - same one-time-reveal
-pattern as worker creation.
+Fixed properly this time, and actually verified with a headless-browser
+print-media render (not just a read-through) that the target elements
+compute to display:none under print media before calling it done.
+
+## Print output made consistent between LOC triage and Dispatcher Console
+
+Comparing your two actual PDFs side by side surfaced real gaps:
+
+- Dispatcher Console's print output never included requester
+  name/email/phone or POC info at all (LOC triage's did). Added the
+  same always-visible requester/POC header block to Dispatcher
+  Console, matching LOC triage's exact pattern - so it's consistent
+  live on-screen too, not just on paper.
+- LOC triage's print output was missing "Assigned worker."
+- Dispatcher Console's print output was missing "Note to requestor."
+
+Both fixed - both screens' print output now shows the same field set.
+
+## PDF filename, per your request
+
+- LOC triage's saved PDF now titles as "NJ LOC - Detailed WO#[number]"
+- Dispatcher Console's as "NJ Dispatcher - Detailed WO#[number]"
+  (parallel convention, screen-specific text so it's still clear which
+  screen a saved PDF came from)
 
 ## How to apply
 
@@ -43,14 +70,25 @@ No new migration this round.
 
 ## Verify after deploying
 
-1. In My Workers, click "Reset PIN" for a worker - confirm a
-   confirmation prompt appears, then the new PIN shows once.
-2. Confirm the worker's OLD PIN no longer logs them in.
-3. Confirm the NEW PIN does log them in.
+This is the important one - please actually print/save a PDF from both
+screens this time (not just check on-screen) and confirm:
+
+1. Dispatcher Console's PDF: no Status/Note/Reassign/Task-to-worker
+   text boxes or buttons anywhere - just the clean summary, Notes, and
+   History.
+2. Dispatcher Console's PDF now shows requester name/email/phone and
+   POC (if applicable) - both on screen and in the printed output.
+3. LOC triage's PDF now shows "Assigned worker."
+4. Dispatcher Console's PDF now shows "Note to requestor" when one
+   exists.
+5. Save-as-PDF from LOC triage suggests filename "NJ LOC - Detailed
+   WO#[number]"; from Dispatcher Console, "NJ Dispatcher - Detailed
+   WO#[number]".
 
 ## Test status
 
-**292 passing, 0 failing** - fully green. Added 3 new tests: successful
-reset (old PIN invalidated, new PIN works), a Dispatcher can't reset
-another team's worker's PIN, and LOC can't call this endpoint at all
-(tech-only).
+**292 passing, 0 failing** - unchanged (these were frontend/CSS/print
+fixes; automated tests can't easily catch print-CSS regressions like
+this one, which is exactly why I verified this round with an actual
+headless-browser print-media render rather than trusting the source
+read-through).
