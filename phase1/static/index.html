@@ -352,7 +352,7 @@ function logout(){ localStorage.removeItem('loc_token'); TOKEN=''; location.relo
 // filename in the "Save as PDF" print destination.
 function printDrawer(woNumber){
   const originalTitle = document.title;
-  document.title = `NJ WO Details #${woNumber}`;
+  document.title = `NJ LOC - Detailed WO#${woNumber}`;
   window.print();
   const restore = () => { document.title = originalTitle; window.removeEventListener('afterprint', restore); };
   window.addEventListener('afterprint', restore);
@@ -899,6 +899,9 @@ function renderWODrawer(w, lockBanner){
       <p><strong>Location:</strong> ${escapeHtml(w.asset ? w.asset.name : '—')}</p>
       <p><strong>Work type:</strong> ${escapeHtml(w.work_type || '—')} &nbsp; <strong>Priority:</strong> ${escapeHtml(w.priority)}</p>
       <p><strong>Status:</strong> ${escapeHtml(w.status)} &nbsp; <strong>Team:</strong> ${escapeHtml(w.assigned_team ? w.assigned_team.name : '—')}</p>
+      <!-- Bug fix (found in print-consistency testing, 8/1/26): only
+           Dispatcher Console's print output showed this. -->
+      <p><strong>Assigned worker:</strong> ${escapeHtml(w.assigned_person ? w.assigned_person.name : '—')}</p>
       <p><strong>Description:</strong><br>${escapeHtml(w.description)}</p>
       ${w.note_to_requester ? `<p><strong>Note to requestor:</strong><br>${escapeHtml(w.note_to_requester)}</p>` : ''}
       ${hasPin ? `<div style="margin-top:10px;"><strong>Scan for exact location:</strong><br><div id="qrCodeContainer"></div></div>` : ''}

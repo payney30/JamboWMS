@@ -120,17 +120,33 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
     border: none !important;
     transition: none !important;
   }
-  // Bug fix (found in Dispatcher Console testing, 8/1/26): this only
-  // hid the actual <select>/<textarea> controls, leaving their <label>
-  // text (e.g. "Status Note (required when closing)", "Reassign — wrong
-  // team? Send it to the right one") printed with nothing underneath —
-  // orphaned, meaningless clutter once the control itself is gone.
-  // LOC triage's equivalent already correctly hid the whole
-  // .drawer-group section; matched here. Per explicit request: this
-  // removes the Status/status-note, Reassign, Task-to-worker, and
-  // Add-a-work-note sections from print entirely (Notes, History, and
-  // everything else stays) — the assigned worker's name still shows,
-  // now added to the print-only summary below as data instead.
+  /* Bug fix (found in Dispatcher Console testing, 8/1/26): this only
+     hid the actual select/textarea controls, leaving their label text
+     (e.g. "Status Note (required when closing)", "Reassign — wrong
+     team? Send it to the right one") printed with nothing underneath —
+     orphaned, meaningless clutter once the control itself is gone.
+     LOC triage's equivalent already correctly hid the whole
+     .drawer-group section; matched here. Per explicit request: this
+     removes the Status/status-note, Reassign, Task-to-worker, and
+     Add-a-work-note sections from print entirely (Notes, History, and
+     everything else stays) — the assigned worker's name still shows,
+     now added to the print-only summary below as data instead.
+
+     Second bug fix (found via an actual printed PDF, 8/2/2026): this
+     whole block was written with JS-style double-slash line comments,
+     which are not valid CSS syntax (CSS only supports slash-star block
+     comments) — that silently broke the CSS parser's recovery here,
+     so the actual hiding rule below never took effect despite looking
+     correct in the source. Converted to a real CSS block comment.
+
+     Third bug fix (same session): the fix above still broke things —
+     this comment's own prose literally contained the CSS
+     comment-close sequence as example text, which closed the comment
+     early and turned the rest of the explanation into invalid CSS,
+     breaking the parser again. Lesson, twice over now: verify rendered
+     *output* (an actual printed PDF), not just that the code reads
+     correctly — and never write the literal comment-delimiter
+     characters inside a comment meant to explain them. */
   #drawer .close-btn, #drawer .drawer-actions, #drawer .drawer-group { display: none !important; }
   #drawer .print-only { display: block !important; }
 }
@@ -461,7 +477,7 @@ async function resetWorkerPin(id, name){
 // fires reliably whether the user actually printed or cancelled).
 function printDrawer(woNumber){
   const originalTitle = document.title;
-  document.title = `NJ WO Details #${woNumber}`;
+  document.title = `NJ Dispatcher - Detailed WO#${woNumber}`;
   window.print();
   const restore = () => { document.title = originalTitle; window.removeEventListener('afterprint', restore); };
   window.addEventListener('afterprint', restore);
@@ -762,6 +778,16 @@ async function openDetail(id){
   }
   drawerState = {woId: id, dirty: false};
 
+  // Bug fix (found in print-consistency testing, 8/1/26): Dispatcher
+  // Console never showed requester/POC contact info anywhere — not on
+  // screen, not on print. LOC triage already had this (always-visible
+  // header, not print-only, so it naturally appears both places);
+  // matched here exactly for consistency between the two screens'
+  // printed output.
+  const pocHtml = (!w.poc_is_requester && (w.poc_name || w.poc_phone))
+    ? `<p style="font-size:12px;color:var(--ink-soft);margin:2px 0 0;"><strong>POC:</strong> ${escapeHtml(w.poc_name||'')} ${escapeHtml(w.poc_phone||'')}</p>`
+    : '';
+
   // Enhancement backlog Phase 17 (PRD §17#12): SLA status marker on the
   // WO detail screen, same thresholds as the queue-card icon above and
   // LOC triage (§14#10). Text label here (not just an icon) since this
@@ -872,6 +898,9 @@ async function openDetail(id){
            assigned worker wasn't shown anywhere in the print output. -->
       <p><strong>Assigned worker:</strong> ${escapeHtml(w.assigned_person ? w.assigned_person.name : '—')}</p>
       <p><strong>Description:</strong><br>${escapeHtml(w.description)}</p>
+      <!-- Bug fix (found in print-consistency testing, 8/1/26): only
+           LOC triage's print output showed this. -->
+      ${w.note_to_requester ? `<p><strong>Note to requestor:</strong><br>${escapeHtml(w.note_to_requester)}</p>` : ''}
       ${hasPin ? `<div style="margin-top:10px;"><strong>Scan for exact location:</strong><br><div id="qrCodeContainer"></div></div>` : ''}
       <p style="font-size:11px;color:#666;">Printed ${fmtDateTime(new Date().toISOString())}</p>
     </div>`;
@@ -880,6 +909,8 @@ async function openDetail(id){
     <button class="close-btn" onclick="closeDrawer()">×</button>
     <h2>${escapeHtml(w.wo_number)}</h2>
     <div class="sub">${escapeHtml(w.work_type || 'No work type')} &middot; <span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span>${slaStatusHtml}</div>
+    <p style="font-size:12px;color:var(--ink-soft);margin-top:0;">${escapeHtml(w.requester_name)} · ${escapeHtml(w.requester_email||'')} ${escapeHtml(w.requester_phone||'')}</p>
+    ${pocHtml}
 
     <div class="readonly-block"><strong>${escapeHtml(w.asset ? w.asset.name : 'No location')}</strong><br>${escapeHtml(w.description)}</div>
     ${attachmentsHtml}
