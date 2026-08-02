@@ -496,7 +496,7 @@ function openNewUser(){
     <label>Role</label><select id="nRole" onchange="onNewRoleChange()">${roleOptions('tech')}</select>
     <label>Team ${ME.role==='admin'?'':''}<span id="nTeamReq" style="color:var(--hivis);">*</span></label>
     <select id="nTeam">${teamOptions('')}</select>
-    <div class="hint">Required for tech accounts. A temporary password is generated automatically — you'll see it once, right after creating the account.</div>
+    <div class="hint">Required for tech accounts. A password is generated automatically — you'll see it once, right after creating the account. There's no self-service password change (a deliberate choice for a 2-week event, see PRD §8) — if it needs to change later, reset it from this screen.</div>
     <div class="field-err" id="nErr"></div>
     <div class="drawer-actions"><button class="btn" onclick="createUser()">Create account</button></div>
   `);
@@ -534,7 +534,7 @@ function showPasswordReveal(user, password, heading){
     <h2>${escapeHtml(heading)}</h2>
     <div class="hint">${escapeHtml(user.name)} · ${escapeHtml(user.email)}</div>
     <div class="pw-reveal">
-      <div class="warn">Temporary password — shown once. Send it to them now (text or verbal is fine). Self-service password change isn't built yet, so if you can't hand it off immediately, keep this somewhere safe in the meantime.</div>
+      <div class="warn">This is the account's actual password, not a placeholder — shown once. Send it to them now (text or verbal is fine). There's no self-service password change; if they lose it or need a new one, come back here and reset it.</div>
       <div class="pw">${escapeHtml(password)}</div>
     </div>
     <div class="drawer-actions"><button class="btn" onclick="closeDrawer()">Done</button></div>

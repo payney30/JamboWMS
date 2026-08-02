@@ -58,6 +58,9 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
 .pin-actions{display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap;}
 .pin-status{font-size:12px;color:var(--ink-soft);}
 .divider{border:none;border-top:1px solid var(--khaki-line);margin:18px 0;}
+.note{background:var(--canvas-panel);border:1px solid var(--khaki-line);border-radius:6px;padding:8px 10px;margin:6px 0;font-size:13px;}
+.note .meta{color:var(--ink-soft);font-size:10px;margin-top:4px;}
+.note .loc-badge{background:var(--pine);color:#fff;font-size:9px;padding:1px 5px;border-radius:3px;margin-right:5px;}
 
 #toastStack{position:fixed;bottom:16px;left:16px;right:16px;z-index:50;display:flex;flex-direction:column;gap:8px;align-items:center;}
 .toast{background:var(--pine);color:#fff;border-radius:8px;padding:10px 14px;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.2);}
@@ -102,11 +105,24 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
 
       <div class="field"><label>Location</label><div class="val" id="dLocation"></div></div>
       <div class="field"><label>Description</label><div class="val" id="dDescription"></div></div>
+      <!-- Enhancement backlog Phase 22 (PRD §17#10 follow-up): contact
+           info — a worker on-site may need to reach the requester or
+           POC directly (confirm access, ask a clarifying question,
+           let them know they're on the way). -->
+      <div class="field"><label>Requester</label><div class="val" id="dRequester"></div></div>
+      <div class="field" id="dPocWrap" style="display:none;"><label>Point of contact</label><div class="val" id="dPoc"></div></div>
       <div id="dSubmissionPhotos"></div>
       <div id="dSubmissionPinWrap" style="display:none;">
         <div class="field"><label>Submitted location <a id="dSubmissionPinLink" href="#" target="_blank" rel="noopener" style="font-weight:400;">Open full map ↗</a></label>
           <div id="pinMap"></div>
         </div>
+      </div>
+      <!-- Enhancement backlog Phase 22 (PRD §17#10 follow-up): work
+           notes, read-only — LOC/Dispatcher instructions or other
+           context a worker should see before starting. -->
+      <div id="dNotesWrap" style="display:none;">
+        <div class="field"><label>Notes</label></div>
+        <div id="dNotes"></div>
       </div>
 
       <hr class="divider">
@@ -311,6 +327,36 @@ async function openDetail(id){
   document.getElementById('dLocation').textContent = w.asset ? w.asset.name : '—';
   document.getElementById('dDescription').textContent = w.description;
 
+  // Enhancement backlog Phase 22 (PRD §17#10 follow-up): contact info.
+  document.getElementById('dRequester').textContent =
+    [w.requester_name, w.requester_phone, w.requester_email].filter(Boolean).join(' · ');
+  const pocWrap = document.getElementById('dPocWrap');
+  if (!w.poc_is_requester && (w.poc_name || w.poc_phone)) {
+    pocWrap.style.display = 'block';
+    document.getElementById('dPoc').textContent = [w.poc_name, w.poc_phone].filter(Boolean).join(' · ');
+  } else {
+    pocWrap.style.display = 'none';
+  }
+
+  // Enhancement backlog Phase 22 (PRD §17#10 follow-up): read-only work
+  // notes — same LOC-badge pattern already used on the Dispatcher
+  // Console, so LOC/Dispatcher-authored notes are visually distinguishable
+  // from anything a fellow worker or the requester might have logged.
+  const notesWrap = document.getElementById('dNotesWrap');
+  const notes = w.notes || [];
+  if (notes.length) {
+    notesWrap.style.display = 'block';
+    document.getElementById('dNotes').innerHTML = notes.slice().reverse().map(n => {
+      const isLoc = n.author && (n.author.role === 'loc' || n.author.role === 'admin' || n.author.role === 'tech');
+      const badge = isLoc ? '<span class="loc-badge">TEAM</span>' : '';
+      return `<div class="note">${badge}${escapeHtml(n.note_text)}
+        <div class="meta">${n.author ? escapeHtml(n.author.name) : 'system'} &middot; ${new Date(n.created_at).toLocaleString()}</div>
+      </div>`;
+    }).join('');
+  } else {
+    notesWrap.style.display = 'none';
+  }
+
   const submissionPhotos = (w.attachments || []).filter(a => a.stage !== 'completion');
   const photosEl = document.getElementById('dSubmissionPhotos');
   if (submissionPhotos.length) {
@@ -421,6 +467,17 @@ async function markCompleted(){
     btn.textContent = 'Mark completed';
   }
 }
+
+// Enhancement backlog Phase 22 (PRD §17#10 follow-up): auto-refresh —
+// a worker might leave this open on their phone for a while between
+// checks, and a new task should show up without them needing to
+// remember to pull-to-refresh. Paused while the detail view is open
+// (currentWo set) so a background refresh can't disrupt someone
+// mid-completing a task, and skipped entirely while logged out.
+setInterval(() => {
+  if (!TOKEN || currentWo) return;
+  loadQueue();
+}, 30000);
 
 boot();
 </script>
