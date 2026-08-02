@@ -14,13 +14,12 @@ import pytest
 from app import crud, schemas, notifications
 
 
-def _make_wo(db, asset, notify_preference=None, poc_is_requester=True,
-             poc_name=None, poc_phone=None):
+def _make_wo(db, asset, poc_is_requester=True, poc_name=None, poc_phone=None):
     return crud.create_work_order(
         db, schemas.WorkOrderCreate(
             requester_name="Scout", requester_email="scout@example.com",
             requester_phone="555-0100", asset_id=asset.id, description="x",
-            priority="Next Day", notify_preference=notify_preference,
+            priority="Next Day",
             poc_is_requester=poc_is_requester, poc_name=poc_name, poc_phone=poc_phone,
         ),
     )
@@ -109,44 +108,52 @@ def test_send_email_returns_false_on_provider_error(monkeypatch):
 
 
 # ---- notify_work_order_event decision logic ----
+# Design correction (8/2/26): no opt-in preference selector — always
+# notifies by both SMS and email whenever the corresponding contact
+# info exists on the WO. See notify_work_order_event's docstring.
 
-def test_no_notification_without_preference(db, asset):
-    wo = _make_wo(db, asset, notify_preference=None)
+def test_sends_both_sms_and_email_automatically(db, asset):
+    wo = _make_wo(db, asset)
     with patch.object(notifications, "send_sms") as sms, patch.object(notifications, "send_email") as email:
         notifications.notify_work_order_event(wo, "submitted")
-        sms.assert_not_called()
-        email.assert_not_called()
-
-
-def test_email_only_preference_sends_only_email(db, asset):
-    wo = _make_wo(db, asset, notify_preference="email")
-    with patch.object(notifications, "send_sms") as sms, patch.object(notifications, "send_email") as email:
-        notifications.notify_work_order_event(wo, "submitted")
-        sms.assert_not_called()
+        sms.assert_called_once()
+        assert sms.call_args[0][0] == "555-0100"
         email.assert_called_once()
         assert email.call_args[0][0] == "scout@example.com"
 
 
-def test_text_only_preference_sends_only_sms(db, asset):
-    wo = _make_wo(db, asset, notify_preference="text")
+def test_no_sms_when_phone_missing(db, asset):
+    """Not guaranteed present for every creation path (e.g. the
+    authenticated LOC/tech endpoint doesn't require it), even though
+    the public Submit WO form does."""
+    wo = crud.create_work_order(
+        db, schemas.WorkOrderCreate(
+            requester_name="Scout", requester_email="scout@example.com",
+            asset_id=asset.id, description="x", priority="Next Day",
+        ),
+    )
     with patch.object(notifications, "send_sms") as sms, patch.object(notifications, "send_email") as email:
         notifications.notify_work_order_event(wo, "submitted")
-        email.assert_not_called()
-        sms.assert_called_once()
-        assert sms.call_args[0][0] == "555-0100"
-
-
-def test_both_preference_sends_both(db, asset):
-    wo = _make_wo(db, asset, notify_preference="both")
-    with patch.object(notifications, "send_sms") as sms, patch.object(notifications, "send_email") as email:
-        notifications.notify_work_order_event(wo, "submitted")
-        sms.assert_called_once()
+        sms.assert_not_called()
         email.assert_called_once()
+
+
+def test_no_email_when_email_missing(db, asset):
+    wo = crud.create_work_order(
+        db, schemas.WorkOrderCreate(
+            requester_name="Scout", requester_phone="555-0100",
+            asset_id=asset.id, description="x", priority="Next Day",
+        ),
+    )
+    with patch.object(notifications, "send_sms") as sms, patch.object(notifications, "send_email") as email:
+        notifications.notify_work_order_event(wo, "submitted")
+        sms.assert_called_once()
+        email.assert_not_called()
 
 
 def test_distinct_poc_also_texted(db, asset):
     wo = _make_wo(
-        db, asset, notify_preference="text",
+        db, asset,
         poc_is_requester=False, poc_name="Helen", poc_phone="555-0200",
     )
     with patch.object(notifications, "send_sms") as sms:
@@ -160,7 +167,7 @@ def test_poc_never_emailed_no_field_exists(db, asset):
     """POC has no email field in the data model at all — only ever
     reachable by SMS."""
     wo = _make_wo(
-        db, asset, notify_preference="both",
+        db, asset,
         poc_is_requester=False, poc_name="Helen", poc_phone="555-0200",
     )
     with patch.object(notifications, "send_email") as email:
@@ -171,7 +178,7 @@ def test_poc_never_emailed_no_field_exists(db, asset):
 
 
 def test_invalid_event_name_is_noop(db, asset):
-    wo = _make_wo(db, asset, notify_preference="both")
+    wo = _make_wo(db, asset)
     with patch.object(notifications, "send_sms") as sms, patch.object(notifications, "send_email") as email:
         notifications.notify_work_order_event(wo, "bogus")
         sms.assert_not_called()
@@ -182,19 +189,19 @@ def test_invalid_event_name_is_noop(db, asset):
 
 def test_submission_triggers_notification(db, asset):
     with patch.object(notifications, "notify_work_order_event") as mock_notify:
-        wo = _make_wo(db, asset, notify_preference="both")
+        wo = _make_wo(db, asset)
         mock_notify.assert_called_once_with(wo, "submitted")
 
 
 def test_wip_transition_triggers_notification(db, asset, admin_user):
-    wo = _make_wo(db, asset, notify_preference="both")
+    wo = _make_wo(db, asset)
     with patch.object(notifications, "notify_work_order_event") as mock_notify:
         crud.change_status(db, wo, schemas.StatusChangeRequest(status="Work In Progress"), changed_by=admin_user.id)
         mock_notify.assert_called_once_with(wo, "in_progress")
 
 
 def test_closed_transition_triggers_notification(db, asset, admin_user):
-    wo = _make_wo(db, asset, notify_preference="both")
+    wo = _make_wo(db, asset)
     with patch.object(notifications, "notify_work_order_event") as mock_notify:
         crud.change_status(
             db, wo, schemas.StatusChangeRequest(status="Closed, Completed", note="done"), changed_by=admin_user.id
@@ -205,7 +212,7 @@ def test_closed_transition_triggers_notification(db, asset, admin_user):
 def test_noop_status_reselect_does_not_retrigger(db, asset, admin_user):
     """Re-saving the same status (e.g. an unrelated edit that happens
     to resend the current status) must not re-send a notification."""
-    wo = _make_wo(db, asset, notify_preference="both")
+    wo = _make_wo(db, asset)
     crud.change_status(db, wo, schemas.StatusChangeRequest(status="Assigned"), changed_by=admin_user.id)
     with patch.object(notifications, "notify_work_order_event") as mock_notify:
         crud.change_status(db, wo, schemas.StatusChangeRequest(status="Assigned"), changed_by=admin_user.id)
@@ -214,9 +221,7 @@ def test_noop_status_reselect_does_not_retrigger(db, asset, admin_user):
 
 def test_worker_complete_triggers_notification(client, auth_headers, wo_payload, team, db):
     worker, pin = crud.create_task_worker(db, team.id, schemas.TaskWorkerCreate(name="Riley"))
-    wo_payload_with_pref = dict(wo_payload)
-    wo_payload_with_pref["notify_preference"] = "both"
-    wo = client.post("/work-orders", json=wo_payload_with_pref, headers=auth_headers).json()
+    wo = client.post("/work-orders", json=wo_payload, headers=auth_headers).json()
     client.post(f"/work-orders/{wo['id']}/assign", json={"team_id": team.id, "person_id": worker.id}, headers=auth_headers)
     login = client.post("/public/worker-login", json={"worker_id": worker.id, "pin": pin})
     worker_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
@@ -228,9 +233,7 @@ def test_worker_complete_triggers_notification(client, auth_headers, wo_payload,
 
 
 def test_save_work_order_status_transition_triggers_notification(client, auth_headers, wo_payload, team):
-    wo_payload_with_pref = dict(wo_payload)
-    wo_payload_with_pref["notify_preference"] = "both"
-    wo = client.post("/work-orders", json=wo_payload_with_pref, headers=auth_headers).json()
+    wo = client.post("/work-orders", json=wo_payload, headers=auth_headers).json()
 
     with patch.object(notifications, "notify_work_order_event") as mock_notify:
         client.post(
