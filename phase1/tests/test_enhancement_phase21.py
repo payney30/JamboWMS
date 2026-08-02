@@ -254,3 +254,64 @@ def test_add_attachment_completion_stage(db, asset):
     )
     att = crud.add_attachment(db, wo, "/uploads/done.jpg", stage="completion")
     assert att.stage == "completion"
+
+
+# ---- Enhancement backlog Phase 22 (PRD §17#10 follow-up): tasking event ----
+
+def test_worker_assignment_logs_distinct_tasking_event(client, auth_headers, wo_payload, team, db):
+    worker, _ = crud.create_task_worker(db, team.id, schemas.TaskWorkerCreate(name="Riley"))
+    wo = client.post("/work-orders", json=wo_payload, headers=auth_headers).json()
+
+    client.post(
+        f"/work-orders/{wo['id']}/assign",
+        json={"team_id": team.id, "person_id": worker.id},
+        headers=auth_headers,
+    )
+    detail = client.get(f"/work-orders/{wo['id']}", headers=auth_headers).json()
+    tasking_events = [h for h in detail["history"] if h["event_type"] == "tasking"]
+    assert len(tasking_events) == 1
+    assert tasking_events[0]["from_value"] == "Unassigned"
+    assert tasking_events[0]["to_value"] == "Riley"
+
+
+def test_tasking_worker_without_team_change_does_not_log_spurious_reassignment(
+    client, auth_headers, wo_payload, team, db
+):
+    """Bug fix: assign_work_order used to unconditionally write a
+    'reassignment' row on every call, including tasking a worker without
+    changing teams — producing a "reassignment: TeamX -> TeamX" row that
+    didn't reflect what actually happened. Fixed to only log reassignment
+    when the team itself changes."""
+    worker, _ = crud.create_task_worker(db, team.id, schemas.TaskWorkerCreate(name="Riley"))
+    wo = client.post("/work-orders", json=wo_payload, headers=auth_headers).json()
+    # First call sets the team (no prior team -> not a "change" in the
+    # reroute sense, but assigned_team_id does go from None to team.id).
+    client.post(f"/work-orders/{wo['id']}/assign", json={"team_id": team.id}, headers=auth_headers)
+
+    # Second call tasks a worker on the SAME team — should log only a
+    # tasking event, no additional reassignment row.
+    resp = client.post(
+        f"/work-orders/{wo['id']}/assign",
+        json={"team_id": team.id, "person_id": worker.id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    detail = client.get(f"/work-orders/{wo['id']}", headers=auth_headers).json()
+    reassignment_events = [h for h in detail["history"] if h["event_type"] == "reassignment"]
+    tasking_events = [h for h in detail["history"] if h["event_type"] == "tasking"]
+    assert len(reassignment_events) == 1  # only from the first call (None -> team)
+    assert len(tasking_events) == 1  # only from the second call
+
+
+def test_untasking_worker_logs_tasking_event_to_unassigned(client, auth_headers, wo_payload, team, db):
+    worker, _ = crud.create_task_worker(db, team.id, schemas.TaskWorkerCreate(name="Riley"))
+    wo = client.post("/work-orders", json=wo_payload, headers=auth_headers).json()
+    client.post(f"/work-orders/{wo['id']}/assign", json={"team_id": team.id, "person_id": worker.id}, headers=auth_headers)
+
+    resp = client.post(f"/work-orders/{wo['id']}/assign", json={"team_id": team.id}, headers=auth_headers)
+    assert resp.status_code == 200
+    detail = client.get(f"/work-orders/{wo['id']}", headers=auth_headers).json()
+    tasking_events = [h for h in detail["history"] if h["event_type"] == "tasking"]
+    assert len(tasking_events) == 2
+    assert tasking_events[-1]["from_value"] == "Riley"
+    assert tasking_events[-1]["to_value"] == "Unassigned"
