@@ -169,6 +169,24 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
   </div>
   <div class="chips" id="quickViews"></div>
 
+  <!-- Enhancement backlog Phase 21 (PRD §17#10): delegated Task Worker
+       management — a Dispatcher manages their own team's workers
+       directly here, no Admin involvement needed per worker. -->
+  <div id="workersSection" style="display:none;">
+    <div class="section-title" style="cursor:pointer;" onclick="toggleWorkersPanel()">
+      <span>My Workers <span class="hint" id="workersCount"></span></span>
+      <span id="workersToggleIcon">▸</span>
+    </div>
+    <div id="workersPanel" style="display:none;">
+      <div id="workersList" style="margin-bottom:10px;"></div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input id="newWorkerName" placeholder="Worker's name" style="flex:1;padding:10px;border:1px solid var(--khaki-line);border-radius:6px;font-size:14px;">
+        <button class="btn btn-ghost" onclick="addWorker()">+ Add worker</button>
+      </div>
+      <div class="hint" style="margin-top:6px;">Share the PIN shown after adding a worker with them directly — it's only shown once. Workers log in at <span style="font-family:var(--font-mono);">worker.html</span>.</div>
+    </div>
+  </div>
+
   <div class="section-title"><span>Queue <span class="hint" id="queueCount"></span></span></div>
   <div class="cards" id="woCards"><div class="empty-state">Loading…</div></div>
 </div>
@@ -177,6 +195,7 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
 <div id="drawer"></div>
 <div id="toastStack"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="location-picker.js"></script>
 <script>
 const API = '';
@@ -188,6 +207,11 @@ let locationFilterAssetId = null;
 // Enhancement backlog Phase 17 (PRD §17#13): holds whatever's currently
 // loaded/filtered, for CSV export.
 let LAST_WOS = [];
+// Enhancement backlog Phase 21 (PRD §17#10): the open drawer's WO's
+// current team — assigning to a worker via the combined save needs
+// team_id sent too (crud.assign_work_order requires it), even when the
+// team itself isn't being changed.
+let currentWoTeamId = null;
 // Enhancement backlog Phase 4 (PRD §15#1): same pattern as index.html —
 // admin-configured display time zone, fetched from the no-auth public
 // settings endpoint so this screen agrees with LOC triage and the
@@ -310,6 +334,68 @@ function exportQueueCsv(){
   URL.revokeObjectURL(url);
 }
 
+// Enhancement backlog Phase 21 (PRD §17#10): delegated Task Worker
+// management — visible/loaded for tech (Dispatcher) role only, see
+// boot(). Every call here hits /my-team/workers, which is scoped
+// server-side to the caller's own team — there's no team_id to pass.
+let MY_WORKERS = [];
+
+function toggleWorkersPanel(){
+  const panel = document.getElementById('workersPanel');
+  const icon = document.getElementById('workersToggleIcon');
+  const showing = panel.style.display !== 'none';
+  panel.style.display = showing ? 'none' : 'block';
+  icon.textContent = showing ? '▸' : '▾';
+}
+
+async function loadWorkers(){
+  document.getElementById('workersSection').style.display = 'block';
+  try {
+    MY_WORKERS = await api('/my-team/workers');
+  } catch (e) {
+    showToast('Could not load workers: ' + e.message, 'err');
+    return;
+  }
+  document.getElementById('workersCount').textContent = `(${MY_WORKERS.length})`;
+  const el = document.getElementById('workersList');
+  el.innerHTML = MY_WORKERS.length
+    ? MY_WORKERS.map(w => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px dashed var(--khaki-line);">
+          <span>${escapeHtml(w.name)}</span>
+          <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px;" onclick="deactivateWorker(${w.id})">Remove</button>
+        </div>
+      `).join('')
+    : '<div class="empty-state" style="padding:6px 0;">No workers yet — add one below.</div>';
+}
+
+async function addWorker(){
+  const input = document.getElementById('newWorkerName');
+  const name = input.value.trim();
+  if (!name) { showToast('Enter a name first.', 'err'); return; }
+  try {
+    const created = await api('/my-team/workers', {method: 'POST', body: {name}});
+    input.value = '';
+    await loadWorkers();
+    // Enhancement backlog Phase 21: the PIN is only ever returned here,
+    // once — alert() is deliberately blocking/modal so it can't be
+    // missed or accidentally scrolled past.
+    alert(`${created.worker.name}'s PIN is ${created.pin}\n\nShare this with them directly — it won't be shown again. They log in at worker.html.`);
+  } catch (e) {
+    showToast('Could not add worker: ' + e.message, 'err');
+  }
+}
+
+async function deactivateWorker(id){
+  if (!confirm('Remove this worker? They will no longer be able to log in or be assigned new tasks.')) return;
+  try {
+    await api(`/my-team/workers/${id}`, {method: 'DELETE'});
+    showToast('Worker removed.', 'ok');
+    loadWorkers();
+  } catch (e) {
+    showToast('Could not remove worker: ' + e.message, 'err');
+  }
+}
+
 async function boot() {
   try {
     ME = await api('/auth/me');
@@ -342,6 +428,10 @@ async function boot() {
     if (!scopeTeamId) {
       showToast('Your account has no team assigned — contact the LOC to get set up.', 'err');
     }
+    // Enhancement backlog Phase 21 (PRD §17#10): My Workers is a
+    // Dispatcher (tech) concept specifically — loc/admin viewers don't
+    // have a "my team" to manage workers for.
+    loadWorkers();
   } else {
     document.getElementById('teamLabel').textContent = 'LOC/admin view · ' + ME.name;
     document.getElementById('teamSelectWrap').style.display = 'block';
@@ -554,6 +644,21 @@ async function openDetail(id){
   const teamOpts = TEAMS.filter(t => t.id !== w.assigned_team.id)
     .map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
 
+  // Enhancement backlog Phase 21 (PRD §17#10): assign this WO to a
+  // specific worker on my team — tech (Dispatcher) role only, and only
+  // once MY_WORKERS has loaded (boot() loads it for tech role). Saved
+  // as part of the combined save below; crud.save_work_order already
+  // accepted person_id, it just had no frontend control to set it from.
+  currentWoTeamId = w.assigned_team ? w.assigned_team.id : null;
+  const workerAssignHtml = (ME.role === 'tech' && MY_WORKERS.length) ? `
+    <div class="drawer-group">
+      <label>Assign to worker</label>
+      <select id="dWorker" onchange="markDirty()">
+        <option value="">— Unassigned —</option>
+        ${MY_WORKERS.map(worker => `<option value="${worker.id}" ${w.assigned_person && w.assigned_person.id === worker.id ? 'selected' : ''}>${escapeHtml(worker.name)}</option>`).join('')}
+      </select>
+    </div>` : '';
+
   // Enhancement backlog Phase 12 (PRD §16#3): label who a note is from
   // — specifically flag LOC/admin-authored notes so it's clear which
   // ones are LOC guidance vs. another tech's own update. Notes were
@@ -593,12 +698,19 @@ async function openDetail(id){
   // Enhancement backlog Phase 12 (PRD §16#2): print-only plain-text
   // summary, same reasoning as the LOC drawer — a printed <select> just
   // shows an empty box, not its value.
+  //
+  // Enhancement backlog Phase 21 (PRD §17#10): QR code linking to the
+  // pinned location, if the WO has one — same reasoning as the LOC
+  // drawer's equivalent. Rendered after openDrawer() below, once
+  // #qrCodeContainer actually exists in the DOM.
+  const hasPin = w.latitude != null && w.longitude != null;
   const printOnlyHtml = `
     <div class="print-only">
       <p><strong>Location:</strong> ${escapeHtml(w.asset ? w.asset.name : '—')}</p>
       <p><strong>Work type:</strong> ${escapeHtml(w.work_type || '—')} &nbsp; <strong>Priority:</strong> ${escapeHtml(w.priority)}</p>
       <p><strong>Status:</strong> ${escapeHtml(w.status)} &nbsp; <strong>Team:</strong> ${escapeHtml(w.assigned_team ? w.assigned_team.name : '—')}</p>
       <p><strong>Description:</strong><br>${escapeHtml(w.description)}</p>
+      ${hasPin ? `<div style="margin-top:10px;"><strong>Scan for exact location:</strong><br><div id="qrCodeContainer"></div></div>` : ''}
       <p style="font-size:11px;color:#666;">Printed ${fmtDateTime(new Date().toISOString())}</p>
     </div>`;
 
@@ -627,6 +739,8 @@ async function openDetail(id){
       <div class="field-err" id="dAssignErr"></div>
     </div>
 
+    ${workerAssignHtml}
+
     <div class="drawer-group">
       <label>Add a work note</label>
       <textarea id="dNote" placeholder="Progress update, blocker, parts needed…" oninput="markDirty()"></textarea>
@@ -645,6 +759,19 @@ async function openDetail(id){
     <div class="section-title">History</div>
     ${histHtml}
   `);
+
+  // Enhancement backlog Phase 21 (PRD §17#10): see index.html's
+  // equivalent — needs a real DOM element to draw into, so this runs
+  // after openDrawer() above, not inside the template string.
+  if (hasPin) {
+    const qrEl = document.getElementById('qrCodeContainer');
+    if (qrEl) {
+      new QRCode(qrEl, {
+        text: `https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17`,
+        width: 120, height: 120,
+      });
+    }
+  }
 }
 
 async function saveDrawer(){
@@ -670,6 +797,11 @@ async function saveDrawer(){
     btn.disabled = false; btn.textContent = 'Save changes';
     return;
   }
+  // Enhancement backlog Phase 21 (PRD §17#10): a worker dropdown only
+  // exists in the DOM for tech role with workers loaded — guard for its
+  // absence rather than assuming it's always there.
+  const workerEl = document.getElementById('dWorker');
+  const workerVal = workerEl ? workerEl.value : '';
 
   const payload = {
     status,
@@ -684,6 +816,19 @@ async function saveDrawer(){
   if (teamVal) {
     payload.team_id = parseInt(teamVal, 10);
     payload.assign_note = assignNote;
+  } else if (workerVal) {
+    // Enhancement backlog Phase 21: assigning to a worker without also
+    // reassigning teams still has to send team_id — crud.assign_work_order
+    // requires it — so this resends the WO's current team unchanged.
+    payload.team_id = currentWoTeamId;
+  }
+  if (workerVal) {
+    payload.person_id = parseInt(workerVal, 10);
+  } else if (workerEl && !workerVal && teamVal) {
+    // Explicitly unassigning the worker (blank selected) while also
+    // reassigning teams — person_id=null clears it rather than leaving
+    // a stale assignment pointing at a worker on the old team.
+    payload.person_id = null;
   }
 
   try {

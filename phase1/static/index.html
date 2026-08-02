@@ -211,6 +211,7 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
 <div id="toastStack"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="location-picker.js"></script>
 <script>
 const API = '';
@@ -817,7 +818,13 @@ function renderWODrawer(w, lockBanner){
         </a>`;
       }).join('') + `</div>`
     : '';
-  // Enhancement backlog Phase 1 (PRD §14#3, same "already have the data"
+  // Enhancement backlog Phase 15 (PRD §14#7): pin display, unblocked by
+  // §13#14 (pin-drop on Submit WO) shipping. No pin -> no map section at
+  // all, not a blank/broken one. "Expand" opens the point in
+  // OpenStreetMap in a new tab rather than a custom in-app modal.
+  const hasPin = w.latitude != null && w.longitude != null;
+
+  // Enhancement backlog Phase 3 (PRD §14#12), same "already have the data"
   // rationale as history above): POC block at the top when the requester
   // isn't the point of contact.
   const pocHtml = (!w.poc_is_requester && (w.poc_name || w.poc_phone))
@@ -828,6 +835,15 @@ function renderWODrawer(w, lockBanner){
   // only when printing (see the .print-only / @media print CSS) — the
   // editable form controls above get hidden on print instead, since a
   // printed textarea/select just shows an empty box, not its value.
+  //
+  // Enhancement backlog Phase 21 (PRD §17#10): if the WO has a pin, a QR
+  // code linking to it is added below — for a WO handed out as a
+  // printed paper copy (no app access), scanning it goes straight to
+  // the pinned location without anyone needing to type coordinates or
+  // search for the address by hand. Rendered into #qrCodeContainer
+  // after openDrawer() below actually inserts it into the DOM — a QR
+  // library needs a real element to draw into, can't render into a
+  // template string.
   const printOnlyHtml = `
     <div class="print-only">
       <p><strong>Location:</strong> ${escapeHtml(w.asset ? w.asset.name : '—')}</p>
@@ -835,14 +851,10 @@ function renderWODrawer(w, lockBanner){
       <p><strong>Status:</strong> ${escapeHtml(w.status)} &nbsp; <strong>Team:</strong> ${escapeHtml(w.assigned_team ? w.assigned_team.name : '—')}</p>
       <p><strong>Description:</strong><br>${escapeHtml(w.description)}</p>
       ${w.note_to_requester ? `<p><strong>Note to requestor:</strong><br>${escapeHtml(w.note_to_requester)}</p>` : ''}
+      ${hasPin ? `<div style="margin-top:10px;"><strong>Scan for exact location:</strong><br><div id="qrCodeContainer"></div></div>` : ''}
       <p style="font-size:11px;color:#666;">Printed ${fmtDateTime(new Date().toISOString())}</p>
     </div>`;
 
-  // Enhancement backlog Phase 15 (PRD §14#7): pin display, unblocked by
-  // §13#14 (pin-drop on Submit WO) shipping. No pin -> no map section at
-  // all, not a blank/broken one. "Expand" opens the point in
-  // OpenStreetMap in a new tab rather than a custom in-app modal.
-  const hasPin = w.latitude != null && w.longitude != null;
   const pinHtml = hasPin ? `
     <div class="drawer-group">
       <label>Pinned location <a href="https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17" target="_blank" rel="noopener" style="font-weight:400;font-size:12px;">Open full map ↗</a></label>
@@ -947,6 +959,19 @@ function renderWODrawer(w, lockBanner){
       attribution: '&copy; OpenStreetMap contributors',
     }).addTo(dmap);
     L.marker([w.latitude, w.longitude]).addTo(dmap);
+
+    // Enhancement backlog Phase 21 (PRD §17#10): QR code for printed
+    // WOs — scans to the pinned location. Rendered here (not in the
+    // template string above) because QRCode.js needs a real DOM element
+    // to draw into; #qrCodeContainer only exists once openDrawer()
+    // above has actually inserted the HTML.
+    const qrEl = document.getElementById('qrCodeContainer');
+    if (qrEl) {
+      new QRCode(qrEl, {
+        text: `https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17`,
+        width: 120, height: 120,
+      });
+    }
   }
 }
 
