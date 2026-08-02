@@ -85,13 +85,18 @@ def list_work_orders(
     search: Optional[str] = None,
     exclude_closed: bool = False,
     closed_only: bool = False,
-    priority_in: Optional[str] = None,  # comma-separated, e.g. "Highest,High"
+    priority_in: Optional[str] = None,  # comma-separated, e.g. "Immediate,Same Day"
+    status_in: Optional[str] = None,  # comma-separated, e.g. "Assigned,On Hold,Work In Progress"
     opened_today: bool = False,
     closed_today: bool = False,
     handled_by: Optional[int] = None,  # PRD §14#17: "work orders I've handled"
     approaching_deadline: bool = False,  # PRD §14#10
     past_deadline: bool = False,  # PRD §14#10
-    limit: int = Query(100, le=500),
+    # Bug fix (found in LOC triage testing, 8/1/26): LOC's whole job is
+    # to see everything — a low default cap could silently hide newer/
+    # lower-priority WOs once total volume grows past it. Raised well
+    # past any single-event's realistic total.
+    limit: int = Query(100, le=2000),
     offset: int = 0,
     db: Session = Depends(get_db),
     user: models.User = Depends(get_current_user),
@@ -109,10 +114,12 @@ def list_work_orders(
     if user.role == "task_worker":
         assigned_person_id = user.id
     priority_list = [p.strip() for p in priority_in.split(",")] if priority_in else None
+    status_list = [s.strip() for s in status_in.split(",")] if status_in else None
     return crud.list_work_orders(
         db, status=status, priority=priority, team_id=team_id,
         work_type=work_type, location_group=location_group, asset_id=asset_id, search=search,
         exclude_closed=exclude_closed, closed_only=closed_only, priority_in=priority_list,
+        status_in=status_list,
         opened_today=opened_today, closed_today=closed_today, handled_by=handled_by,
         approaching_deadline=approaching_deadline, past_deadline=past_deadline,
         assigned_person_id=assigned_person_id,
