@@ -1,57 +1,22 @@
-# Dispatcher Console Testing Round + CSV Export Fields (Phase 24)
+# Task Worker "Reset PIN" (Phase 24 follow-up)
 
-Full cumulative state. No new migration this round — pure bug fixes,
-schema field additions (existing tables, no new columns), and frontend
-changes.
+Full cumulative state. No new migration this round.
 
-## Real bugs found and fixed
+## What's new
 
-1. **Tasked worker never showed on queue cards.** assigned_person had
-   only ever been added to WorkOrderDetail, never to
-   WorkOrderListItem (what the queue/list endpoint actually returns).
-   The frontend code was correct all along - the data just never
-   arrived. Fixed by moving the field onto the shared base schema.
+Closes a gap explicitly flagged when Task Worker creation first shipped
+- a Dispatcher had no way to get a new PIN for a worker who forgot
+theirs, short of deactivating and re-creating the account entirely.
 
-2. **No auto-refresh at all on Dispatcher Console.** Confirmed by direct
-   inspection - every other screen had one, this didn't. A saved change
-   only appeared after a manual reload. Added (30s, paused while the
-   drawer's open, same as everywhere else).
+**New endpoint:** POST /my-team/workers/{id}/reset-pin (tech-only, own
+team scoped - same 404-not-403 pattern as the other worker-management
+endpoints, so probing another team's worker ID doesn't confirm it's
+real).
 
-3. **Status history didn't show who made a change**, even though LOC
-   triage's did. Confirmed by comparing the two templates directly -
-   simply missing changed_by_name. Fixed to match.
-
-4. **Print output had orphaned form-field labels.** The print CSS only
-   hid the actual form controls, not their label text - "Status
-   Note (required when closing)," "Reassign - wrong team?," etc. all
-   printed with nothing underneath. LOC triage already had this right;
-   Dispatcher Console's narrower rule didn't. Fixed to match - per
-   request, these sections (Status Note, Reassign, Task to worker, Add
-   a work note) are now gone from print entirely; Notes, History, and
-   everything else stays. Added the assigned worker's name to the print
-   summary as data (was missing entirely before).
-
-5. **Stat tiles (New/In progress/On hold/High Urgency) shrank with any
-   filter applied.** They were computed from the already-filtered queue
-   list. Fixed by fetching a separate, filter-independent team-wide
-   dataset just for the tiles - same principle already used for the HQ
-   dashboards' KPI tiles. Renamed "High priority open" -> "High Urgency."
-
-## Enhancements added
-
-- **PDF filename** - both LOC triage and Dispatcher Console now set
-  document.title to "NJ WO Details #[WO number]" before printing, so
-  browsers suggest that as the Save-as-PDF filename.
-- **"Clear filters" button** on Dispatcher Console (every other
-  filterable screen already had one).
-- **"Filter by assigned worker" dropdown**, including a proper
-  "Unassigned" option - added a real unassigned_person backend filter
-  rather than an unreliable sentinel value.
-- **CSV export fields**, both LOC triage and Dispatcher Console: Closed
-  At, Assigned Worker, Requester Name/Phone, POC Name/Phone (blank when
-  the requester is their own POC). Required adding these fields to the
-  list endpoint's schema (WorkOrderListItem) - they only existed on
-  the single-WO detail view before.
+**New UI:** a "Reset PIN" button next to each worker in the My Workers
+panel. Confirms first (the old PIN stops working immediately), then
+shows the new PIN once in a blocking alert - same one-time-reveal
+pattern as worker creation.
 
 ## How to apply
 
@@ -74,29 +39,18 @@ changes.
     #   tests/test_enhancement_phase21.py
     alembic upgrade head
 
-No new migration this round specifically.
+No new migration this round.
 
 ## Verify after deploying
 
-1. Task a worker on Dispatcher Console - confirm the queue card
-   immediately shows "-> Worker Name."
-2. Make a change without touching the page for 30+ seconds - confirm
-   the queue refreshes on its own.
-3. Check a WO's status history on Dispatcher Console - confirm each
-   entry shows who made the change.
-4. Print a WO with an assigned worker - confirm the Status Note/
-   Reassign/Task-to-worker/Add-a-work-note sections are gone, the
-   worker's name appears in the summary, and the suggested PDF filename
-   is "NJ WO Details #[number]".
-5. Apply a status filter on Dispatcher Console - confirm the stat tiles
-   at the top do NOT change.
-6. Try the new "Clear filters" button and the "filter by assigned
-   worker" dropdown (including "Unassigned").
-7. Export CSV from both LOC triage and Dispatcher Console - confirm the
-   new columns (Closed At, Assigned Worker, Requester Phone, POC
-   Name/Phone) are present and correct.
+1. In My Workers, click "Reset PIN" for a worker - confirm a
+   confirmation prompt appears, then the new PIN shows once.
+2. Confirm the worker's OLD PIN no longer logs them in.
+3. Confirm the NEW PIN does log them in.
 
 ## Test status
 
-**289 passing, 0 failing** - fully green. Added 4 new tests covering
-the new list-endpoint fields and the unassigned_person filter.
+**292 passing, 0 failing** - fully green. Added 3 new tests: successful
+reset (old PIN invalidated, new PIN works), a Dispatcher can't reset
+another team's worker's PIN, and LOC can't call this endpoint at all
+(tech-only).
