@@ -47,10 +47,23 @@ def create_my_worker(payload: schemas.TaskWorkerCreate, db: Session = Depends(ge
                       user: models.User = Depends(tech_only)):
     """Returns the plaintext PIN once — the Dispatcher is responsible
     for sharing it with the worker (verbally, over radio, written down).
-    It can't be retrieved again after this response; a Dispatcher who
-    loses it has to regenerate one (no reset endpoint yet — small enough
-    gap to leave for a follow-up rather than block this build on it)."""
+    It can't be retrieved again after this response — see
+    reset_my_worker_pin below if it's lost."""
     worker, pin = crud.create_task_worker(db, user.team_id, payload)
+    return schemas.TaskWorkerCreated(worker=worker, pin=pin)
+
+
+@router.post("/{worker_id}/reset-pin", response_model=schemas.TaskWorkerCreated)
+def reset_my_worker_pin(worker_id: int, db: Session = Depends(get_db),
+                         user: models.User = Depends(tech_only)):
+    """Enhancement backlog Phase 24 follow-up (found in Dispatcher
+    Console testing, 8/1/26): closes the gap flagged when worker
+    creation first shipped — "a Dispatcher who loses [the PIN] has to
+    regenerate one (no reset endpoint yet)." Same one-time-reveal
+    pattern as creation: the new PIN is returned exactly once here, and
+    the old one stops working immediately."""
+    worker = _get_worker_or_404(db, worker_id, user.team_id)
+    pin = crud.reset_task_worker_pin(db, worker)
     return schemas.TaskWorkerCreated(worker=worker, pin=pin)
 
 
