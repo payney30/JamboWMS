@@ -275,6 +275,7 @@ def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Assign
     if not team:
         raise HTTPException(404, "team not found")
 
+    person = None
     if payload.person_id is not None:
         person = db.get(models.User, payload.person_id)
         if not person or person.team_id != payload.team_id:
@@ -285,6 +286,17 @@ def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Assign
         raise HTTPException(400, "a reason note is required when reassigning to a different team")
 
     from_team_name = wo.assigned_team.name if wo.assigned_team else None
+    # Enhancement backlog Phase 22 (PRD §17#10 follow-up, 8/1/26): capture
+    # the *current* assigned worker before mutating, and only write
+    # history rows for what actually changed. Previously this function
+    # unconditionally wrote a 'reassignment' row on every call — including
+    # tasking a worker without changing teams, which produced a
+    # "reassignment: TeamX → TeamX" row that didn't reflect what actually
+    # happened (the worker changed, not the team).
+    from_person_name = wo.assigned_person.name if wo.assigned_person else None
+    team_changed = wo.assigned_team_id != payload.team_id
+    person_changed = wo.assigned_person_id != payload.person_id
+
     wo.assigned_team_id = payload.team_id
     wo.assigned_person_id = payload.person_id
     if wo.status == "Requested":
@@ -294,13 +306,27 @@ def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Assign
             from_value="Requested", to_value="Assigned", changed_by=changed_by,
         ))
 
-    db.add(models.WOStatusHistory(
-        work_order_id=wo.id,
-        event_type="reassignment",
-        from_value=from_team_name,
-        to_value=team.name,
-        changed_by=changed_by,
-    ))
+    if team_changed:
+        db.add(models.WOStatusHistory(
+            work_order_id=wo.id,
+            event_type="reassignment",
+            from_value=from_team_name,
+            to_value=team.name,
+            changed_by=changed_by,
+        ))
+
+    if person_changed:
+        # Enhancement backlog Phase 22 (PRD §17#10 follow-up): "tasking"
+        # — a distinct event type from 'reassignment', so assigning a
+        # specific worker is always visibly its own thing in the log,
+        # not folded into (or confused with) a team-level change.
+        db.add(models.WOStatusHistory(
+            work_order_id=wo.id,
+            event_type="tasking",
+            from_value=from_person_name or "Unassigned",
+            to_value=person.name if person else "Unassigned",
+            changed_by=changed_by,
+        ))
 
     if payload.note:
         db.add(models.WONote(

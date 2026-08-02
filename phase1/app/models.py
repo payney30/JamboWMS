@@ -334,7 +334,7 @@ class WOStatusHistory(Base):
     __tablename__ = "wo_status_history"
     id = Column(Integer, primary_key=True)
     work_order_id = Column(Integer, ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False)
-    event_type = Column(String, nullable=False)  # status_change | reassignment | priority_change
+    event_type = Column(String, nullable=False)  # status_change | reassignment | priority_change | tasking
     from_value = Column(String, nullable=True)
     to_value = Column(String, nullable=False)
     changed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -351,7 +351,15 @@ class WOStatusHistory(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "event_type IN ('status_change','reassignment','priority_change')",
+            # Enhancement backlog Phase 22 (PRD §17#10 follow-up):
+            # 'tasking' — a WO being assigned to (or unassigned from) a
+            # specific Task Worker, distinct from 'reassignment' (which
+            # tracks the team-level assignment only). Kept as its own
+            # event type rather than folded into 'reassignment' so the
+            # two are always distinguishable in the history log — a
+            # worker being tasked shouldn't read as "reassigned to the
+            # same team it was already on."
+            "event_type IN ('status_change','reassignment','priority_change','tasking')",
             name="ck_history_event_type",
         ),
     )
