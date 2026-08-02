@@ -120,7 +120,18 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
     border: none !important;
     transition: none !important;
   }
-  #drawer .close-btn, #drawer .drawer-actions, #drawer select, #drawer textarea { display: none !important; }
+  // Bug fix (found in Dispatcher Console testing, 8/1/26): this only
+  // hid the actual <select>/<textarea> controls, leaving their <label>
+  // text (e.g. "Status Note (required when closing)", "Reassign — wrong
+  // team? Send it to the right one") printed with nothing underneath —
+  // orphaned, meaningless clutter once the control itself is gone.
+  // LOC triage's equivalent already correctly hid the whole
+  // .drawer-group section; matched here. Per explicit request: this
+  // removes the Status/status-note, Reassign, Task-to-worker, and
+  // Add-a-work-note sections from print entirely (Notes, History, and
+  // everything else stays) — the assigned worker's name still shows,
+  // now added to the print-only summary below as data instead.
+  #drawer .close-btn, #drawer .drawer-actions, #drawer .drawer-group { display: none !important; }
   #drawer .print-only { display: block !important; }
 }
 .print-only { display: none; }
@@ -158,7 +169,11 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
   <div class="filters">
     <select id="fStatus" onchange="load()"><option value="">All statuses</option></select>
     <select id="fPriority" onchange="load()"><option value="">All priorities</option></select>
+    <!-- Enhancement backlog Phase 24 (found in Dispatcher Console
+         testing, 8/1/26): filter by assigned worker/team member. -->
+    <select id="fWorker" onchange="load()"><option value="">All workers</option></select>
     <input id="fSearch" placeholder="Search description or WO#…" oninput="debouncedLoad()">
+    <button class="btn btn-ghost" onclick="clearFilters()">Clear filters</button>
     <button class="btn btn-ghost" onclick="exportQueueCsv()">Export CSV</button>
   </div>
   <!-- Enhancement backlog Phase 12 (PRD §16#5): filter the queue by
@@ -204,6 +219,10 @@ let ME = null, TEAMS = [];
 // Enhancement backlog Phase 12 (PRD §16#5): set by the LocationPicker
 // filter's onChange; null means no location filter applied.
 let locationFilterAssetId = null;
+// Enhancement backlog Phase 24 (found in Dispatcher Console testing,
+// 8/1/26): stored so clearFilters() can actually reset its visual
+// state, not just the underlying assetId value.
+let fLocationPicker = null;
 // Enhancement backlog Phase 17 (PRD §17#13): holds whatever's currently
 // loaded/filtered, for CSV export.
 let LAST_WOS = [];
@@ -315,12 +334,22 @@ function csvEscape(v){
 
 function exportQueueCsv(){
   if (!LAST_WOS.length) { showToast('Nothing to export — no work orders match the current filters.', 'err'); return; }
-  const headers = ['WO Number', 'Priority', 'Status', 'Description', 'Location', 'Created At'];
+  // Enhancement backlog Phase 24 (found in CSV export testing, 8/1/26):
+  // added Closed At, Assigned Worker, Requester Phone, and POC Name/Phone.
+  const headers = ['WO Number', 'Priority', 'Status', 'Description', 'Location', 'Assigned Worker',
+    'Requester Name', 'Requester Phone', 'POC Name', 'POC Phone', 'Created At', 'Closed At'];
   const lines = [headers.map(csvEscape).join(',')];
   for (const w of LAST_WOS) {
     lines.push([
       w.wo_number, w.priority, w.status, w.description || '',
-      w.asset ? w.asset.name : '', fmtDateTime(w.created_at),
+      w.asset ? w.asset.name : '',
+      w.assigned_person ? w.assigned_person.name : '',
+      w.requester_name || '',
+      w.requester_phone || '',
+      w.poc_is_requester ? '' : (w.poc_name || ''),
+      w.poc_is_requester ? '' : (w.poc_phone || ''),
+      fmtDateTime(w.created_at),
+      w.closed_at ? fmtDateTime(w.closed_at) : '',
     ].map(csvEscape).join(','));
   }
   const blob = new Blob([lines.join('\n')], {type: 'text/csv;charset=utf-8;'});
@@ -366,6 +395,17 @@ async function loadWorkers(){
         </div>
       `).join('')
     : '<div class="empty-state" style="padding:6px 0;">No workers yet — add one below.</div>';
+
+  // Enhancement backlog Phase 24 (found in Dispatcher Console testing,
+  // 8/1/26): filter-by-worker dropdown, populated alongside the My
+  // Workers panel since it's the same underlying data.
+  const workerSel = document.getElementById('fWorker');
+  if (workerSel) {
+    const currentVal = workerSel.value;
+    workerSel.innerHTML = '<option value="">All workers</option><option value="unassigned">Unassigned</option>' +
+      MY_WORKERS.map(w => `<option value="${w.id}">${escapeHtml(w.name)}</option>`).join('');
+    workerSel.value = currentVal;
+  }
 }
 
 async function addWorker(){
@@ -394,6 +434,19 @@ async function deactivateWorker(id){
   } catch (e) {
     showToast('Could not remove worker: ' + e.message, 'err');
   }
+}
+
+// Bug fix (found in Dispatcher Console testing, 8/1/26): browsers
+// suggest document.title as the default filename in the "Save as PDF"
+// print destination — set it to something meaningful right before
+// printing, restore it once the print dialog closes ('afterprint'
+// fires reliably whether the user actually printed or cancelled).
+function printDrawer(woNumber){
+  const originalTitle = document.title;
+  document.title = `NJ WO Details #${woNumber}`;
+  window.print();
+  const restore = () => { document.title = originalTitle; window.removeEventListener('afterprint', restore); };
+  window.addEventListener('afterprint', restore);
 }
 
 async function boot() {
@@ -448,7 +501,7 @@ async function boot() {
   // location tree fails to load, the filter just isn't offered rather
   // than blocking the rest of the queue from loading.
   try {
-    LocationPicker.mount(document.getElementById('fLocationPicker'), {
+    fLocationPicker = LocationPicker.mount(document.getElementById('fLocationPicker'), {
       treeUrl: '/locations/tree',
       fetchOpts: { headers: { Authorization: 'Bearer ' + TOKEN } },
       placeholder: 'Filter by location…',
@@ -489,6 +542,34 @@ function applyQuickView(key){
 let debounceTimer;
 function debouncedLoad(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(load, 300); }
 
+// Enhancement backlog Phase 24 (found in Dispatcher Console testing,
+// 8/1/26): LOC triage and both HQ dashboards already had this; the
+// Dispatcher Console never did.
+function clearFilters(){
+  ['fStatus', 'fPriority', 'fWorker'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  document.getElementById('fSearch').value = '';
+  if (fLocationPicker) fLocationPicker.setValue(null, null);
+  locationFilterAssetId = null;
+  activeQuickView = '';
+  renderQuickViews();
+  load();
+}
+
+// Bug fix (found in Dispatcher Console testing, 8/1/26): this screen
+// never had auto-refresh at all — a saved change (by this Dispatcher or
+// anyone else on the team) only showed up after a manual page reload.
+// Same quiet-refresh/paused-while-editing principle as LOC triage and
+// the worker app: skipped while the drawer is open so a background
+// refresh can't disrupt someone mid-edit.
+setInterval(() => {
+  if (!TOKEN) return;
+  if (document.getElementById('drawer').classList.contains('open')) return;
+  load();
+}, 30000);
+
 async function load() {
   if (!scopeTeamId) {
     document.getElementById('woCards').innerHTML = '<div class="empty-state">No team to show a queue for.</div>';
@@ -501,15 +582,40 @@ async function load() {
   const status = document.getElementById('fStatus').value;
   const priority = document.getElementById('fPriority').value;
   const search = document.getElementById('fSearch').value;
+  const worker = document.getElementById('fWorker') ? document.getElementById('fWorker').value : '';
   if (status) params.set('status', status);
   if (priority) params.set('priority', priority);
   if (search) params.set('search', search);
   if (locationFilterAssetId) params.set('asset_id', locationFilterAssetId);
+  // Enhancement backlog Phase 24 (found in Dispatcher Console testing,
+  // 8/1/26): filter the queue to a specific assigned worker (or
+  // "Unassigned"). assigned_person_id already existed as a backend
+  // filter param (used server-side for the task_worker role's own
+  // forced scoping) — this is the first UI to actually offer it as a
+  // voluntary filter.
+  if (worker === 'unassigned') params.set('unassigned_person', 'true');
+  else if (worker) params.set('assigned_person_id', worker);
   params.set('limit', '200');
 
-  let wos;
+  // Bug fix (found in Dispatcher Console testing, 8/1/26): the stat
+  // tiles (New/In progress/On hold/High Urgency) used to be computed
+  // from this same filtered fetch — applying any filter shrank the
+  // tiles along with the queue list, when they're supposed to always
+  // reflect the whole team's queue regardless of what's filtered below.
+  // Fetched here as a genuinely separate, filter-independent request
+  // (team_id only), same principle already applied to the Program HQ/
+  // Contingent Ops HQ dashboards' KPI tiles (§17#14 follow-up).
+  const statsParams = new URLSearchParams();
+  statsParams.set('team_id', scopeTeamId);
+  statsParams.set('exclude_closed', 'true');
+  statsParams.set('limit', '2000');
+
+  let wos, statsWos;
   try {
-    wos = await api('/work-orders?' + params.toString());
+    [wos, statsWos] = await Promise.all([
+      api('/work-orders?' + params.toString()),
+      api('/work-orders?' + statsParams.toString()),
+    ]);
   } catch (e) {
     if (e.message !== 'session expired') showToast('Could not load queue: ' + e.message, 'err');
     document.getElementById('woCards').innerHTML = '<div class="empty-state">Could not load the queue.</div>';
@@ -523,7 +629,7 @@ async function load() {
   }
 
   LAST_WOS = wos;
-  renderStats(wos);
+  renderStats(statsWos);
   renderCards(wos);
 }
 
@@ -541,7 +647,7 @@ function renderStats(wos){
     ['Immediate','Same Day'].includes(w.priority)).length;
   const items = [
     {n: newAssigned, l:'New'}, {n: inProgress, l:'In progress'},
-    {n: onHold, l:'On hold'}, {n: highestHigh, l:'High priority open'},
+    {n: onHold, l:'On hold'}, {n: highestHigh, l:'High Urgency'},
   ];
   document.getElementById('statRow').innerHTML = items.map(i =>
     `<div class="stat"><div class="num">${i.n}</div><div class="lbl">${i.l}</div></div>`
@@ -686,8 +792,11 @@ async function openDetail(id){
     </div>`;
   }).join('') || '<div class="empty-state" style="padding:10px 0;">No notes yet.</div>';
 
+  // Bug fix (found in Dispatcher Console testing, 8/1/26): this never
+  // showed who made each change — LOC triage's equivalent already did
+  // (h.changed_by_name). Matched here.
   const histHtml = w.history.slice().reverse().map(h => `
-    <div class="hist">${h.event_type}: ${h.from_value ? escapeHtml(h.from_value) + ' → ' : ''}${escapeHtml(h.to_value)} &middot; ${fmtDateTime(h.changed_at)}</div>
+    <div class="hist">${h.event_type}: ${h.from_value ? escapeHtml(h.from_value) + ' → ' : ''}${escapeHtml(h.to_value)}${h.changed_by_name ? ' &middot; ' + escapeHtml(h.changed_by_name) : ''} &middot; ${fmtDateTime(h.changed_at)}</div>
   `).join('') || '<div class="empty-state" style="padding:10px 0;">No history yet.</div>';
 
   // Enhancement backlog Phase 12 (PRD §16#2): submitted photos/PDFs,
@@ -741,6 +850,9 @@ async function openDetail(id){
       <p><strong>Location:</strong> ${escapeHtml(w.asset ? w.asset.name : '—')}</p>
       <p><strong>Work type:</strong> ${escapeHtml(w.work_type || '—')} &nbsp; <strong>Priority:</strong> ${escapeHtml(w.priority)}</p>
       <p><strong>Status:</strong> ${escapeHtml(w.status)} &nbsp; <strong>Team:</strong> ${escapeHtml(w.assigned_team ? w.assigned_team.name : '—')}</p>
+      <!-- Bug fix (found in Dispatcher Console testing, 8/1/26): the
+           assigned worker wasn't shown anywhere in the print output. -->
+      <p><strong>Assigned worker:</strong> ${escapeHtml(w.assigned_person ? w.assigned_person.name : '—')}</p>
       <p><strong>Description:</strong><br>${escapeHtml(w.description)}</p>
       ${hasPin ? `<div style="margin-top:10px;"><strong>Scan for exact location:</strong><br><div id="qrCodeContainer"></div></div>` : ''}
       <p style="font-size:11px;color:#666;">Printed ${fmtDateTime(new Date().toISOString())}</p>
@@ -784,7 +896,7 @@ async function openDetail(id){
     <div class="drawer-actions" style="margin-top:8px;">
       <button class="btn" id="saveDrawerBtn" onclick="saveDrawer()">Save changes</button>
       <button class="btn btn-ghost" onclick="closeDrawer()">Cancel</button>
-      <button class="btn btn-ghost" onclick="window.print()">Print / Save as PDF</button>
+      <button class="btn btn-ghost" onclick="printDrawer('${escapeHtml(w.wo_number)}')">Print / Save as PDF</button>
     </div>
 
     <div class="section-title" style="margin-top:20px;">Notes</div>

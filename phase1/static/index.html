@@ -347,6 +347,17 @@ async function login() {
 }
 function logout(){ localStorage.removeItem('loc_token'); TOKEN=''; location.reload(); }
 
+// Bug fix (found in Dispatcher Console testing, 8/1/26 — applied here
+// too for consistency): browsers suggest document.title as the default
+// filename in the "Save as PDF" print destination.
+function printDrawer(woNumber){
+  const originalTitle = document.title;
+  document.title = `NJ WO Details #${woNumber}`;
+  window.print();
+  const restore = () => { document.title = originalTitle; window.removeEventListener('afterprint', restore); };
+  window.addEventListener('afterprint', restore);
+}
+
 async function boot() {
   document.getElementById('loginBox').style.display = 'none';
   document.getElementById('app').style.display = 'block';
@@ -545,7 +556,10 @@ function csvEscape(v){
 function exportInboxCsv(){
   const rows = sortWOs(LAST_WOS);
   if (!rows.length) { showToast('Nothing to export — no work orders match the current filters.', 'err'); return; }
-  const headers = ['WO Number', 'Fiix #', 'Priority', 'Status', 'Description', 'Location', 'Team', 'Created At'];
+  // Enhancement backlog Phase 24 (found in CSV export testing, 8/1/26):
+  // added Closed At, Assigned Worker, Requester Phone, and POC Name/Phone.
+  const headers = ['WO Number', 'Fiix #', 'Priority', 'Status', 'Description', 'Location', 'Team',
+    'Assigned Worker', 'Requester Name', 'Requester Phone', 'POC Name', 'POC Phone', 'Created At', 'Closed At'];
   const lines = [headers.map(csvEscape).join(',')];
   for (const w of rows) {
     lines.push([
@@ -556,7 +570,13 @@ function exportInboxCsv(){
       w.description || '',
       w.asset ? w.asset.name : '',
       w.assigned_team ? w.assigned_team.name : '',
+      w.assigned_person ? w.assigned_person.name : '',
+      w.requester_name || '',
+      w.requester_phone || '',
+      w.poc_is_requester ? '' : (w.poc_name || ''),
+      w.poc_is_requester ? '' : (w.poc_phone || ''),
       fmtDateTime(w.created_at),
+      w.closed_at ? fmtDateTime(w.closed_at) : '',
     ].map(csvEscape).join(','));
   }
   const blob = new Blob([lines.join('\n')], {type: 'text/csv;charset=utf-8;'});
@@ -965,7 +985,7 @@ function renderWODrawer(w, lockBanner){
         ? `<button class="btn" id="saveDrawerBtn" onclick="saveDrawer()">Save changes</button>
            <button class="btn btn-ghost" onclick="closeDrawer()">Cancel</button>`
         : `<button class="btn btn-ghost" onclick="closeDrawer()">Close</button>`}
-      <button class="btn btn-ghost" onclick="window.print()">Print / Save as PDF</button>
+      <button class="btn btn-ghost" onclick="printDrawer(${JSON.stringify(w.wo_number)})">Print / Save as PDF</button>
     </div>
 
     <!-- Enhancement backlog Phase 11 (PRD §14#27): visual separation
