@@ -18,6 +18,7 @@
  M static/dashboard-program.html
  M static/dashboards.html
  M static/index.html
+ M static/location-picker.js
  M static/request.html
  M static/technician.html
  M tests/conftest.py

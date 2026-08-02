@@ -1,5 +1,5 @@
 diff --git a/phase1/app/crud.py b/phase1/app/crud.py
-index ec75c56..f4042b2 100644
+index ec75c56..79488d0 100644
 --- a/phase1/app/crud.py
 +++ b/phase1/app/crud.py
 @@ -8,25 +8,45 @@ mutation later, ask "does this need a history row?" before wiring it up.
@@ -294,7 +294,7 @@ index ec75c56..f4042b2 100644
      if payload.status not in schemas.STATUSES:
          raise HTTPException(400, f"invalid status: {payload.status}")
  
-@@ -235,27 +364,244 @@ def change_status(db: Session, wo: models.WorkOrder, payload: schemas.StatusChan
+@@ -235,39 +364,274 @@ def change_status(db: Session, wo: models.WorkOrder, payload: schemas.StatusChan
              note_text=payload.note, note_type=note_type,
          ))
  
@@ -542,11 +542,17 @@ index ec75c56..f4042b2 100644
 -                      opened_today=False, closed_today=False,
 +                      opened_today=False, closed_today=False, handled_by=None,
 +                      approaching_deadline=False, past_deadline=False,
-+                      assigned_person_id=None,
++                      assigned_person_id=None, status_in=None,
                        limit=100, offset=0):
      q = db.query(models.WorkOrder)
      if status:
-@@ -264,10 +610,23 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+         q = q.filter(models.WorkOrder.status == status)
++    # Enhancement backlog Phase 23 (found in LOC triage testing, 8/1/26):
++    # backs the "Open/Active" tile's click-to-filter — see _apply_filters'
++    # matching parameter for why this can't just be exclude_closed.
++    if status_in:
++        q = q.filter(models.WorkOrder.status.in_(status_in))
+     if priority:
          q = q.filter(models.WorkOrder.priority == priority)
      if team_id:
          q = q.filter(models.WorkOrder.assigned_team_id == team_id)
@@ -570,7 +576,7 @@ index ec75c56..f4042b2 100644
      if search:
          like = f"%{search}%"
          q = q.filter(
-@@ -275,6 +634,21 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -275,6 +639,21 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
              (models.WorkOrder.wo_number.ilike(like)) |
              (models.WorkOrder.external_ref.ilike(like))
          )
@@ -592,7 +598,7 @@ index ec75c56..f4042b2 100644
      # These back the LOC triage KPI-card quick views (Open/Active,
      # Highest+High Open, Closed, Opened Today, Closed Today). They used to
      # be applied client-side against whatever page the default limit
-@@ -292,12 +666,17 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -292,12 +671,17 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
      if priority_in:
          q = q.filter(models.WorkOrder.priority.in_(priority_in))
      if opened_today:
@@ -615,13 +621,14 @@ index ec75c56..f4042b2 100644
      # PRD 4.2: inbox sorts highest-priority first, oldest first within a
      # priority tier — matches the old dashboard's "needing attention" table.
      return (
-@@ -311,20 +690,52 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -311,24 +695,64 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
  def _apply_filters(db: Session, query, scope: str, status: str | None = None,
                      priority: str | None = None, work_type: str | None = None,
                      team_id: int | None = None, location_group: str | None = None,
 -                    search: str | None = None):
 +                    asset_id: int | None = None, search: str | None = None,
-+                    exclude_closed: bool = False, closed_only: bool = False):
++                    exclude_closed: bool = False, closed_only: bool = False,
++                    status_in: list[str] | None = None):
      """Scope (main/program/basecamp) plus the same fine-grained filters the
      original static dashboards had (status/priority/work type/team/location/
      search) — narrows further *within* whichever scope tab/page you're on.
@@ -672,7 +679,18 @@ index ec75c56..f4042b2 100644
          query = query.filter(models.WorkOrder.asset_id.in_(ids))
  
      if status:
-@@ -338,11 +749,17 @@ def _apply_filters(db: Session, query, scope: str, status: str | None = None,
+         query = query.filter(models.WorkOrder.status == status)
++    # Enhancement backlog Phase 23 (found in LOC triage testing, 8/1/26):
++    # backs the "Open/Active" tile, which per explicit spec means
++    # specifically Assigned/On Hold/Work In Progress — NOT the same as
++    # "not closed" (which would also include Requested, which has its
++    # own separate tile). Mirrors priority_in's existing pattern.
++    if status_in:
++        query = query.filter(models.WorkOrder.status.in_(status_in))
+     if priority:
+         query = query.filter(models.WorkOrder.priority == priority)
+     if work_type:
+@@ -338,11 +762,17 @@ def _apply_filters(db: Session, query, scope: str, status: str | None = None,
      if location_group:
          ids = db.query(models.Asset.id).filter(models.Asset.location_group == location_group)
          query = query.filter(models.WorkOrder.asset_id.in_(ids))
@@ -690,22 +708,36 @@ index ec75c56..f4042b2 100644
      return query
  
  
-@@ -357,28 +774,48 @@ def get_kpis(db: Session, scope: str = "main", **filters) -> dict:
+@@ -352,33 +782,61 @@ def get_kpis(db: Session, scope: str = "main", **filters) -> dict:
+     closed = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
+         models.WorkOrder.status.like("Closed%")
+     ).count()
+-    open_ = total - closed
++    # Bug fix (found in LOC triage testing, 8/1/26): "Open/Active" is
++    # NOT the same as "not closed" — that would silently include
++    # "Requested" (which has its own separate tile). Per explicit spec:
++    # Open/Active means specifically Assigned, On Hold, or Work In
++    # Progress — the WOs that have been triaged and are actively in
++    # flight, but aren't brand-new and aren't done.
++    open_ = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
++        models.WorkOrder.status.in_(("Assigned", "On Hold", "Work In Progress"))
++    ).count()
+     rate = round((closed / total) * 100, 1) if total else 0.0
  
      highest_high_open = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
          ~models.WorkOrder.status.like("Closed%"),
 -        models.WorkOrder.priority.in_(["Highest", "High"]),
 +        models.WorkOrder.priority.in_(URGENT_PRIORITIES),
-+    ).count()
-+
+     ).count()
+ 
+-    today = dt.date.today()
 +    # Enhancement backlog Phase 11 (PRD §14#25): count of WOs still
 +    # sitting in the initial "Requested" state — not yet triaged/
 +    # assigned to a team at all.
 +    requested = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
 +        models.WorkOrder.status == "Requested"
-     ).count()
- 
--    today = dt.date.today()
++    ).count()
++
 +    start, end = _today_bounds_utc(db)
      opened_today = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
 -        func.date(models.WorkOrder.created_at) == today
@@ -750,7 +782,7 @@ index ec75c56..f4042b2 100644
      }
  
  
-@@ -451,14 +888,14 @@ def get_daily_trend(db: Session, scope: str = "main", days: int = 14, **filters)
+@@ -451,14 +909,14 @@ def get_daily_trend(db: Session, scope: str = "main", days: int = 14, **filters)
  
  
  def get_needing_attention(db: Session, scope: str = "main", limit: int = 15, **filters) -> list[models.WorkOrder]:
@@ -769,7 +801,7 @@ index ec75c56..f4042b2 100644
          ),
          scope, **filters,
      )
-@@ -529,6 +966,103 @@ def reset_password(db: Session, user: models.User) -> str:
+@@ -529,6 +987,103 @@ def reset_password(db: Session, user: models.User) -> str:
      return password
  
  
@@ -873,7 +905,7 @@ index ec75c56..f4042b2 100644
  # ============================================================
  # Admin configuration (PRD 4.5)
  # ============================================================
-@@ -865,3 +1399,40 @@ def update_team(db: Session, team: models.Team, payload: schemas.TeamUpdate) ->
+@@ -865,3 +1420,40 @@ def update_team(db: Session, team: models.Team, payload: schemas.TeamUpdate) ->
      db.commit()
      db.refresh(team)
      return team
@@ -1662,7 +1694,7 @@ index 8f4b0d2..9ee0082 100644
  def list_users(
      role: Optional[str] = None,
 diff --git a/phase1/app/routers/work_orders.py b/phase1/app/routers/work_orders.py
-index c3e80e3..1c60e5a 100644
+index c3e80e3..82d6948 100644
 --- a/phase1/app/routers/work_orders.py
 +++ b/phase1/app/routers/work_orders.py
 @@ -1,10 +1,13 @@
@@ -1740,7 +1772,7 @@ index c3e80e3..1c60e5a 100644
  
  
  @router.get("", response_model=list[schemas.WorkOrderListItem])
-@@ -42,12 +81,16 @@ def list_work_orders(
+@@ -42,13 +81,22 @@ def list_work_orders(
      team_id: Optional[int] = None,
      work_type: Optional[str] = None,
      location_group: Optional[str] = None,
@@ -1748,16 +1780,24 @@ index c3e80e3..1c60e5a 100644
      search: Optional[str] = None,
      exclude_closed: bool = False,
      closed_only: bool = False,
-     priority_in: Optional[str] = None,  # comma-separated, e.g. "Highest,High"
+-    priority_in: Optional[str] = None,  # comma-separated, e.g. "Highest,High"
++    priority_in: Optional[str] = None,  # comma-separated, e.g. "Immediate,Same Day"
++    status_in: Optional[str] = None,  # comma-separated, e.g. "Assigned,On Hold,Work In Progress"
      opened_today: bool = False,
      closed_today: bool = False,
+-    limit: int = Query(100, le=500),
 +    handled_by: Optional[int] = None,  # PRD §14#17: "work orders I've handled"
 +    approaching_deadline: bool = False,  # PRD §14#10
 +    past_deadline: bool = False,  # PRD §14#10
-     limit: int = Query(100, le=500),
++    # Bug fix (found in LOC triage testing, 8/1/26): LOC's whole job is
++    # to see everything — a low default cap could silently hide newer/
++    # lower-priority WOs once total volume grows past it. Raised well
++    # past any single-event's realistic total.
++    limit: int = Query(100, le=2000),
      offset: int = 0,
      db: Session = Depends(get_db),
-@@ -57,12 +100,22 @@ def list_work_orders(
+     user: models.User = Depends(get_current_user),
+@@ -57,12 +105,24 @@ def list_work_orders(
      # the query string — the server, not the frontend, owns this boundary.
      if user.role == "tech":
          team_id = user.team_id
@@ -1770,19 +1810,21 @@ index c3e80e3..1c60e5a 100644
 +    if user.role == "task_worker":
 +        assigned_person_id = user.id
      priority_list = [p.strip() for p in priority_in.split(",")] if priority_in else None
++    status_list = [s.strip() for s in status_in.split(",")] if status_in else None
      return crud.list_work_orders(
          db, status=status, priority=priority, team_id=team_id,
 -        work_type=work_type, location_group=location_group, search=search,
 +        work_type=work_type, location_group=location_group, asset_id=asset_id, search=search,
          exclude_closed=exclude_closed, closed_only=closed_only, priority_in=priority_list,
 -        opened_today=opened_today, closed_today=closed_today,
++        status_in=status_list,
 +        opened_today=opened_today, closed_today=closed_today, handled_by=handled_by,
 +        approaching_deadline=approaching_deadline, past_deadline=past_deadline,
 +        assigned_person_id=assigned_person_id,
          limit=limit, offset=offset,
      )
  
-@@ -89,6 +142,7 @@ def update_work_order(wo_id: int, payload: schemas.WorkOrderUpdate,
+@@ -89,6 +149,7 @@ def update_work_order(wo_id: int, payload: schemas.WorkOrderUpdate,
                         db: Session = Depends(get_db),
                         user: models.User = Depends(loc_or_admin)):
      wo = _get_wo_or_404(db, wo_id)
@@ -1790,7 +1832,7 @@ index c3e80e3..1c60e5a 100644
      return crud.update_work_order_fields(db, wo, payload, changed_by=user.id)
  
  
-@@ -103,6 +157,7 @@ def assign_work_order(wo_id: int, payload: schemas.AssignRequest,
+@@ -103,6 +164,7 @@ def assign_work_order(wo_id: int, payload: schemas.AssignRequest,
      # unassigned WOs from a tech's reach, so this only opens up the
      # "mis-routed, hand it to the right team" case from PRD 4.3.
      _enforce_team_scope(wo, user)
@@ -1798,7 +1840,7 @@ index c3e80e3..1c60e5a 100644
      return crud.assign_work_order(db, wo, payload, changed_by=user.id)
  
  
-@@ -112,6 +167,7 @@ def change_status(wo_id: int, payload: schemas.StatusChangeRequest,
+@@ -112,6 +174,7 @@ def change_status(wo_id: int, payload: schemas.StatusChangeRequest,
                     user: models.User = Depends(get_current_user)):
      wo = _get_wo_or_404(db, wo_id)
      _enforce_team_scope(wo, user)
@@ -1806,7 +1848,7 @@ index c3e80e3..1c60e5a 100644
      if user.role == "tech" and payload.status not in TECH_ALLOWED_STATUSES:
          raise HTTPException(
              403,
-@@ -127,6 +183,108 @@ def add_note(wo_id: int, payload: schemas.NoteCreate,
+@@ -127,6 +190,108 @@ def add_note(wo_id: int, payload: schemas.NoteCreate,
               user: models.User = Depends(get_current_user)):
      wo = _get_wo_or_404(db, wo_id)
      _enforce_team_scope(wo, user)
@@ -2349,10 +2391,37 @@ index 6333f73..3ac8aaf 100644
  
  if __name__ == "__main__":
 diff --git a/phase1/cutover_check.py b/phase1/cutover_check.py
-index 6b13e65..2201e93 100644
+index 6b13e65..1dee02a 100644
 --- a/phase1/cutover_check.py
 +++ b/phase1/cutover_check.py
-@@ -105,7 +105,17 @@ def old_dashboard_breakdowns(records: list[dict]) -> dict:
+@@ -9,7 +9,7 @@ them to the same RAW array the backfill script imports. Then it stands up
+ a fresh copy of the new system (migrate -> seed -> backfill) and pulls the
+ same numbers from crud.get_kpis / crud.get_breakdowns, and diffs the two.
+ 
+-Two of the old dashboard's numbers are NOT expected to match, and this
++Three of the old dashboard's numbers are NOT expected to match, and this
+ script says so explicitly rather than silently comparing them:
+ 
+   - "Closed today" (CLOSED_TODAY): baked into the old dashboard as a
+@@ -20,6 +20,17 @@ script says so explicitly rather than silently comparing them:
+     reproduce here, only to confirm the new number is internally
+     consistent (see the note printed at the end).
+ 
++  - "Open / active": the old dashboard's definition was "not closed,"
++    which silently included WOs still sitting at "Requested" — i.e.
++    not yet even triaged. Found and fixed during LOC triage testing
++    (8/1/26): per explicit spec, "Open/Active" means specifically
++    Assigned, On Hold, or Work In Progress — WOs that have been triaged
++    and are actively in flight, not brand-new ones (those have their
++    own separate "Requested" tile). This is a deliberate correction to
++    a bug in the old dashboard's own definition, not something the new
++    system should reproduce — see crud.get_kpis and
++    test_open_excludes_requested_status.
++
+   - Team breakdown: the old dashboard collapses blank/"Unassigned"
+     assignedUsers into a synthetic "Inactionable" bucket and includes it
+     in the chart. The new system's by_team breakdown only counts WOs that
+@@ -105,7 +116,17 @@ def old_dashboard_breakdowns(records: list[dict]) -> dict:
  
      return {
          "by_status": count_by("status", backfill_mod.map_status),
@@ -2371,6 +2440,26 @@ index 6b13e65..2201e93 100644
          "by_work_type": count_by("type", backfill_mod.normalize_work_type),
      }
  
+@@ -174,7 +195,6 @@ def main():
+ 
+     results = []
+     compare("Total work orders", old_kpis["total"], new_kpis["total"], results)
+-    compare("Open / active", old_kpis["open"], new_kpis["open"], results)
+     compare("Closed", old_kpis["closed"], new_kpis["closed"], results)
+     compare("Highest+High, open", old_kpis["highest_high_open"], new_kpis["highest_high_open"], results)
+     compare("Completion rate (%)", old_kpis["completion_rate"], round(new_kpis["completion_rate"]), results)
+@@ -200,6 +220,11 @@ def main():
+           new_kpis["closed_today"])
+     print("    (0 is the correct value here — nothing was closed on today's actual")
+     print("    wall-clock date in a database seeded entirely from historical data.)")
++    print("  'Open / active' — old dashboard's definition ('not closed') included")
++    print("    un-triaged 'Requested' WOs, a bug in the old dashboard's own definition.")
++    print(f"    Old (buggy 'not closed'): {old_kpis['open']}   New (Assigned/On Hold/WIP",
++          f"only, correct): {new_kpis['open']}   Difference ({old_kpis['open'] - new_kpis['open']})",
++          f"should equal the 'Requested' count.")
+ 
+     print()
+     print(f"{'Breakdown':45} {'OLD':>8} {'NEW':>8}  MATCH")
 diff --git a/phase1/render.yaml b/phase1/render.yaml
 index 5551215..7914dd4 100644
 --- a/phase1/render.yaml
@@ -3729,7 +3818,7 @@ index 2ecf37e..e882a00 100644
        <td>${escapeHtml((w.description||'').slice(0,90))}</td>
        <td>${escapeHtml(w.asset ? w.asset.name : '')}</td>
 diff --git a/phase1/static/index.html b/phase1/static/index.html
-index 430ff1e..3e4cced 100644
+index 430ff1e..ac5e22b 100644
 --- a/phase1/static/index.html
 +++ b/phase1/static/index.html
 @@ -70,9 +70,9 @@ th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--khaki-line)
@@ -3745,7 +3834,7 @@ index 430ff1e..3e4cced 100644
  .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;}
  .empty-row td{color:var(--ink-soft);text-align:center;padding:22px 12px;}
  .loading-row td{color:var(--ink-soft);text-align:center;padding:22px 12px;font-family:var(--font-mono);font-size:12px;}
-@@ -99,7 +99,41 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
+@@ -99,7 +99,42 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
  .toast{background:var(--pine);color:#fff;border-radius:8px;padding:10px 14px;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.2);}
  .toast.err{background:var(--hivis);}
  .toast.ok{background:var(--moss);}
@@ -3782,14 +3871,30 @@ index 430ff1e..3e4cced 100644
 +   custom in-app modal — simpler, and more useful (native map app
 +   deep-linking) for LOC/techs than a bespoke lightbox. */
 +#drawerPinMap{height:160px;border-radius:8px;border:1px solid var(--khaki-line);margin:8px 0;}
++#drawerCompletionPinMap{height:160px;border-radius:8px;border:1px solid var(--khaki-line);margin:8px 0;}
  </style>
 +<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
  </head>
  <body>
  
-@@ -130,15 +164,34 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
+@@ -117,7 +152,10 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
+       <p class="brand-eyebrow">Live &middot; National Jamboree Work Orders</p>
+       <h1 class="brand-title">LOC Triage</h1>
+     </div>
+-    <button class="btn" onclick="logout()">Sign out</button>
++    <div style="display:flex;align-items:center;gap:14px;">
++      <span id="signedInAs" style="font-size:13px;color:var(--canvas-panel);"></span>
++      <button class="btn" onclick="logout()">Sign out</button>
++    </div>
+   </div>
+ 
+   <div class="kpis" id="kpiRow"></div>
+@@ -128,21 +166,40 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
+   </div>
+   <div class="filters">
      <select id="fStatus" onchange="load()"><option value="">All Statuses</option></select>
-     <select id="fPriority" onchange="load()"><option value="">All Priorities</option></select>
+-    <select id="fPriority" onchange="load()"><option value="">All Priorities</option></select>
++    <select id="fPriority" onchange="load()"><option value="">All Urgency Levels</option></select>
      <select id="fWorkType" onchange="load()"><option value="">All Work Types</option></select>
 -    <select id="fLocation" onchange="load()"><option value="">All Locations</option></select>
 +    <!-- Enhancement backlog Phase 13 (PRD §14#37): relabeled from "All
@@ -3824,7 +3929,12 @@ index 430ff1e..3e4cced 100644
    <table>
      <thead><tr>
        <th class="sortable" onclick="setSort('wo_number')">WO# <span class="sort-icon" id="sortIcon-wo_number"></span></th>
-@@ -157,18 +210,72 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
+-      <th class="sortable" onclick="setSort('priority')">Priority <span class="sort-icon" id="sortIcon-priority"></span></th>
++      <th class="sortable" onclick="setSort('priority')">Urgency <span class="sort-icon" id="sortIcon-priority"></span></th>
+       <th class="sortable" onclick="setSort('status')">Status <span class="sort-icon" id="sortIcon-status"></span></th>
+       <th>Description</th>
+       <th class="sortable" onclick="setSort('location')">Location <span class="sort-icon" id="sortIcon-location"></span></th>
+@@ -157,18 +214,72 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
  <div id="drawer"></div>
  <div id="toastStack"></div>
  
@@ -3900,7 +4010,15 @@ index 430ff1e..3e4cced 100644
  const WORK_TYPES = ["NJ Maintenance","NJ IT","NJ Items/Parts","NJ Transportation"];
  const STATUS_COLOR = {"Requested":"#C9962B","Assigned":"#3E6B4F","Work In Progress":"#E8620C","On Hold":"#5A7385","Closed, Completed":"#7A8471","Closed, Incomplete":"#7A8471"};
  const QUICK_VIEWS = [
-@@ -241,12 +348,33 @@ async function boot() {
+@@ -177,7 +288,6 @@ const QUICK_VIEWS = [
+   {key:'Assigned', label:'Assigned'},
+   {key:'Work In Progress', label:'In Progress'},
+   {key:'On Hold', label:'On Hold'},
+-  {key:'HighestHighOpen', label:'Highest + High, open'},
+   {key:'Closed', label:'Closed'},
+ ];
+ 
+@@ -241,14 +351,39 @@ async function boot() {
    document.getElementById('loginBox').style.display = 'none';
    document.getElementById('app').style.display = 'block';
    try {
@@ -3933,8 +4051,14 @@ index 430ff1e..3e4cced 100644
 +  } catch (e) { /* keep the UTC fallback */ }
    populateFilterOptions();
    renderQuickViews();
++  // Bug fix (found in LOC triage testing, 8/1/26): no way to tell who's
++  // actually signed in, useful when several LOC staff share a device
++  // throughout the day.
++  document.getElementById('signedInAs').textContent = CURRENT_USER.name + ' (' + CURRENT_USER.role.toUpperCase() + ')';
    await load();
-@@ -262,8 +390,22 @@ function populateFilterOptions(){
+ }
+ 
+@@ -262,8 +397,22 @@ function populateFilterOptions(){
    const fTeam = document.getElementById('fTeam');
    TEAMS.forEach(t => fTeam.insertAdjacentHTML('beforeend', `<option value="${t.id}">${t.name}</option>`));
    const fLocation = document.getElementById('fLocation');
@@ -3959,7 +4083,7 @@ index 430ff1e..3e4cced 100644
  }
  
  function renderQuickViews(){
-@@ -275,7 +417,7 @@ function renderQuickViews(){
+@@ -275,7 +424,7 @@ function renderQuickViews(){
  function applyQuickView(key){
    activeQuickView = key;
    renderQuickViews();
@@ -3968,7 +4092,7 @@ index 430ff1e..3e4cced 100644
      document.getElementById('fStatus').value = '';
      document.getElementById('fPriority').value = '';
    } else {
-@@ -286,8 +428,12 @@ function applyQuickView(key){
+@@ -286,8 +435,12 @@ function applyQuickView(key){
  }
  
  function clearFilters(){
@@ -3982,7 +4106,7 @@ index 430ff1e..3e4cced 100644
    activeQuickView = '';
    renderQuickViews();
    load();
-@@ -296,8 +442,13 @@ function clearFilters(){
+@@ -296,8 +449,13 @@ function clearFilters(){
  let debounceTimer;
  function debouncedLoad(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(load, 300); }
  
@@ -3998,7 +4122,7 @@ index 430ff1e..3e4cced 100644
  
    const params = new URLSearchParams();
    const status = document.getElementById('fStatus').value;
-@@ -305,6 +456,7 @@ async function load() {
+@@ -305,6 +463,7 @@ async function load() {
    const workType = document.getElementById('fWorkType').value;
    const location = document.getElementById('fLocation').value;
    const team = document.getElementById('fTeam').value;
@@ -4006,7 +4130,30 @@ index 430ff1e..3e4cced 100644
    const search = document.getElementById('fSearch').value;
  
    // These quick views used to be applied client-side against whatever
-@@ -327,13 +479,19 @@ async function load() {
+@@ -316,26 +475,46 @@ async function load() {
+   // the WO existed. These are now real server-side filters, so
+   // pagination is applied *after* filtering and nothing gets silently
+   // excluded before the client ever sees it.
++  // Bug fix (found in LOC triage testing, 8/1/26): this used the
++  // pre-rename priority names ('Highest','High'), which no longer
++  // match anything since migration f4a8d1c6e3b2 converted all data to
++  // the new names — clicking "Urgent Open" always returned zero
++  // results. Fixed to the current names.
+   if (activeQuickView === 'HighestHighOpen') {
+-    params.set('priority_in', 'Highest,High');
++    params.set('priority_in', 'Immediate,Same Day');
+     params.set('exclude_closed', 'true');
+   } else if (activeQuickView === 'Closed') {
+     params.set('closed_only', 'true');
+   } else if (activeQuickView === 'OpenActive') {
+-    params.set('exclude_closed', 'true');
++    // Bug fix (found in LOC triage testing, 8/1/26): "Open/Active" is
++    // NOT the same as "not closed" (exclude_closed) — that silently
++    // included "Requested," which has its own separate tile. Per
++    // explicit spec: Open/Active means specifically Assigned, On Hold,
++    // or Work In Progress.
++    params.set('status_in', 'Assigned,On Hold,Work In Progress');
+   } else if (activeQuickView === 'OpenedToday') {
      params.set('opened_today', 'true');
    } else if (activeQuickView === 'ClosedToday') {
      params.set('closed_today', 'true');
@@ -4024,9 +4171,16 @@ index 430ff1e..3e4cced 100644
    if (team) params.set('team_id', team);
 +  if (handledBy) params.set('handled_by', handledBy);
    if (search) params.set('search', search);
-   params.set('limit', '200');
+-  params.set('limit', '200');
++  // Bug fix (found in LOC triage testing, 8/1/26): 200 could silently
++  // cut off newer/lower-priority WOs once total volume grew past it —
++  // LOC's whole job is to see everything. Matches the backend's raised
++  // cap (le=2000).
++  params.set('limit', '2000');
  
-@@ -354,9 +512,51 @@ async function load() {
+   let wos, kpis;
+   try {
+@@ -354,9 +533,51 @@ async function load() {
    renderTable(sortWOs(wos));
  }
  
@@ -4079,7 +4233,7 @@ index 430ff1e..3e4cced 100644
      case 'priority': return PRIORITY_ORDER[w.priority] ?? 99;
      case 'status': return w.status || '';
      case 'location': return (w.asset ? w.asset.name : '') || '';
-@@ -395,12 +595,17 @@ function setSort(key){
+@@ -395,12 +616,17 @@ function setSort(key){
  function renderKPIs(k){
    const items = [
      {num:k.total, lbl:'Total', key:''},
@@ -4098,7 +4252,7 @@ index 430ff1e..3e4cced 100644
    ];
    document.getElementById('kpiRow').innerHTML = items.map(i => {
      const clickable = i.key !== null;
-@@ -413,16 +618,50 @@ function renderKPIs(k){
+@@ -413,16 +639,50 @@ function renderKPIs(k){
  }
  
  function renderTable(wos){
@@ -4155,7 +4309,7 @@ index 430ff1e..3e4cced 100644
  }
  
  function escapeHtml(s){
-@@ -436,12 +675,59 @@ function openDrawer(html){
+@@ -436,12 +696,59 @@ function openDrawer(html){
    document.getElementById('drawer').classList.add('open');
    document.getElementById('drawerBackdrop').classList.add('open');
  }
@@ -4216,7 +4370,7 @@ index 430ff1e..3e4cced 100644
    let w;
    try {
      w = await api('/work-orders/' + id);
-@@ -449,222 +735,340 @@ async function openWO(id){
+@@ -449,222 +756,374 @@ async function openWO(id){
      if (e.message !== 'session expired') showToast('Could not open work order: ' + e.message, 'err');
      return;
    }
@@ -4293,8 +4447,16 @@ index 430ff1e..3e4cced 100644
 -      ).join('') + `</div>`
 +    ? `<div style="display:flex;gap:8px;flex-wrap:wrap;">` + (w.attachments||[]).map(a => {
 +        const isPdf = /\.pdf($|\?)/i.test(a.file_url);
++        // Bug fix (PRD §17#10 follow-up, found while prepping test
++        // scripts, 8/1/26): a Task Worker's completion photo rendered
++        // identically to the requester's original submission photo —
++        // no way to tell them apart. Small corner badge, only shown for
++        // stage='completion' (submission photos, the vast majority,
++        // stay exactly as they looked before this fix).
++        const completionBadge = a.stage === 'completion'
++          ? `<span title="Completion photo" style="position:absolute;top:-4px;right:-4px;background:var(--moss);color:#fff;font-size:9px;padding:1px 4px;border-radius:4px;line-height:1.4;">✓</span>` : '';
 +        if (isPdf) {
-+          return `<a href="${a.file_url}" target="_blank" rel="noopener" style="width:72px;height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#f4f1e8;font-size:10px;color:var(--ink-soft);text-decoration:none;">📄<span>PDF</span></a>`;
++          return `<a href="${a.file_url}" target="_blank" rel="noopener" style="position:relative;width:72px;height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#f4f1e8;font-size:10px;color:var(--ink-soft);text-decoration:none;">📄<span>PDF</span>${completionBadge}</a>`;
 +        }
 +        // Bug fix (PRD §14#29): a photo that fails to render as an <img>
 +        // — either because it's HEIC (iPhone default; most desktop
@@ -4306,6 +4468,7 @@ index 430ff1e..3e4cced 100644
 +        return `<a href="${a.file_url}" target="_blank" rel="noopener" style="position:relative;width:72px;height:72px;display:block;">
 +          <img src="${a.file_url}" alt="attachment" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--khaki-line);" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
 +          <span style="display:none;width:72px;height:72px;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#f4f1e8;font-size:9px;color:var(--ink-soft);text-align:center;padding:2px;box-sizing:border-box;">🖼️<span>Can't preview — tap to open</span></span>
++          ${completionBadge}
 +        </a>`;
 +      }).join('') + `</div>`
      : '';
@@ -4348,8 +4511,21 @@ index 430ff1e..3e4cced 100644
 +
 +  const pinHtml = hasPin ? `
 +    <div class="drawer-group">
-+      <label>Pinned location <a href="https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17" target="_blank" rel="noopener" style="font-weight:400;font-size:12px;">Open full map ↗</a></label>
++      <label>Submitted location <a href="https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17" target="_blank" rel="noopener" style="font-weight:400;font-size:12px;">Open full map ↗</a></label>
 +      <div id="drawerPinMap"></div>
++    </div>` : '';
++
++  // Bug fix (PRD §17#10 follow-up, found while prepping test scripts,
++  // 8/1/26): the completion pin was fully captured by the backend but
++  // never displayed anywhere — invisible to LOC/Dispatcher, and even to
++  // the worker who set it. Labeled distinctly from the submission pin
++  // above ("Completed at," not "Submitted location") since the two can
++  // legitimately differ.
++  const hasCompletionPin = w.completion_latitude != null && w.completion_longitude != null;
++  const completionPinHtml = hasCompletionPin ? `
++    <div class="drawer-group">
++      <label>Completed at <a href="https://www.openstreetmap.org/?mlat=${w.completion_latitude}&mlon=${w.completion_longitude}&zoom=17" target="_blank" rel="noopener" style="font-weight:400;font-size:12px;">Open full map ↗</a></label>
++      <div id="drawerCompletionPinMap"></div>
 +    </div>` : '';
  
    openDrawer(`
@@ -4360,6 +4536,7 @@ index 430ff1e..3e4cced 100644
 +    ${lockBanner}
      ${attachmentsHtml}
 +    ${pinHtml}
++    ${completionPinHtml}
 +    ${printOnlyHtml}
  
      <div class="drawer-group">
@@ -4518,7 +4695,8 @@ index 430ff1e..3e4cced 100644
      }
 -  });
 -}
--
++  }
+ 
 -async function saveStatus(id){
 -  const btn = event.target;
 -  await withButtonLock(btn, async () => {
@@ -4532,6 +4710,15 @@ index 430ff1e..3e4cced 100644
 -      if (e.message !== 'session expired') showToast('Could not update status: ' + e.message, 'err');
 -    }
 -  });
++  // Bug fix (PRD §17#10 follow-up, 8/1/26): same treatment as the
++  // submission pin above, for the completion pin.
++  if (hasCompletionPin) {
++    const cmap = L.map('drawerCompletionPinMap', {zoomControl: false}).setView([w.completion_latitude, w.completion_longitude], 16);
++    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
++      maxZoom: 19,
++      attribution: '&copy; OpenStreetMap contributors',
++    }).addTo(cmap);
++    L.marker([w.completion_latitude, w.completion_longitude]).addTo(cmap);
 +  }
  }
  
@@ -4716,6 +4903,32 @@ index 430ff1e..3e4cced 100644
  
  if (TOKEN) boot();
  </script>
+diff --git a/phase1/static/location-picker.js b/phase1/static/location-picker.js
+index 249301a..c945425 100644
+--- a/phase1/static/location-picker.js
++++ b/phase1/static/location-picker.js
+@@ -151,8 +151,21 @@
+ 
+     function showSelected() {
+       if (!selected) {
++        // Bug fix (found in Submit WO testing, 8/1/26): this used to
++        // only hide the chip and reveal the input wrapper again —
++        // leftover typed search text and any open results/tree list
++        // from the previous selection stayed exactly as they were,
++        // so a programmatic reset (setValue(null), e.g. after
++        // submitting and the form resetting for another entry) looked
++        // like the picker had "remembered" the old session instead of
++        // presenting a clean search view. Now fully restores the
++        // picker to its pristine just-mounted state.
+         chip.classList.remove('show');
+         inputWrap.style.display = '';
++        if (searchEl) searchEl.value = '';
++        resultsEl.classList.add('hidden');
++        resultsEl.innerHTML = '';
++        treeEl.classList.add('hidden');
+         return;
+       }
+       chipName.textContent = selected.name;
 diff --git a/phase1/static/request.html b/phase1/static/request.html
 index c3ebaa9..cf5ff3e 100644
 --- a/phase1/static/request.html
@@ -5167,7 +5380,7 @@ index c3ebaa9..cf5ff3e 100644
      resultEl.innerHTML = '<div class="field-err">Network error — try again.</div>';
    } finally {
 diff --git a/phase1/static/technician.html b/phase1/static/technician.html
-index 71d59e6..01fe59b 100644
+index 71d59e6..813dac5 100644
 --- a/phase1/static/technician.html
 +++ b/phase1/static/technician.html
 @@ -3,7 +3,7 @@
@@ -5585,7 +5798,7 @@ index 71d59e6..01fe59b 100644
    document.getElementById('drawer').classList.remove('open');
    document.getElementById('drawerBackdrop').classList.remove('open');
  }
-@@ -385,55 +636,134 @@ async function openDetail(id){
+@@ -385,55 +636,155 @@ async function openDetail(id){
      if (e.message !== 'session expired') showToast('Could not load work order: ' + e.message, 'err');
      return;
    }
@@ -5655,12 +5868,18 @@ index 71d59e6..01fe59b 100644
 +  const attachmentsHtml = (w.attachments||[]).length
 +    ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;">` + (w.attachments||[]).map(a => {
 +        const isPdf = /\.pdf($|\?)/i.test(a.file_url);
++        // Bug fix (PRD §17#10 follow-up, 8/1/26): same fix as index.html
++        // — distinguish a Task Worker's completion photo from the
++        // requester's original submission photo(s).
++        const completionBadge = a.stage === 'completion'
++          ? `<span title="Completion photo" style="position:absolute;top:-4px;right:-4px;background:var(--moss);color:#fff;font-size:9px;padding:1px 4px;border-radius:4px;line-height:1.4;">✓</span>` : '';
 +        if (isPdf) {
-+          return `<a href="${a.file_url}" target="_blank" rel="noopener" style="width:64px;height:64px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:9px;color:var(--ink-soft);text-decoration:none;">📄<span>PDF</span></a>`;
++          return `<a href="${a.file_url}" target="_blank" rel="noopener" style="position:relative;width:64px;height:64px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:9px;color:var(--ink-soft);text-decoration:none;">📄<span>PDF</span>${completionBadge}</a>`;
 +        }
 +        return `<a href="${a.file_url}" target="_blank" rel="noopener" style="position:relative;width:64px;height:64px;display:block;">
 +          <img src="${a.file_url}" alt="attachment" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--khaki-line);" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
 +          <span style="display:none;width:64px;height:64px;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:8px;color:var(--ink-soft);text-align:center;padding:2px;box-sizing:border-box;">🖼️<span>Can't preview</span></span>
++          ${completionBadge}
 +        </a>`;
 +      }).join('') + `</div>`
 +    : '';
@@ -5674,6 +5893,20 @@ index 71d59e6..01fe59b 100644
 +  // drawer's equivalent. Rendered after openDrawer() below, once
 +  // #qrCodeContainer actually exists in the DOM.
 +  const hasPin = w.latitude != null && w.longitude != null;
++  // Bug fix (PRD §17#10 follow-up, found while prepping test scripts,
++  // 8/1/26): neither pin was ever visible on-screen here before —
++  // hasPin only fed the print-only QR code, so a Dispatcher had no way
++  // to see either location without printing the WO. Added a lightweight
++  // link row (not a full map — this screen never had live map previews
++  // for either pin, matching its existing lighter-weight pattern) so
++  // both are actually visible day-to-day, not just on a printout.
++  const hasCompletionPin = w.completion_latitude != null && w.completion_longitude != null;
++  const pinLinksHtml = (hasPin || hasCompletionPin) ? `
++    <div class="readonly-block" style="margin-top:8px;">
++      ${hasPin ? `<div>📍 Submitted location: <a href="https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17" target="_blank" rel="noopener">Open map ↗</a></div>` : ''}
++      ${hasCompletionPin ? `<div>✅ Completed at: <a href="https://www.openstreetmap.org/?mlat=${w.completion_latitude}&mlon=${w.completion_longitude}&zoom=17" target="_blank" rel="noopener">Open map ↗</a></div>` : ''}
++    </div>` : '';
++
 +  const printOnlyHtml = `
 +    <div class="print-only">
 +      <p><strong>Location:</strong> ${escapeHtml(w.asset ? w.asset.name : '—')}</p>
@@ -5692,6 +5925,7 @@ index 71d59e6..01fe59b 100644
  
      <div class="readonly-block"><strong>${escapeHtml(w.asset ? w.asset.name : 'No location')}</strong><br>${escapeHtml(w.description)}</div>
 +    ${attachmentsHtml}
++    ${pinLinksHtml}
 +    ${printOnlyHtml}
  
      <div class="drawer-group">
@@ -5741,7 +5975,7 @@ index 71d59e6..01fe59b 100644
      </div>
  
      <div class="section-title" style="margin-top:20px;">Notes</div>
-@@ -441,73 +771,89 @@ async function openDetail(id){
+@@ -441,73 +792,89 @@ async function openDetail(id){
      <div class="section-title">History</div>
      ${histHtml}
    `);
@@ -5997,7 +6231,7 @@ index ef9cf27..c7c9cf4 100644
      backfill_mod.backfill(db, [_rec(code="1001")])
      backfilled = db.query(models.WorkOrder).filter(models.WorkOrder.external_ref == "1001").first()
 diff --git a/phase1/tests/test_dashboard_kpis.py b/phase1/tests/test_dashboard_kpis.py
-index 9c60364..00eaf48 100644
+index 9c60364..57b9fd1 100644
 --- a/phase1/tests/test_dashboard_kpis.py
 +++ b/phase1/tests/test_dashboard_kpis.py
 @@ -9,7 +9,7 @@ import datetime as dt
@@ -6042,10 +6276,12 @@ index 9c60364..00eaf48 100644
      db.commit()
  
      kpis = crud.get_kpis(db)
-@@ -66,6 +74,55 @@ def test_closed_today_counts_only_todays_close_events(db, asset, admin_user):
+@@ -66,8 +74,64 @@ def test_closed_today_counts_only_todays_close_events(db, asset, admin_user):
      assert kpis["closed"] == 2  # both are closed overall, only one closed *today*
  
  
+-def test_open_and_closed_and_completion_rate(db, asset, admin_user):
+-    _make_wo(db, asset)  # stays open
 +def test_closed_today_excludes_wo_closed_then_reopened_same_day(db, asset, admin_user):
 +    """The exact bug scenario this fix addresses: a WO closed and then
 +    reopened the same day should NOT count as closed_today — it isn't
@@ -6095,12 +6331,33 @@ index 9c60364..00eaf48 100644
 +    assert (kpis["opened_today"] == 1) == is_within_pacific_today
 +
 +
- def test_open_and_closed_and_completion_rate(db, asset, admin_user):
-     _make_wo(db, asset)  # stays open
++def test_open_and_closed_and_completion_rate(db, asset, admin_user, team):
++    # Bug fix (found in LOC triage testing, 8/1/26): "open" now means
++    # specifically Assigned/On Hold/Work In Progress, not "anything not
++    # closed" (which would wrongly include Requested — that has its own
++    # separate "requested" tile). Updated this fixture to actually put
++    # a WO into one of those 3 statuses, rather than leaving it at the
++    # default "Requested" and expecting it to count as open.
++    wo1 = _make_wo(db, asset)
++    crud.assign_work_order(db, wo1, schemas.AssignRequest(team_id=team.id), changed_by=admin_user.id)
      wo2 = _make_wo(db, asset)
-@@ -81,13 +138,13 @@ def test_open_and_closed_and_completion_rate(db, asset, admin_user):
+     crud.change_status(
+         db, wo2, schemas.StatusChangeRequest(status="Closed, Completed"), changed_by=admin_user.id
+@@ -80,14 +144,25 @@ def test_open_and_closed_and_completion_rate(db, asset, admin_user):
+     assert kpis["completion_rate"] == 50.0
  
  
++def test_open_excludes_requested_status(db, asset):
++    """The bug this fix addresses directly: a brand-new, un-triaged WO
++    (status still "Requested") must NOT count toward "open" — it has
++    its own separate "requested" tile."""
++    _make_wo(db, asset)  # stays at "Requested", never assigned
++
++    kpis = crud.get_kpis(db)
++    assert kpis["requested"] == 1
++    assert kpis["open"] == 0
++
++
  def test_breakdowns_group_by_status_and_priority(db, asset):
 -    _make_wo(db, asset, priority="Highest")
 -    _make_wo(db, asset, priority="Highest")
@@ -6117,7 +6374,7 @@ index 9c60364..00eaf48 100644
      assert breakdowns["by_status"]["Requested"] == 3
  
  
-@@ -102,11 +159,11 @@ def test_breakdowns_by_team_only_counts_assigned_work_orders(db, asset, team, ad
+@@ -102,11 +177,11 @@ def test_breakdowns_by_team_only_counts_assigned_work_orders(db, asset, team, ad
  
  
  def test_highest_high_open_counts_only_open_highest_and_high(db, asset, admin_user):
@@ -6915,7 +7172,7 @@ index 2d39355..e4da108 100644
      )
      wo = resp.json()
 diff --git a/phase1/tests/test_work_order_listing.py b/phase1/tests/test_work_order_listing.py
-index 9ef1271..bf56c1f 100644
+index 9ef1271..af0e6e9 100644
 --- a/phase1/tests/test_work_order_listing.py
 +++ b/phase1/tests/test_work_order_listing.py
 @@ -23,11 +23,11 @@ def _make_wo(db, asset, priority, created_at):
@@ -6971,7 +7228,7 @@ index 9ef1271..bf56c1f 100644
      crud.change_status(db, closed_wo, schemas.StatusChangeRequest(status="Closed, Completed"), changed_by=admin_user.id)
  
      open_results = crud.list_work_orders(db, exclude_closed=True)
-@@ -86,11 +86,11 @@ def test_exclude_closed_and_closed_only_filters(db, asset, admin_user):
+@@ -86,19 +86,60 @@ def test_exclude_closed_and_closed_only_filters(db, asset, admin_user):
  
  
  def test_priority_in_filter(db, asset):
@@ -6987,7 +7244,48 @@ index 9ef1271..bf56c1f 100644
      ids = {w.id for w in results}
      assert ids == {highest.id, high.id}
  
-@@ -98,7 +98,7 @@ def test_priority_in_filter(db, asset):
+ 
++def test_status_in_filter(db, asset, admin_user, team):
++    """Bug fix (found in LOC triage testing, 8/1/26): backs the
++    "Open/Active" tile's click-to-filter — Assigned/On Hold/Work In
++    Progress specifically, not "everything not closed" (which would
++    wrongly include "Requested")."""
++    requested = _make_wo(db, asset, "Next Day", dt.datetime.utcnow())
++    assigned = _make_wo(db, asset, "Next Day", dt.datetime.utcnow())
++    crud.assign_work_order(db, assigned, schemas.AssignRequest(team_id=team.id), changed_by=admin_user.id)
++    closed = _make_wo(db, asset, "Next Day", dt.datetime.utcnow())
++    crud.change_status(
++        db, closed, schemas.StatusChangeRequest(status="Closed, Completed"), changed_by=admin_user.id
++    )
++
++    results = crud.list_work_orders(db, status_in=["Assigned", "On Hold", "Work In Progress"])
++    ids = {w.id for w in results}
++    assert ids == {assigned.id}
++    assert requested.id not in ids
++    assert closed.id not in ids
++
++
++def test_router_status_in_param(client, auth_headers, asset, team):
++    requested = client.post(
++        "/work-orders",
++        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Next Day"},
++        headers=auth_headers,
++    ).json()
++    assigned = client.post(
++        "/work-orders",
++        json={"requester_name": "Scout", "asset_id": asset.id, "description": "x", "priority": "Next Day"},
++        headers=auth_headers,
++    ).json()
++    client.post(f"/work-orders/{assigned['id']}/assign", json={"team_id": team.id}, headers=auth_headers)
++
++    resp = client.get(
++        "/work-orders", params={"status_in": "Assigned,On Hold,Work In Progress"}, headers=auth_headers
++    )
++    ids = {w["id"] for w in resp.json()}
++    assert ids == {assigned["id"]}
++    assert requested["id"] not in ids
++
++
  def test_router_opened_today_param(client, auth_headers, asset):
      now_wo = client.post(
          "/work-orders",
@@ -6996,7 +7294,7 @@ index 9ef1271..bf56c1f 100644
          headers=auth_headers,
      ).json()
  
-@@ -111,16 +111,16 @@ def test_router_opened_today_param(client, auth_headers, asset):
+@@ -111,16 +152,16 @@ def test_router_opened_today_param(client, auth_headers, asset):
  def test_router_priority_in_param(client, auth_headers, asset):
      highest = client.post(
          "/work-orders",

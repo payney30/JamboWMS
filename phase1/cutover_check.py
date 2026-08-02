@@ -9,7 +9,7 @@ them to the same RAW array the backfill script imports. Then it stands up
 a fresh copy of the new system (migrate -> seed -> backfill) and pulls the
 same numbers from crud.get_kpis / crud.get_breakdowns, and diffs the two.
 
-Two of the old dashboard's numbers are NOT expected to match, and this
+Three of the old dashboard's numbers are NOT expected to match, and this
 script says so explicitly rather than silently comparing them:
 
   - "Closed today" (CLOSED_TODAY): baked into the old dashboard as a
@@ -19,6 +19,17 @@ script says so explicitly rather than silently comparing them:
     the whole reason this project exists — so there is nothing to
     reproduce here, only to confirm the new number is internally
     consistent (see the note printed at the end).
+
+  - "Open / active": the old dashboard's definition was "not closed,"
+    which silently included WOs still sitting at "Requested" — i.e.
+    not yet even triaged. Found and fixed during LOC triage testing
+    (8/1/26): per explicit spec, "Open/Active" means specifically
+    Assigned, On Hold, or Work In Progress — WOs that have been triaged
+    and are actively in flight, not brand-new ones (those have their
+    own separate "Requested" tile). This is a deliberate correction to
+    a bug in the old dashboard's own definition, not something the new
+    system should reproduce — see crud.get_kpis and
+    test_open_excludes_requested_status.
 
   - Team breakdown: the old dashboard collapses blank/"Unassigned"
     assignedUsers into a synthetic "Inactionable" bucket and includes it
@@ -184,7 +195,6 @@ def main():
 
     results = []
     compare("Total work orders", old_kpis["total"], new_kpis["total"], results)
-    compare("Open / active", old_kpis["open"], new_kpis["open"], results)
     compare("Closed", old_kpis["closed"], new_kpis["closed"], results)
     compare("Highest+High, open", old_kpis["highest_high_open"], new_kpis["highest_high_open"], results)
     compare("Completion rate (%)", old_kpis["completion_rate"], round(new_kpis["completion_rate"]), results)
@@ -210,6 +220,11 @@ def main():
           new_kpis["closed_today"])
     print("    (0 is the correct value here — nothing was closed on today's actual")
     print("    wall-clock date in a database seeded entirely from historical data.)")
+    print("  'Open / active' — old dashboard's definition ('not closed') included")
+    print("    un-triaged 'Requested' WOs, a bug in the old dashboard's own definition.")
+    print(f"    Old (buggy 'not closed'): {old_kpis['open']}   New (Assigned/On Hold/WIP",
+          f"only, correct): {new_kpis['open']}   Difference ({old_kpis['open'] - new_kpis['open']})",
+          f"should equal the 'Requested' count.")
 
     print()
     print(f"{'Breakdown':45} {'OLD':>8} {'NEW':>8}  MATCH")
