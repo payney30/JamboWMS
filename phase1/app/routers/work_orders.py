@@ -87,6 +87,7 @@ def list_work_orders(
     closed_only: bool = False,
     priority_in: Optional[str] = None,  # comma-separated, e.g. "Immediate,Same Day"
     status_in: Optional[str] = None,  # comma-separated, e.g. "Assigned,On Hold,Work In Progress"
+    unassigned_person: bool = False,  # PRD §17 Phase 24: "filter by assigned worker" -> Unassigned
     opened_today: bool = False,
     closed_today: bool = False,
     handled_by: Optional[int] = None,  # PRD §14#17: "work orders I've handled"
@@ -119,7 +120,7 @@ def list_work_orders(
         db, status=status, priority=priority, team_id=team_id,
         work_type=work_type, location_group=location_group, asset_id=asset_id, search=search,
         exclude_closed=exclude_closed, closed_only=closed_only, priority_in=priority_list,
-        status_in=status_list,
+        status_in=status_list, unassigned_person=unassigned_person,
         opened_today=opened_today, closed_today=closed_today, handled_by=handled_by,
         approaching_deadline=approaching_deadline, past_deadline=past_deadline,
         assigned_person_id=assigned_person_id,
