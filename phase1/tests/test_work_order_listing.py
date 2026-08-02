@@ -165,3 +165,64 @@ def test_router_priority_in_param(client, auth_headers, asset):
     ids = [w["id"] for w in resp.json()]
     assert highest["id"] in ids
     assert medium["id"] not in ids
+
+
+# ---- Enhancement backlog Phase 24 (found in Dispatcher/CSV testing, 8/1/26) ----
+
+def test_list_endpoint_exposes_requester_and_poc_fields(client, auth_headers, asset):
+    """Bug fix: these were only ever on WorkOrderDetail, so the CSV
+    exports (which use the list endpoint) couldn't include them without
+    a detail request per row."""
+    resp = client.post(
+        "/work-orders",
+        json={
+            "requester_name": "Scout Leader", "requester_phone": "555-0100",
+            "asset_id": asset.id, "description": "x", "priority": "Next Day",
+            "poc_is_requester": False, "poc_name": "Camp Director", "poc_phone": "555-0200",
+        },
+        headers=auth_headers,
+    )
+    wo_id = resp.json()["id"]
+
+    listed = client.get("/work-orders", headers=auth_headers).json()
+    row = next(w for w in listed if w["id"] == wo_id)
+    assert row["requester_name"] == "Scout Leader"
+    assert row["requester_phone"] == "555-0100"
+    assert row["poc_is_requester"] is False
+    assert row["poc_name"] == "Camp Director"
+    assert row["poc_phone"] == "555-0200"
+
+
+def test_list_endpoint_exposes_closed_at(client, auth_headers, wo_payload):
+    wo = client.post("/work-orders", json=wo_payload, headers=auth_headers).json()
+    listed = client.get("/work-orders", headers=auth_headers).json()
+    row = next(w for w in listed if w["id"] == wo["id"])
+    assert row["closed_at"] is None
+
+    client.post(f"/work-orders/{wo['id']}/status", json={"status": "Closed, Completed", "note": "done"}, headers=auth_headers)
+    listed2 = client.get("/work-orders", headers=auth_headers).json()
+    row2 = next(w for w in listed2 if w["id"] == wo["id"])
+    assert row2["closed_at"] is not None
+
+
+def test_list_endpoint_exposes_assigned_person(client, auth_headers, wo_payload, team, db):
+    worker, _ = crud.create_task_worker(db, team.id, schemas.TaskWorkerCreate(name="Riley"))
+    wo = client.post("/work-orders", json=wo_payload, headers=auth_headers).json()
+    client.post(f"/work-orders/{wo['id']}/assign", json={"team_id": team.id, "person_id": worker.id}, headers=auth_headers)
+
+    listed = client.get("/work-orders", headers=auth_headers).json()
+    row = next(w for w in listed if w["id"] == wo["id"])
+    assert row["assigned_person"]["name"] == "Riley"
+
+
+def test_unassigned_person_filter(client, auth_headers, wo_payload, team, db):
+    worker, _ = crud.create_task_worker(db, team.id, schemas.TaskWorkerCreate(name="Riley"))
+    tasked = client.post("/work-orders", json=wo_payload, headers=auth_headers).json()
+    client.post(f"/work-orders/{tasked['id']}/assign", json={"team_id": team.id, "person_id": worker.id}, headers=auth_headers)
+    not_tasked = client.post("/work-orders", json=wo_payload, headers=auth_headers).json()
+    client.post(f"/work-orders/{not_tasked['id']}/assign", json={"team_id": team.id}, headers=auth_headers)
+
+    resp = client.get("/work-orders", params={"unassigned_person": "true", "team_id": team.id}, headers=auth_headers)
+    ids = {w["id"] for w in resp.json()}
+    assert not_tasked["id"] in ids
+    assert tasked["id"] not in ids
