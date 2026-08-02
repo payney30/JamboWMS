@@ -13,18 +13,18 @@ public surface needs a narrower, name-validated set of fields and its own
 abuse controls, and keeping it separate means a bug here can't accidentally
 loosen anything on the authenticated LOC/tech endpoints.
 
-TODO: notify_preference is captured and stored on the WO here, but nothing
-actually sends anything yet — there's no email/SMS provider wired in. The
-PRD calls for "email/SMS to requester on submission and on close, at
-minimum." Once a provider is chosen (SES/SendGrid for email, Twilio or
-similar for SMS), the send calls belong right after crud.create_work_order
-below (submission) and in the status-change endpoint in
-app/routers/work_orders.py (close) — both already have everything they need
-(requester_email/phone, notify_preference) to decide what to send and where.
-When wiring that up: text/call updates should go to requester_phone AND, if
-poc_is_requester is False, to poc_phone as well — email stays scoped to
-requester_email only (no poc_email field exists). See
-NJ2026_Work_Order_System_PRD.md sections 4.1/5 for the recipient logic.
+SMS/email sending is now wired up (Phase 25, PRD §17#6-7) — see
+app/notifications.py, called from crud.py at submission and at the
+Work In Progress / Closed transitions.
+
+Correction (8/2/26): notify_preference (an opt-in email/text/both
+selector) was a leftover from an earlier design — it was deliberately
+removed from the Submit WO form when POC contact was added, in favor
+of anchoring on the requester's phone number (now required) as the
+single notification identifier, with email captured for the requester
+only (not for a selection of notification channels). See the PRD's
+§17#6 entry for the corrected, current design — do not reintroduce a
+preference selector here without checking that decision first.
 """
 import os
 import uuid
