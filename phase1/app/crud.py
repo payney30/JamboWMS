@@ -601,11 +601,16 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
                       exclude_closed=False, closed_only=False, priority_in=None,
                       opened_today=False, closed_today=False, handled_by=None,
                       approaching_deadline=False, past_deadline=False,
-                      assigned_person_id=None,
+                      assigned_person_id=None, status_in=None,
                       limit=100, offset=0):
     q = db.query(models.WorkOrder)
     if status:
         q = q.filter(models.WorkOrder.status == status)
+    # Enhancement backlog Phase 23 (found in LOC triage testing, 8/1/26):
+    # backs the "Open/Active" tile's click-to-filter — see _apply_filters'
+    # matching parameter for why this can't just be exclude_closed.
+    if status_in:
+        q = q.filter(models.WorkOrder.status.in_(status_in))
     if priority:
         q = q.filter(models.WorkOrder.priority == priority)
     if team_id:
@@ -691,7 +696,8 @@ def _apply_filters(db: Session, query, scope: str, status: str | None = None,
                     priority: str | None = None, work_type: str | None = None,
                     team_id: int | None = None, location_group: str | None = None,
                     asset_id: int | None = None, search: str | None = None,
-                    exclude_closed: bool = False, closed_only: bool = False):
+                    exclude_closed: bool = False, closed_only: bool = False,
+                    status_in: list[str] | None = None):
     """Scope (main/program/basecamp) plus the same fine-grained filters the
     original static dashboards had (status/priority/work type/team/location/
     search) — narrows further *within* whichever scope tab/page you're on.
@@ -740,6 +746,13 @@ def _apply_filters(db: Session, query, scope: str, status: str | None = None,
 
     if status:
         query = query.filter(models.WorkOrder.status == status)
+    # Enhancement backlog Phase 23 (found in LOC triage testing, 8/1/26):
+    # backs the "Open/Active" tile, which per explicit spec means
+    # specifically Assigned/On Hold/Work In Progress — NOT the same as
+    # "not closed" (which would also include Requested, which has its
+    # own separate tile). Mirrors priority_in's existing pattern.
+    if status_in:
+        query = query.filter(models.WorkOrder.status.in_(status_in))
     if priority:
         query = query.filter(models.WorkOrder.priority == priority)
     if work_type:
@@ -769,7 +782,15 @@ def get_kpis(db: Session, scope: str = "main", **filters) -> dict:
     closed = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
         models.WorkOrder.status.like("Closed%")
     ).count()
-    open_ = total - closed
+    # Bug fix (found in LOC triage testing, 8/1/26): "Open/Active" is
+    # NOT the same as "not closed" — that would silently include
+    # "Requested" (which has its own separate tile). Per explicit spec:
+    # Open/Active means specifically Assigned, On Hold, or Work In
+    # Progress — the WOs that have been triaged and are actively in
+    # flight, but aren't brand-new and aren't done.
+    open_ = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
+        models.WorkOrder.status.in_(("Assigned", "On Hold", "Work In Progress"))
+    ).count()
     rate = round((closed / total) * 100, 1) if total else 0.0
 
     highest_high_open = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
