@@ -1,77 +1,47 @@
-# SMS + Email Notifications (Phase 25)
+# Notifications, Corrected: No Preference Selector (Phase 25, corrected)
 
-Full cumulative state. No new migration this round.
+Full cumulative state. No new migration this round. This supersedes
+the notifications package from earlier today - do not deploy that one.
 
-## What this is
+## What happened
 
-Submission / Work In Progress / Closed notifications via Twilio (SMS)
-and SendGrid (email), to the requester and, if a distinct one exists,
-the POC. Worker-assignment notification (the 4th trigger discussed
-earlier) was explicitly descoped, not deferred - internal to the team,
-the requester doesn't need it.
+The original build gated notifications on a "notify_preference" field
+and, when testing showed nothing was sending, I added a checkbox UI to
+the Submit WO form to let the requester choose email/text/both. That
+was wrong - notify_preference was deliberately removed from the form
+when POC contact was added, in favor of anchoring on the requester's
+phone number (required) as the single notification identifier, with
+email captured for the requester only. The checkbox UI has been fully
+reverted.
 
-## New dependencies
+## The actual root cause of "no SMS on submit"
 
-    twilio==9.10.9
-    sendgrid==6.12.5
+notify_preference was never set by the real form (correctly, since it
+shouldn't exist there) - and the original notification logic required
+it to be set before sending anything. So notifications were silently
+skipping every real submission, with everything else (Twilio config,
+NOTIFICATIONS_ENABLED) completely correct.
 
-Added to requirements.txt - Render will install these automatically on
-next deploy.
+## Corrected design
 
-## New environment variables (see render.yaml)
+Per explicit decision: notifications now go out automatically by both
+SMS and email, for every requester, whenever the corresponding contact
+field exists on the WO - no selector, nothing to opt into.
+app/notifications.py's notify_work_order_event no longer checks
+notify_preference at all.
 
-**Secrets - set these in Render's dashboard (Environment tab), NOT in
-render.yaml:**
-- TWILIO_ACCOUNT_SID
-- TWILIO_AUTH_TOKEN
-- TWILIO_FROM_NUMBER
-- SENDGRID_API_KEY
+- Requester gets SMS (if phone present) and email (if email present).
+- POC gets SMS too, if distinct from the requester and a phone number
+  was given - POC can never be emailed (no POC email field exists in
+  the data model at all).
 
-**Not secrets - already filled in in render.yaml:**
-- SENDGRID_FROM_EMAIL = graeme@cybersecurity4executives.com
-- SENDGRID_FROM_NAME = JamboWMS
-- SENDGRID_REPLY_TO = marketing@cybersecurity4executives.com
+## PRD updated
 
-**Kill switch - defaults to disabled:**
-- NOTIFICATIONS_ENABLED = "false" (set to "true" in Render's dashboard
-  once ready to actually send real messages)
-
-## Built for easy swap-out later
-
-Everything reads from environment variables at call time - nothing
-hardcoded or cached at import. Switching from the trial Twilio/SendGrid
-accounts to production ones later is purely an env var update in
-Render's dashboard, no code change or redeploy needed. A full provider
-swap (different SMS/email vendor entirely) would only mean rewriting
-the two send functions in app/notifications.py - every call site
-elsewhere in the app stays untouched either way.
-
-## How it works
-
-- **Fire-and-forget**: every send happens on a background thread and
-  never raises - a WO submission or status change is never delayed or
-  failed by a slow or down notification provider.
-- **Trigger points**: work order submission, status change to Work In
-  Progress, status change to Closed (either sub-status), including the
-  worker's "Completed" button path.
-- **Respects notify_preference**: only sends if the requester opted in
-  (email / text / both) at submission - no preference on file means no
-  notification.
-- **POC gets texted too** (if distinct from the requester and a phone
-  number was given) - but never emailed, since the data model has no
-  POC email field at all.
-- **Guarded against duplicate sends**: re-saving the same status, or a
-  worker double-tapping "Mark completed," won't re-send a notification
-  that already went out.
-
-## SendGrid setup note
-
-Domain authentication for cybersecurity4executives.com hit a DNS
-mismatch during setup (a stale CNAME record in Squarespace from an
-earlier authentication attempt). Single Sender Verification was used
-in the meantime so this build wasn't blocked on DNS propagation -
-worth finishing domain authentication when you have a few minutes, but
-not required for sending to work.
+Added a prominent standing note at the top of Section 13 (Submit Order
+Screen backlog) documenting this decision explicitly, so it doesn't
+get reintroduced by accident in a future session: no preference
+selector belongs on this form, phone is the anchor, and this was tried
+once (the same day it was removed) and reverted before ever deploying.
 
 ## How to apply
 
@@ -95,34 +65,27 @@ not required for sending to work.
     #   tests/test_enhancement_phase25.py
     alembic upgrade head
 
-No new migration this round.
+No new migration this round. Your existing NOTIFICATIONS_ENABLED and
+Twilio/SendGrid environment variables in Render don't need any changes
+- only the application code and PRD changed.
 
-**After deploying, set the 4 secret env vars in Render's dashboard**
-(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER,
-SENDGRID_API_KEY) - the app will run fine without them (notifications
-just silently no-op), but nothing will actually send until they're set
-AND NOTIFICATIONS_ENABLED is flipped to "true".
+## Verify after deploying
 
-## Verify after deploying and enabling
-
-1. Set NOTIFICATIONS_ENABLED=true and the 4 secrets in Render.
-2. Submit a test WO with your own (Twilio-trial-verified) phone number
-   and notify_preference set to "both" - confirm you get both a text
-   and an email.
-3. Move it to Work In Progress - confirm a second notification.
-4. Close it - confirm a third.
-5. Try a WO with a distinct POC phone number - confirm the POC also
-   gets texted (never emailed).
-6. Try re-saving the same status without changing it - confirm NO
-   duplicate notification.
-
-Remember: on a Twilio trial account, SMS only works to phone numbers
-you've manually verified in the Twilio console first.
+1. Confirm the Submit WO form has no notification-preference checkboxes
+   or selector of any kind (should look exactly as it did before any of
+   today's notification testing).
+2. Submit a test WO with your Twilio-verified phone number and a real
+   email address - confirm you get BOTH a text and an email, with no
+   preference selection needed anywhere in the form.
+3. Move it to Work In Progress, then close it - confirm a notification
+   each time.
+4. Test with a distinct POC phone number - confirm the POC also gets
+   texted.
 
 ## Test status
 
-**313 passing, 0 failing** - fully green. Added 21 new tests, all
-mocked (no real Twilio/SendGrid calls needed) - provider-call
-correctness, the kill switch, the email/text/both decision logic, the
-POC-texted-never-emailed behavior, and that every actual crud.py
-trigger point fires (or correctly doesn't, for no-op transitions).
+**312 passing, 0 failing** - fully green. Updated the notification
+test file to match the corrected always-on behavior (removed the
+preference-based tests, added tests confirming both channels fire
+automatically, and that each channel independently no-ops when its
+corresponding contact field is missing).
