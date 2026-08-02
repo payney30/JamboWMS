@@ -30,6 +30,7 @@
  M tests/test_timestamp_serialization.py
  M tests/test_work_order_listing.py
 ?? alembic/versions/a1b2c3d4e5f6_add_task_worker_role_and_assignment.py
+?? alembic/versions/b3c5d7e9f1a2_add_tasking_event_type.py
 ?? alembic/versions/b7f3d1a9c2e4_add_locking_and_note_to_requester.py
 ?? alembic/versions/c8e2f4a1b6d3_add_app_settings_table.py
 ?? alembic/versions/d3f8a2c1e5b7_widen_priority_check_constraint.py

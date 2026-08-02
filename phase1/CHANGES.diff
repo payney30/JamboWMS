@@ -1,5 +1,5 @@
 diff --git a/phase1/app/crud.py b/phase1/app/crud.py
-index ec75c56..01d1097 100644
+index ec75c56..f4042b2 100644
 --- a/phase1/app/crud.py
 +++ b/phase1/app/crud.py
 @@ -8,25 +8,45 @@ mutation later, ask "does this need a history row?" before wiring it up.
@@ -197,7 +197,7 @@ index ec75c56..01d1097 100644
          db.add(models.WOStatusHistory(
              work_order_id=wo.id,
              event_type="priority_change",
-@@ -161,14 +260,17 @@ def update_work_order_fields(db: Session, wo: models.WorkOrder, payload: schemas
+@@ -161,18 +260,22 @@ def update_work_order_fields(db: Session, wo: models.WorkOrder, payload: schemas
          if not asset:
              raise HTTPException(404, "asset not found")
          wo.asset_id = payload.asset_id
@@ -218,7 +218,65 @@ index ec75c56..01d1097 100644
      team = db.get(models.Team, payload.team_id)
      if not team:
          raise HTTPException(404, "team not found")
-@@ -206,13 +308,14 @@ def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Assign
+ 
++    person = None
+     if payload.person_id is not None:
+         person = db.get(models.User, payload.person_id)
+         if not person or person.team_id != payload.team_id:
+@@ -183,6 +286,17 @@ def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Assign
+         raise HTTPException(400, "a reason note is required when reassigning to a different team")
+ 
+     from_team_name = wo.assigned_team.name if wo.assigned_team else None
++    # Enhancement backlog Phase 22 (PRD §17#10 follow-up, 8/1/26): capture
++    # the *current* assigned worker before mutating, and only write
++    # history rows for what actually changed. Previously this function
++    # unconditionally wrote a 'reassignment' row on every call — including
++    # tasking a worker without changing teams, which produced a
++    # "reassignment: TeamX → TeamX" row that didn't reflect what actually
++    # happened (the worker changed, not the team).
++    from_person_name = wo.assigned_person.name if wo.assigned_person else None
++    team_changed = wo.assigned_team_id != payload.team_id
++    person_changed = wo.assigned_person_id != payload.person_id
++
+     wo.assigned_team_id = payload.team_id
+     wo.assigned_person_id = payload.person_id
+     if wo.status == "Requested":
+@@ -192,13 +306,27 @@ def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Assign
+             from_value="Requested", to_value="Assigned", changed_by=changed_by,
+         ))
+ 
+-    db.add(models.WOStatusHistory(
+-        work_order_id=wo.id,
+-        event_type="reassignment",
+-        from_value=from_team_name,
+-        to_value=team.name,
+-        changed_by=changed_by,
+-    ))
++    if team_changed:
++        db.add(models.WOStatusHistory(
++            work_order_id=wo.id,
++            event_type="reassignment",
++            from_value=from_team_name,
++            to_value=team.name,
++            changed_by=changed_by,
++        ))
++
++    if person_changed:
++        # Enhancement backlog Phase 22 (PRD §17#10 follow-up): "tasking"
++        # — a distinct event type from 'reassignment', so assigning a
++        # specific worker is always visibly its own thing in the log,
++        # not folded into (or confused with) a team-level change.
++        db.add(models.WOStatusHistory(
++            work_order_id=wo.id,
++            event_type="tasking",
++            from_value=from_person_name or "Unassigned",
++            to_value=person.name if person else "Unassigned",
++            changed_by=changed_by,
++        ))
+ 
+     if payload.note:
+         db.add(models.WONote(
+@@ -206,13 +334,14 @@ def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Assign
              note_text=payload.note, note_type="internal",
          ))
  
@@ -236,7 +294,7 @@ index ec75c56..01d1097 100644
      if payload.status not in schemas.STATUSES:
          raise HTTPException(400, f"invalid status: {payload.status}")
  
-@@ -235,27 +338,244 @@ def change_status(db: Session, wo: models.WorkOrder, payload: schemas.StatusChan
+@@ -235,27 +364,244 @@ def change_status(db: Session, wo: models.WorkOrder, payload: schemas.StatusChan
              note_text=payload.note, note_type=note_type,
          ))
  
@@ -488,7 +546,7 @@ index ec75c56..01d1097 100644
                        limit=100, offset=0):
      q = db.query(models.WorkOrder)
      if status:
-@@ -264,10 +584,23 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -264,10 +610,23 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
          q = q.filter(models.WorkOrder.priority == priority)
      if team_id:
          q = q.filter(models.WorkOrder.assigned_team_id == team_id)
@@ -512,7 +570,7 @@ index ec75c56..01d1097 100644
      if search:
          like = f"%{search}%"
          q = q.filter(
-@@ -275,6 +608,21 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -275,6 +634,21 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
              (models.WorkOrder.wo_number.ilike(like)) |
              (models.WorkOrder.external_ref.ilike(like))
          )
@@ -534,7 +592,7 @@ index ec75c56..01d1097 100644
      # These back the LOC triage KPI-card quick views (Open/Active,
      # Highest+High Open, Closed, Opened Today, Closed Today). They used to
      # be applied client-side against whatever page the default limit
-@@ -292,12 +640,17 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -292,12 +666,17 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
      if priority_in:
          q = q.filter(models.WorkOrder.priority.in_(priority_in))
      if opened_today:
@@ -557,7 +615,7 @@ index ec75c56..01d1097 100644
      # PRD 4.2: inbox sorts highest-priority first, oldest first within a
      # priority tier — matches the old dashboard's "needing attention" table.
      return (
-@@ -311,20 +664,52 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -311,20 +690,52 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
  def _apply_filters(db: Session, query, scope: str, status: str | None = None,
                      priority: str | None = None, work_type: str | None = None,
                      team_id: int | None = None, location_group: str | None = None,
@@ -614,7 +672,7 @@ index ec75c56..01d1097 100644
          query = query.filter(models.WorkOrder.asset_id.in_(ids))
  
      if status:
-@@ -338,11 +723,17 @@ def _apply_filters(db: Session, query, scope: str, status: str | None = None,
+@@ -338,11 +749,17 @@ def _apply_filters(db: Session, query, scope: str, status: str | None = None,
      if location_group:
          ids = db.query(models.Asset.id).filter(models.Asset.location_group == location_group)
          query = query.filter(models.WorkOrder.asset_id.in_(ids))
@@ -632,7 +690,7 @@ index ec75c56..01d1097 100644
      return query
  
  
-@@ -357,28 +748,48 @@ def get_kpis(db: Session, scope: str = "main", **filters) -> dict:
+@@ -357,28 +774,48 @@ def get_kpis(db: Session, scope: str = "main", **filters) -> dict:
  
      highest_high_open = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
          ~models.WorkOrder.status.like("Closed%"),
@@ -692,7 +750,7 @@ index ec75c56..01d1097 100644
      }
  
  
-@@ -451,14 +862,14 @@ def get_daily_trend(db: Session, scope: str = "main", days: int = 14, **filters)
+@@ -451,14 +888,14 @@ def get_daily_trend(db: Session, scope: str = "main", days: int = 14, **filters)
  
  
  def get_needing_attention(db: Session, scope: str = "main", limit: int = 15, **filters) -> list[models.WorkOrder]:
@@ -711,7 +769,7 @@ index ec75c56..01d1097 100644
          ),
          scope, **filters,
      )
-@@ -529,6 +940,103 @@ def reset_password(db: Session, user: models.User) -> str:
+@@ -529,6 +966,103 @@ def reset_password(db: Session, user: models.User) -> str:
      return password
  
  
@@ -815,7 +873,7 @@ index ec75c56..01d1097 100644
  # ============================================================
  # Admin configuration (PRD 4.5)
  # ============================================================
-@@ -865,3 +1373,40 @@ def update_team(db: Session, team: models.Team, payload: schemas.TeamUpdate) ->
+@@ -865,3 +1399,40 @@ def update_team(db: Session, team: models.Team, payload: schemas.TeamUpdate) ->
      db.commit()
      db.refresh(team)
      return team
@@ -878,7 +936,7 @@ index 4f2e937..7960004 100644
  # Uploaded photos from the public requester form (see app/routers/public.py)
  app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 diff --git a/phase1/app/models.py b/phase1/app/models.py
-index 1963639..f9429f2 100644
+index 1963639..02d2364 100644
 --- a/phase1/app/models.py
 +++ b/phase1/app/models.py
 @@ -5,7 +5,7 @@ forward-compatibility with Phase 2/3 but have no endpoints yet.
@@ -1065,7 +1123,15 @@ index 1963639..f9429f2 100644
      __table_args__ = (
          CheckConstraint(
              "note_type IN ('internal','instruction','work_note')", name="ck_note_type"
-@@ -227,6 +341,13 @@ class WOStatusHistory(Base):
+@@ -220,32 +334,58 @@ class WOStatusHistory(Base):
+     __tablename__ = "wo_status_history"
+     id = Column(Integer, primary_key=True)
+     work_order_id = Column(Integer, ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False)
+-    event_type = Column(String, nullable=False)  # status_change | reassignment | priority_change
++    event_type = Column(String, nullable=False)  # status_change | reassignment | priority_change | tasking
+     from_value = Column(String, nullable=True)
+     to_value = Column(String, nullable=False)
+     changed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
      changed_at = Column(TIMESTAMP, default=now)
  
      work_order = relationship("WorkOrder", back_populates="history")
@@ -1079,7 +1145,19 @@ index 1963639..f9429f2 100644
  
      __table_args__ = (
          CheckConstraint(
-@@ -237,15 +358,26 @@ class WOStatusHistory(Base):
+-            "event_type IN ('status_change','reassignment','priority_change')",
++            # Enhancement backlog Phase 22 (PRD §17#10 follow-up):
++            # 'tasking' — a WO being assigned to (or unassigned from) a
++            # specific Task Worker, distinct from 'reassignment' (which
++            # tracks the team-level assignment only). Kept as its own
++            # event type rather than folded into 'reassignment' so the
++            # two are always distinguishable in the history log — a
++            # worker being tasked shouldn't read as "reassigned to the
++            # same team it was already on."
++            "event_type IN ('status_change','reassignment','priority_change','tasking')",
+             name="ck_history_event_type",
+         ),
+     )
  
  
  class WOAttachment(Base):
@@ -1109,7 +1187,7 @@ index 1963639..f9429f2 100644
  
  
  class ResponseTemplate(Base):
-@@ -263,3 +395,16 @@ class ResponseTemplate(Base):
+@@ -263,3 +403,16 @@ class ResponseTemplate(Base):
      created_at = Column(TIMESTAMP, default=now)
      updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
      updated_at = Column(TIMESTAMP, default=now, onupdate=now)
@@ -2335,7 +2413,7 @@ index 5551215..7914dd4 100644
        # requester form are served by this same app (see app/main.py), so
        # same-origin requests never need it. Only set this if a separate
 diff --git a/phase1/static/admin.html b/phase1/static/admin.html
-index 719f0d9..d570dd8 100644
+index 719f0d9..bfcd6b1 100644
 --- a/phase1/static/admin.html
 +++ b/phase1/static/admin.html
 @@ -130,6 +130,8 @@ tr.inactive td{opacity:.5;}
@@ -2468,6 +2546,24 @@ index 719f0d9..d570dd8 100644
  }
  
  function populateFilterOptions(){
+@@ -412,7 +496,7 @@ function openNewUser(){
+     <label>Role</label><select id="nRole" onchange="onNewRoleChange()">${roleOptions('tech')}</select>
+     <label>Team ${ME.role==='admin'?'':''}<span id="nTeamReq" style="color:var(--hivis);">*</span></label>
+     <select id="nTeam">${teamOptions('')}</select>
+-    <div class="hint">Required for tech accounts. A temporary password is generated automatically — you'll see it once, right after creating the account.</div>
++    <div class="hint">Required for tech accounts. A password is generated automatically — you'll see it once, right after creating the account. There's no self-service password change (a deliberate choice for a 2-week event, see PRD §8) — if it needs to change later, reset it from this screen.</div>
+     <div class="field-err" id="nErr"></div>
+     <div class="drawer-actions"><button class="btn" onclick="createUser()">Create account</button></div>
+   `);
+@@ -450,7 +534,7 @@ function showPasswordReveal(user, password, heading){
+     <h2>${escapeHtml(heading)}</h2>
+     <div class="hint">${escapeHtml(user.name)} · ${escapeHtml(user.email)}</div>
+     <div class="pw-reveal">
+-      <div class="warn">Temporary password — shown once. Send it to them now (text or verbal is fine). Self-service password change isn't built yet, so if you can't hand it off immediately, keep this somewhere safe in the meantime.</div>
++      <div class="warn">This is the account's actual password, not a placeholder — shown once. Send it to them now (text or verbal is fine). There's no self-service password change; if they lose it or need a new one, come back here and reset it.</div>
+       <div class="pw">${escapeHtml(password)}</div>
+     </div>
+     <div class="drawer-actions"><button class="btn" onclick="closeDrawer()">Done</button></div>
 @@ -703,7 +787,7 @@ async function openLocationHistory(id) {
        <li>
          <span class="hfield">${escapeHtml(e.field_changed)}</span>:
@@ -5071,7 +5167,7 @@ index c3ebaa9..cf5ff3e 100644
      resultEl.innerHTML = '<div class="field-err">Network error — try again.</div>';
    } finally {
 diff --git a/phase1/static/technician.html b/phase1/static/technician.html
-index 71d59e6..6af6cdb 100644
+index 71d59e6..01fe59b 100644
 --- a/phase1/static/technician.html
 +++ b/phase1/static/technician.html
 @@ -3,7 +3,7 @@
@@ -5401,7 +5497,7 @@ index 71d59e6..6af6cdb 100644
    const items = [
      {n: newAssigned, l:'New'}, {n: inProgress, l:'In progress'},
      {n: onHold, l:'On hold'}, {n: highestHigh, l:'High priority open'},
-@@ -346,33 +549,69 @@ function renderStats(wos){
+@@ -346,33 +549,81 @@ function renderStats(wos){
  }
  
  function renderCards(wos){
@@ -5432,6 +5528,17 @@ index 71d59e6..6af6cdb 100644
 +        deadlineIcon = `<span title="Approaching deadline — due ${fmtDateTime(w.sla_deadline)}" style="margin-right:5px;color:#B08900;cursor:help;">⚠</span>`;
 +      }
 +    }
++    // Enhancement backlog Phase 22 (PRD §17#10 follow-up): show at a
++    // glance whether this WO has been tasked to a specific worker —
++    // otherwise a Dispatcher has to open every card to find out.
++    // Deliberately says "Tasked," not "Assigned" — this screen's own
++    // filters already use "Assigned" for a different thing (the WO's
++    // status, meaning "LOC routed this to my team"), and reusing the
++    // same word for "a specific worker has this" was confusing exactly
++    // that distinction.
++    const taskedHtml = w.assigned_person
++      ? `<span title="Tasked to ${escapeHtml(w.assigned_person.name)}">→ ${escapeHtml(w.assigned_person.name)}</span>`
++      : '';
 +    return `
      <div class="wo-card" onclick="openDetail(${w.id})">
        <div class="wo-card-top">
@@ -5446,6 +5553,7 @@ index 71d59e6..6af6cdb 100644
          <span>${escapeHtml(w.asset ? w.asset.name : '')}</span>
 -        <span>${new Date(w.created_at).toLocaleDateString()}</span>
 +        <span>${fmtDate(w.created_at)}</span>
++        ${taskedHtml}
        </div>
      </div>
 -  `).join('');
@@ -5477,7 +5585,7 @@ index 71d59e6..6af6cdb 100644
    document.getElementById('drawer').classList.remove('open');
    document.getElementById('drawerBackdrop').classList.remove('open');
  }
-@@ -385,55 +624,134 @@ async function openDetail(id){
+@@ -385,55 +636,134 @@ async function openDetail(id){
      if (e.message !== 'session expired') showToast('Could not load work order: ' + e.message, 'err');
      return;
    }
@@ -5513,7 +5621,7 @@ index 71d59e6..6af6cdb 100644
 +  currentWoTeamId = w.assigned_team ? w.assigned_team.id : null;
 +  const workerAssignHtml = (ME.role === 'tech' && MY_WORKERS.length) ? `
 +    <div class="drawer-group">
-+      <label>Assign to worker</label>
++      <label>Task to worker</label>
 +      <select id="dWorker" onchange="markDirty()">
 +        <option value="">— Unassigned —</option>
 +        ${MY_WORKERS.map(worker => `<option value="${worker.id}" ${w.assigned_person && w.assigned_person.id === worker.id ? 'selected' : ''}>${escapeHtml(worker.name)}</option>`).join('')}
@@ -5633,7 +5741,7 @@ index 71d59e6..6af6cdb 100644
      </div>
  
      <div class="section-title" style="margin-top:20px;">Notes</div>
-@@ -441,73 +759,89 @@ async function openDetail(id){
+@@ -441,73 +771,89 @@ async function openDetail(id){
      <div class="section-title">History</div>
      ${histHtml}
    `);
