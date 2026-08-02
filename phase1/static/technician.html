@@ -391,7 +391,10 @@ async function loadWorkers(){
     ? MY_WORKERS.map(w => `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px dashed var(--khaki-line);">
           <span>${escapeHtml(w.name)}</span>
-          <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px;" onclick="deactivateWorker(${w.id})">Remove</button>
+          <span style="display:flex;gap:6px;">
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px;" onclick="resetWorkerPin(${w.id}, '${escapeHtml(w.name).replace(/'/g, "\\'")}')">Reset PIN</button>
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px;" onclick="deactivateWorker(${w.id})">Remove</button>
+          </span>
         </div>
       `).join('')
     : '<div class="empty-state" style="padding:6px 0;">No workers yet — add one below.</div>';
@@ -433,6 +436,21 @@ async function deactivateWorker(id){
     loadWorkers();
   } catch (e) {
     showToast('Could not remove worker: ' + e.message, 'err');
+  }
+}
+
+// Enhancement backlog Phase 24 follow-up (found in Dispatcher Console
+// testing, 8/1/26): closes the gap flagged when worker creation first
+// shipped — "no reset endpoint yet." Same one-time-reveal pattern as
+// creation, and confirms first since it immediately invalidates the
+// worker's current PIN.
+async function resetWorkerPin(id, name){
+  if (!confirm(`Reset ${name}'s PIN? Their current PIN will stop working immediately.`)) return;
+  try {
+    const result = await api(`/my-team/workers/${id}/reset-pin`, {method: 'POST'});
+    alert(`${result.worker.name}'s new PIN is ${result.pin}\n\nShare this with them directly — it won't be shown again, and their old PIN no longer works.`);
+  } catch (e) {
+    showToast('Could not reset PIN: ' + e.message, 'err');
   }
 }
 
