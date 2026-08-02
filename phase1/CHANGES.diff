@@ -1,19 +1,21 @@
 diff --git a/phase1/app/crud.py b/phase1/app/crud.py
-index ec75c56..a1f0beb 100644
+index ec75c56..01d1097 100644
 --- a/phase1/app/crud.py
 +++ b/phase1/app/crud.py
-@@ -8,8 +8,9 @@ mutation later, ask "does this need a history row?" before wiring it up.
+@@ -8,25 +8,45 @@ mutation later, ask "does this need a history row?" before wiring it up.
  """
  import datetime as dt
  import secrets
++import uuid
 +from zoneinfo import ZoneInfo
  from sqlalchemy.orm import Session
 -from sqlalchemy import func, case
 +from sqlalchemy import func, case, or_ as sql_or
  from fastapi import HTTPException
  from . import models, schemas
- from .auth import hash_password
-@@ -17,16 +18,34 @@ from .auth import hash_password
+-from .auth import hash_password
++from .auth import hash_password, verify_password
+ 
  # Lower rank = higher priority = sorts first. Ties (an unrecognized value,
  # which the CHECK constraint shouldn't allow, but belt-and-suspenders)
  # fall to the end rather than erroring.
@@ -53,7 +55,7 @@ index ec75c56..a1f0beb 100644
  def build_location_tree(db: Session, include_inactive: bool = False) -> list[dict]:
      """Reconstruct the nested location hierarchy (PRD 4.2a) from the flat
      assets table. Every Asset row (branch, camp, subcamp, shower house,
-@@ -67,9 +86,45 @@ def build_location_tree(db: Session, include_inactive: bool = False) -> list[dic
+@@ -67,9 +87,45 @@ def build_location_tree(db: Session, include_inactive: bool = False) -> list[dic
  
  
  def _next_wo_number(db: Session) -> str:
@@ -102,7 +104,7 @@ index ec75c56..a1f0beb 100644
  
  
  def _validate_work_type(db: Session, work_type: str):
-@@ -87,11 +142,35 @@ def _validate_work_type(db: Session, work_type: str):
+@@ -87,11 +143,35 @@ def _validate_work_type(db: Session, work_type: str):
          raise HTTPException(400, f"invalid or inactive request type: {work_type}")
  
  
@@ -138,7 +140,7 @@ index ec75c56..a1f0beb 100644
  
      wo = models.WorkOrder(
          wo_number=_next_wo_number(db),
-@@ -107,6 +186,8 @@ def create_work_order(db: Session, payload: schemas.WorkOrderCreate) -> models.W
+@@ -107,6 +187,8 @@ def create_work_order(db: Session, payload: schemas.WorkOrderCreate) -> models.W
          priority=payload.priority,
          notify_preference=payload.notify_preference,
          external_ref=payload.external_ref,
@@ -147,7 +149,27 @@ index ec75c56..a1f0beb 100644
          status="Requested",
      )
      db.add(wo)
-@@ -137,11 +218,23 @@ def add_attachment(db: Session, wo: models.WorkOrder, file_url: str,
+@@ -125,11 +207,16 @@ def create_work_order(db: Session, payload: schemas.WorkOrderCreate) -> models.W
+ 
+ 
+ def add_attachment(db: Session, wo: models.WorkOrder, file_url: str,
+-                    uploaded_by: int | None = None) -> models.WOAttachment:
++                    uploaded_by: int | None = None, stage: str = "submission") -> models.WOAttachment:
+     """No history row here on purpose — attachments aren't one of the
+     tracked mutation fields (status/team/priority) the status-history
+-    engine covers; they're just files hung off the WO."""
+-    att = models.WOAttachment(work_order_id=wo.id, uploaded_by=uploaded_by, file_url=file_url)
++    engine covers; they're just files hung off the WO.
++
++    Enhancement backlog Phase 21 (PRD §17#10): stage defaults to
++    'submission' (the original caller — public.py's requester upload —
++    never passes anything else), and is explicitly set to 'completion'
++    by the new Task Worker completion-photo upload path."""
++    att = models.WOAttachment(work_order_id=wo.id, uploaded_by=uploaded_by, file_url=file_url, stage=stage)
+     db.add(att)
+     db.commit()
+     db.refresh(att)
+@@ -137,11 +224,23 @@ def add_attachment(db: Session, wo: models.WorkOrder, file_url: str,
  
  
  def update_work_order_fields(db: Session, wo: models.WorkOrder, payload: schemas.WorkOrderUpdate,
@@ -175,7 +197,7 @@ index ec75c56..a1f0beb 100644
          db.add(models.WOStatusHistory(
              work_order_id=wo.id,
              event_type="priority_change",
-@@ -161,14 +254,17 @@ def update_work_order_fields(db: Session, wo: models.WorkOrder, payload: schemas
+@@ -161,14 +260,17 @@ def update_work_order_fields(db: Session, wo: models.WorkOrder, payload: schemas
          if not asset:
              raise HTTPException(404, "asset not found")
          wo.asset_id = payload.asset_id
@@ -196,7 +218,7 @@ index ec75c56..a1f0beb 100644
      team = db.get(models.Team, payload.team_id)
      if not team:
          raise HTTPException(404, "team not found")
-@@ -206,13 +302,14 @@ def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Assign
+@@ -206,13 +308,14 @@ def assign_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Assign
              note_text=payload.note, note_type="internal",
          ))
  
@@ -214,7 +236,7 @@ index ec75c56..a1f0beb 100644
      if payload.status not in schemas.STATUSES:
          raise HTTPException(400, f"invalid status: {payload.status}")
  
-@@ -235,27 +332,243 @@ def change_status(db: Session, wo: models.WorkOrder, payload: schemas.StatusChan
+@@ -235,27 +338,244 @@ def change_status(db: Session, wo: models.WorkOrder, payload: schemas.StatusChan
              note_text=payload.note, note_type=note_type,
          ))
  
@@ -462,10 +484,21 @@ index ec75c56..a1f0beb 100644
 -                      opened_today=False, closed_today=False,
 +                      opened_today=False, closed_today=False, handled_by=None,
 +                      approaching_deadline=False, past_deadline=False,
++                      assigned_person_id=None,
                        limit=100, offset=0):
      q = db.query(models.WorkOrder)
      if status:
-@@ -268,6 +581,13 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -264,10 +584,23 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+         q = q.filter(models.WorkOrder.priority == priority)
+     if team_id:
+         q = q.filter(models.WorkOrder.assigned_team_id == team_id)
++    # Enhancement backlog Phase 21 (PRD §17#10): a Task Worker's own
++    # queue — WOs assigned to them specifically, not their whole team's.
++    # Server-enforced to the caller's own id for task_worker role (see
++    # the router), same pattern as team_id already is for tech.
++    if assigned_person_id:
++        q = q.filter(models.WorkOrder.assigned_person_id == assigned_person_id)
+     if work_type:
          q = q.filter(models.WorkOrder.work_type == work_type)
      if location_group:
          q = q.join(models.Asset).filter(models.Asset.location_group == location_group)
@@ -479,7 +512,7 @@ index ec75c56..a1f0beb 100644
      if search:
          like = f"%{search}%"
          q = q.filter(
-@@ -275,6 +595,21 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -275,6 +608,21 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
              (models.WorkOrder.wo_number.ilike(like)) |
              (models.WorkOrder.external_ref.ilike(like))
          )
@@ -501,7 +534,7 @@ index ec75c56..a1f0beb 100644
      # These back the LOC triage KPI-card quick views (Open/Active,
      # Highest+High Open, Closed, Opened Today, Closed Today). They used to
      # be applied client-side against whatever page the default limit
-@@ -292,12 +627,17 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -292,12 +640,17 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
      if priority_in:
          q = q.filter(models.WorkOrder.priority.in_(priority_in))
      if opened_today:
@@ -524,7 +557,7 @@ index ec75c56..a1f0beb 100644
      # PRD 4.2: inbox sorts highest-priority first, oldest first within a
      # priority tier — matches the old dashboard's "needing attention" table.
      return (
-@@ -311,20 +651,52 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
+@@ -311,20 +664,52 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
  def _apply_filters(db: Session, query, scope: str, status: str | None = None,
                      priority: str | None = None, work_type: str | None = None,
                      team_id: int | None = None, location_group: str | None = None,
@@ -581,7 +614,7 @@ index ec75c56..a1f0beb 100644
          query = query.filter(models.WorkOrder.asset_id.in_(ids))
  
      if status:
-@@ -338,11 +710,17 @@ def _apply_filters(db: Session, query, scope: str, status: str | None = None,
+@@ -338,11 +723,17 @@ def _apply_filters(db: Session, query, scope: str, status: str | None = None,
      if location_group:
          ids = db.query(models.Asset.id).filter(models.Asset.location_group == location_group)
          query = query.filter(models.WorkOrder.asset_id.in_(ids))
@@ -599,7 +632,7 @@ index ec75c56..a1f0beb 100644
      return query
  
  
-@@ -357,28 +735,48 @@ def get_kpis(db: Session, scope: str = "main", **filters) -> dict:
+@@ -357,28 +748,48 @@ def get_kpis(db: Session, scope: str = "main", **filters) -> dict:
  
      highest_high_open = _apply_filters(db, db.query(models.WorkOrder.id), scope, **filters).filter(
          ~models.WorkOrder.status.like("Closed%"),
@@ -659,7 +692,7 @@ index ec75c56..a1f0beb 100644
      }
  
  
-@@ -451,14 +849,14 @@ def get_daily_trend(db: Session, scope: str = "main", days: int = 14, **filters)
+@@ -451,14 +862,14 @@ def get_daily_trend(db: Session, scope: str = "main", days: int = 14, **filters)
  
  
  def get_needing_attention(db: Session, scope: str = "main", limit: int = 15, **filters) -> list[models.WorkOrder]:
@@ -678,7 +711,111 @@ index ec75c56..a1f0beb 100644
          ),
          scope, **filters,
      )
-@@ -865,3 +1263,40 @@ def update_team(db: Session, team: models.Team, payload: schemas.TeamUpdate) ->
+@@ -529,6 +940,103 @@ def reset_password(db: Session, user: models.User) -> str:
+     return password
+ 
+ 
++# ---- Enhancement backlog Phase 21 (PRD §17#10): Task Team assignment ----
++# Deliberately NOT going through create_user/schemas.ROLES above — those
++# back the Admin-only user-management screen, and Task Worker setup was
++# explicitly decided to be delegated to Dispatchers instead (a team
++# lead manages their own team's workers directly, no Admin involvement
++# needed per worker). Same User table, same auth.create_access_token/
++# get_current_user machinery underneath (a Task Worker is still just a
++# User row with role='task_worker') — only the creation/login *path* is
++# different.
++
++def _generate_pin() -> str:
++    """4-digit numeric PIN — verbally/radio-shareable, per the decision
++    to use a PIN over a magic link (see PRD §17#10 for the full
++    reasoning). Scoped for uniqueness within a team only (enforced by
++    the caller, not here), not system-wide — a worker logs in by first
++    picking their team, so a 4-digit space is more than enough to avoid
++    collisions within one team's roster."""
++    return f"{secrets.randbelow(10000):04d}"
++
++
++def create_task_worker(db: Session, team_id: int, payload: schemas.TaskWorkerCreate) -> tuple[models.User, str]:
++    if not db.get(models.Team, team_id):
++        raise HTTPException(404, "team not found")
++    pin = _generate_pin()
++    worker = models.User(
++        name=payload.name,
++        # Placeholder, unusable values — task_worker rows never log in
++        # via email/password, but both columns are NOT NULL on the
++        # shared users table (see models.py's User docstring for why
++        # this wasn't worth a schema change).
++        email=f"worker-{uuid.uuid4().hex}@task-worker.internal",
++        password_hash=hash_password(secrets.token_urlsafe(24)),
++        role="task_worker",
++        team_id=team_id,
++        pin_hash=hash_password(pin),
++    )
++    db.add(worker)
++    db.commit()
++    db.refresh(worker)
++    return worker, pin
++
++
++def list_task_workers(db: Session, team_id: int, include_inactive: bool = False) -> list[models.User]:
++    q = db.query(models.User).filter(models.User.role == "task_worker", models.User.team_id == team_id)
++    if not include_inactive:
++        q = q.filter(models.User.is_active == True)  # noqa: E712
++    return q.order_by(models.User.name).all()
++
++
++def deactivate_task_worker(db: Session, worker: models.User) -> models.User:
++    """Soft-delete, matching how every other role's deactivation works
++    in this app — history/notes/completed-WO attribution stays intact,
++    the account just can't log in or receive new assignments anymore."""
++    worker.is_active = False
++    db.commit()
++    return worker
++
++
++def verify_worker_login(db: Session, worker_id: int, pin: str) -> models.User | None:
++    worker = db.get(models.User, worker_id)
++    if not worker or worker.role != "task_worker" or not worker.is_active:
++        return None
++    if not worker.pin_hash or not verify_password(pin, worker.pin_hash):
++        return None
++    return worker
++
++
++def complete_work_order(db: Session, wo: models.WorkOrder, payload: schemas.CompleteWorkOrderRequest,
++                         changed_by: int) -> models.WorkOrder:
++    """The 'simple Completed button' (PRD §17#10) — a Task Worker's
++    single-action way to close out their own assigned WO. Deliberately
++    narrower than the full status-change surface Dispatchers/LOC have:
++    no arbitrary status choice, always goes to Closed/Completed; no
++    reassignment; note/completion pin are both optional, never
++    required, unlike LOC's close-requires-a-note rule."""
++    if payload.completion_latitude is not None and not (-90 <= payload.completion_latitude <= 90):
++        raise HTTPException(400, "invalid completion latitude")
++    if payload.completion_longitude is not None and not (-180 <= payload.completion_longitude <= 180):
++        raise HTTPException(400, "invalid completion longitude")
++
++    from_status = wo.status
++    wo.status = "Closed, Completed"
++    wo.completion_latitude = payload.completion_latitude
++    wo.completion_longitude = payload.completion_longitude
++    db.add(models.WOStatusHistory(
++        work_order_id=wo.id, event_type="status_change",
++        from_value=from_status, to_value="Closed, Completed", changed_by=changed_by,
++    ))
++    if payload.note:
++        db.add(models.WONote(
++            work_order_id=wo.id, note_text=payload.note, note_type="work_note", author_id=changed_by,
++        ))
++    db.commit()
++    db.refresh(wo)
++    return wo
++
++
+ # ============================================================
+ # Admin configuration (PRD 4.5)
+ # ============================================================
+@@ -865,3 +1373,40 @@ def update_team(db: Session, team: models.Team, payload: schemas.TeamUpdate) ->
      db.commit()
      db.refresh(team)
      return team
@@ -719,8 +856,29 @@ index ec75c56..a1f0beb 100644
 +    db.commit()
 +    db.refresh(row)
 +    return row
+diff --git a/phase1/app/main.py b/phase1/app/main.py
+index 4f2e937..7960004 100644
+--- a/phase1/app/main.py
++++ b/phase1/app/main.py
+@@ -4,7 +4,7 @@ from fastapi import FastAPI
+ from fastapi.staticfiles import StaticFiles
+ from fastapi.middleware.cors import CORSMiddleware
+ 
+-from .routers import work_orders, dashboard, reference, public, users, admin
++from .routers import work_orders, dashboard, reference, public, users, admin, task_workers
+ from .routers.public import UPLOAD_DIR
+ from .database import DATABASE_URL
+ from .auth import SECRET_KEY, DEV_SECRET_KEY
+@@ -59,6 +59,7 @@ app.include_router(reference.router)
+ app.include_router(public.router)
+ app.include_router(users.router)
+ app.include_router(admin.router)
++app.include_router(task_workers.router)
+ 
+ # Uploaded photos from the public requester form (see app/routers/public.py)
+ app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 diff --git a/phase1/app/models.py b/phase1/app/models.py
-index 1963639..f56b915 100644
+index 1963639..f9429f2 100644
 --- a/phase1/app/models.py
 +++ b/phase1/app/models.py
 @@ -5,7 +5,7 @@ forward-compatibility with Phase 2/3 but have no endpoints yet.
@@ -766,7 +924,38 @@ index 1963639..f56b915 100644
  class Team(Base):
      __tablename__ = "teams"
      id = Column(Integer, primary_key=True)
-@@ -87,7 +114,7 @@ class Asset(Base):
+@@ -30,15 +57,28 @@ class User(Base):
+     name = Column(String, nullable=False)
+     email = Column(String, nullable=False, unique=True)
+     password_hash = Column(String, nullable=False)
+-    role = Column(String, nullable=False)  # loc | tech | leadership | admin
++    role = Column(String, nullable=False)  # loc | tech | leadership | admin | task_worker
+     team_id = Column(Integer, ForeignKey("teams.id"), nullable=True)
+     is_active = Column(Boolean, nullable=False, default=True)
+     created_at = Column(TIMESTAMP, default=now)
++    # Enhancement backlog Phase 21 (PRD §17#10): Task Workers log in with
++    # a PIN instead of email/password (verbal/radio-shareable, works from
++    # any device, easy for a Dispatcher to reset — see the PRD for the
++    # full reasoning against a per-worker magic link instead). Only ever
++    # set for role='task_worker'; every other role keeps using
++    # password_hash as before. email/password_hash still get populated
++    # for task_worker rows too (both columns are NOT NULL) with
++    # unusable placeholder values — see crud.create_task_worker — purely
++    # to satisfy the schema without adding a second nullable-columns
++    # code path throughout the rest of the app.
++    pin_hash = Column(String, nullable=True)
+ 
+     team = relationship("Team", back_populates="users")
+ 
+     __table_args__ = (
+-        CheckConstraint("role IN ('loc','tech','leadership','admin')", name="ck_user_role"),
++        CheckConstraint(
++            "role IN ('loc','tech','leadership','admin','task_worker')", name="ck_user_role"
++        ),
+     )
+ 
+ 
+@@ -87,7 +127,7 @@ class Asset(Base):
  
  class ReportingGroup(Base):
      """Admin-editable reporting-group catalog (PRD 4.5b) — e.g. 'Program
@@ -775,7 +964,7 @@ index 1963639..f56b915 100644
      Asset.reporting_group_id; see that column's docstring for the
      inheritance model. Set once at the start of an event and read live —
      no versioning/snapshotting, per PRD 4.5b."""
-@@ -168,17 +195,76 @@ class WorkOrder(Base):
+@@ -168,17 +208,84 @@ class WorkOrder(Base):
      # actual email/SMS provider yet; see app/routers/public.py and the
      # README's "Known gaps" list.
      notify_preference = Column(String, nullable=True)
@@ -796,6 +985,14 @@ index 1963639..f56b915 100644
 +    # Nullable: a WO with no pin just shows no map on the detail screen.
 +    latitude = Column(Float, nullable=True)
 +    longitude = Column(Float, nullable=True)
++    # Enhancement backlog Phase 21 (PRD §17#10): the Task Worker's own
++    # "here's where I actually dropped it / did the repair" pin —
++    # deliberately separate from the requester's submission pin above,
++    # not an overwrite of it (confirmed 7/31/26 — they can legitimately
++    # differ). Always optional; a WO can be marked complete with no
++    # completion pin at all.
++    completion_latitude = Column(Float, nullable=True)
++    completion_longitude = Column(Float, nullable=True)
  
      asset = relationship("Asset")
      assigned_team = relationship("Team")
@@ -854,7 +1051,7 @@ index 1963639..f56b915 100644
          ),
          CheckConstraint(
              "status IN ('Requested','Assigned','Work In Progress','On Hold',"
-@@ -204,6 +290,13 @@ class WONote(Base):
+@@ -204,6 +311,13 @@ class WONote(Base):
      work_order = relationship("WorkOrder", back_populates="notes")
      author = relationship("User")
  
@@ -868,7 +1065,7 @@ index 1963639..f56b915 100644
      __table_args__ = (
          CheckConstraint(
              "note_type IN ('internal','instruction','work_note')", name="ck_note_type"
-@@ -227,6 +320,13 @@ class WOStatusHistory(Base):
+@@ -227,6 +341,13 @@ class WOStatusHistory(Base):
      changed_at = Column(TIMESTAMP, default=now)
  
      work_order = relationship("WorkOrder", back_populates="history")
@@ -882,7 +1079,7 @@ index 1963639..f56b915 100644
  
      __table_args__ = (
          CheckConstraint(
-@@ -237,9 +337,9 @@ class WOStatusHistory(Base):
+@@ -237,15 +358,26 @@ class WOStatusHistory(Base):
  
  
  class WOAttachment(Base):
@@ -895,7 +1092,24 @@ index 1963639..f56b915 100644
      __tablename__ = "wo_attachments"
      id = Column(Integer, primary_key=True)
      work_order_id = Column(Integer, ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False)
-@@ -263,3 +363,16 @@ class ResponseTemplate(Base):
+     uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+     file_url = Column(String, nullable=False)
+     uploaded_at = Column(TIMESTAMP, default=now)
++    # Enhancement backlog Phase 21 (PRD §17#10): distinguishes a Task
++    # Worker's completion photo from the requester's original submission
++    # photo(s) — confirmed 7/31/26 these need to stay visually separate,
++    # not conflated. Defaults to 'submission' since every attachment in
++    # the system predating this column genuinely was one (there was no
++    # authenticated upload path before Task Worker completion photos).
++    stage = Column(String, nullable=False, default="submission")
++
++    __table_args__ = (
++        CheckConstraint("stage IN ('submission','completion')", name="ck_attachment_stage"),
++    )
+ 
+ 
+ class ResponseTemplate(Base):
+@@ -263,3 +395,16 @@ class ResponseTemplate(Base):
      created_at = Column(TIMESTAMP, default=now)
      updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
      updated_at = Column(TIMESTAMP, default=now, onupdate=now)
@@ -1021,10 +1235,14 @@ index 4e1a289..3eccdf4 100644
  
  
 diff --git a/phase1/app/routers/public.py b/phase1/app/routers/public.py
-index e684f39..8641956 100644
+index e684f39..219a15d 100644
 --- a/phase1/app/routers/public.py
 +++ b/phase1/app/routers/public.py
-@@ -38,16 +38,32 @@ from ..database import get_db
+@@ -35,19 +35,36 @@ from sqlalchemy.orm import Session
+ 
+ from .. import crud, models, rate_limit, schemas
+ from ..database import get_db
++from ..auth import create_access_token
  
  router = APIRouter(prefix="/public", tags=["public"])
  
@@ -1062,7 +1280,7 @@ index e684f39..8641956 100644
  
  
  @router.get("/assets", response_model=list[schemas.PublicAssetOut])
-@@ -62,10 +78,27 @@ def get_public_location_tree(db: Session = Depends(get_db)):
+@@ -62,10 +79,27 @@ def get_public_location_tree(db: Session = Depends(get_db)):
      """Nested asset hierarchy for the public request form's location
      picker (PRD 4.2a). Same shape as the authenticated /locations/tree —
      no PII or internal fields involved either way, so nothing to narrow
@@ -1091,7 +1309,7 @@ index e684f39..8641956 100644
  @router.post("/work-orders", response_model=schemas.PublicWorkOrderConfirmation, status_code=201)
  async def submit_public_work_order(
      request: Request,
-@@ -80,6 +113,11 @@ async def submit_public_work_order(
+@@ -80,6 +114,11 @@ async def submit_public_work_order(
      description: str = Form(...),
      priority: str = Form(...),
      notify_preference: Optional[str] = Form(None),  # 'email' | 'text' | 'both'
@@ -1103,7 +1321,7 @@ index e684f39..8641956 100644
      website: Optional[str] = Form(None),  # honeypot — see module docstring
      files: List[UploadFile] = File(default=[]),
      db: Session = Depends(get_db),
-@@ -90,7 +128,7 @@ async def submit_public_work_order(
+@@ -90,7 +129,7 @@ async def submit_public_work_order(
          # A real requester never sees or fills this field. Rather than
          # reject outright (which teaches a bot to stop filling it), return
          # a plausible-looking success without touching the database.
@@ -1112,7 +1330,7 @@ index e684f39..8641956 100644
  
      retry_after = rate_limit.check_public_submission_limit(client_ip)
      if retry_after is not None:
-@@ -132,6 +170,17 @@ async def submit_public_work_order(
+@@ -132,6 +171,17 @@ async def submit_public_work_order(
      if len(files) > MAX_FILES_PER_SUBMISSION:
          raise HTTPException(400, f"attach at most {MAX_FILES_PER_SUBMISSION} photos")
  
@@ -1130,7 +1348,7 @@ index e684f39..8641956 100644
      wo = crud.create_work_order(
          db,
          schemas.WorkOrderCreate(
-@@ -146,6 +195,8 @@ async def submit_public_work_order(
+@@ -146,6 +196,8 @@ async def submit_public_work_order(
              description=description,
              priority=priority,
              notify_preference=notify_preference or None,
@@ -1139,7 +1357,7 @@ index e684f39..8641956 100644
          ),
      )
  
-@@ -167,13 +218,121 @@ async def submit_public_work_order(
+@@ -167,13 +219,164 @@ async def submit_public_work_order(
      return schemas.PublicWorkOrderConfirmation(wo_number=wo.wo_number)
  
  
@@ -1271,6 +1489,49 @@ index e684f39..8641956 100644
 +    # uses without pulling in Query for one parameter.
 +    days = max(1, min(days, 90))
 +    return crud.get_daily_trend(db, scope="main", days=days)
++
++
++# ---------------------------------------------------------------------------
++# Enhancement backlog Phase 21 (PRD §17#10): Task Worker PIN login flow.
++# Unauthenticated by necessity (the worker hasn't logged in yet) — but
++# every response here is deliberately minimal: team names, worker names,
++# and (only on successful login) a JWT. No PINs, no WO data, nothing
++# else is ever exposed through this flow. Rate-limited the same way the
++# phone-based status lookup is, same reasoning as the public dashboard
++# endpoints above — an unauthenticated endpoint that accepts a guessable
++# secret (a 4-digit PIN) absolutely needs a brute-force backstop.
++# ---------------------------------------------------------------------------
++
++@router.get("/worker-login/teams", response_model=list[schemas.TeamOut])
++def worker_login_teams(db: Session = Depends(get_db)):
++    return db.query(models.Team).filter(models.Team.is_active == True).order_by(models.Team.name).all()  # noqa: E712
++
++
++@router.get("/worker-login/workers", response_model=list[schemas.TaskWorkerOut])
++def worker_login_workers(team_id: int, db: Session = Depends(get_db)):
++    """Names only, for the worker-login page's 'pick who you are' step
++    — never includes a PIN or anything else. A worker still needs to
++    know their own PIN to actually log in; this just saves them from
++    typing their own name exactly right."""
++    return crud.list_task_workers(db, team_id)
++
++
++@router.post("/worker-login")
++def worker_login(request: Request, payload: schemas.WorkerLoginRequest, db: Session = Depends(get_db)):
++    client_ip = request.client.host if request.client else "unknown"
++    retry_after = rate_limit.check_public_lookup_limit(client_ip)
++    if retry_after is not None:
++        raise HTTPException(
++            status_code=429,
++            detail="Too many attempts from this connection. Please wait a few minutes and try again.",
++            headers={"Retry-After": str(int(retry_after) + 1)},
++        )
++    rate_limit.record_public_lookup(client_ip)
++
++    worker = crud.verify_worker_login(db, payload.worker_id, payload.pin)
++    if not worker:
++        raise HTTPException(401, "incorrect PIN")
++    return {"access_token": create_access_token(worker.id), "token_type": "bearer"}
 diff --git a/phase1/app/routers/reference.py b/phase1/app/routers/reference.py
 index 9c75cec..9ed5532 100644
 --- a/phase1/app/routers/reference.py
@@ -1323,10 +1584,25 @@ index 8f4b0d2..9ee0082 100644
  def list_users(
      role: Optional[str] = None,
 diff --git a/phase1/app/routers/work_orders.py b/phase1/app/routers/work_orders.py
-index c3e80e3..846f532 100644
+index c3e80e3..1c60e5a 100644
 --- a/phase1/app/routers/work_orders.py
 +++ b/phase1/app/routers/work_orders.py
-@@ -15,9 +15,9 @@ tech_or_loc_or_admin = require_roles("tech", "loc", "admin")
+@@ -1,10 +1,13 @@
+-from fastapi import APIRouter, Depends, HTTPException, Query
++import os
++import uuid
++from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+ from sqlalchemy.orm import Session
+ from typing import Optional
+ 
+ from .. import crud, schemas, models
+ from ..database import get_db
+ from ..auth import require_roles, get_current_user
++from .public import UPLOAD_DIR, ALLOWED_CONTENT_TYPES, MAX_FILE_BYTES
+ 
+ router = APIRouter(prefix="/work-orders", tags=["work-orders"])
+ 
+@@ -15,9 +18,9 @@ tech_or_loc_or_admin = require_roles("tech", "loc", "admin")
  # can't move a WO back to "Requested" or hand-set "Assigned" (that's what
  # the /assign endpoint is for). Enforced here rather than left to the
  # frontend since this is a real permissions boundary, not just a UI nicety.
@@ -1339,10 +1615,24 @@ index c3e80e3..846f532 100644
  
  
  def _get_wo_or_404(db: Session, wo_id: int) -> models.WorkOrder:
-@@ -35,6 +35,34 @@ def _enforce_team_scope(wo: models.WorkOrder, user: models.User):
+@@ -30,9 +33,45 @@ def _get_wo_or_404(db: Session, wo_id: int) -> models.WorkOrder:
+ def _enforce_team_scope(wo: models.WorkOrder, user: models.User):
+     """A tech can only touch a WO currently assigned to their own team —
+     this is the server-side backing for PRD 4.3's 'each team sees only
+-    their queue.' LOC/admin are unrestricted."""
++    their queue.' LOC/admin are unrestricted.
++
++    Enhancement backlog Phase 21 (PRD §17#10): a Task Worker is scoped
++    one level narrower still — only a WO assigned to *them personally*,
++    not just their team. Checked here (not a separate function) so
++    every existing caller of this — get_work_order, status changes,
++    etc. — picks up the restriction automatically."""
+     if user.role == "tech" and wo.assigned_team_id != user.team_id:
          raise HTTPException(403, "this work order is not assigned to your team")
- 
- 
++    if user.role == "task_worker" and wo.assigned_person_id != user.id:
++        raise HTTPException(403, "this work order is not assigned to you")
++
++
 +def _enforce_not_locked(wo: models.WorkOrder, user: models.User):
 +    """Enhancement backlog Phase 1 (PRD §14#1) — server-side backing for
 +    WO locking. A WO opened for edit by one LOC/admin user can't be
@@ -1369,12 +1659,10 @@ index c3e80e3..846f532 100644
 +            f"This work order is currently open for editing by {holder.name}. "
 +            "Try again once they save or close it.",
 +        )
-+
-+
+ 
+ 
  @router.get("", response_model=list[schemas.WorkOrderListItem])
- def list_work_orders(
-     status: Optional[str] = None,
-@@ -42,12 +70,16 @@ def list_work_orders(
+@@ -42,12 +81,16 @@ def list_work_orders(
      team_id: Optional[int] = None,
      work_type: Optional[str] = None,
      location_group: Optional[str] = None,
@@ -1391,7 +1679,18 @@ index c3e80e3..846f532 100644
      limit: int = Query(100, le=500),
      offset: int = 0,
      db: Session = Depends(get_db),
-@@ -60,9 +92,10 @@ def list_work_orders(
+@@ -57,12 +100,22 @@ def list_work_orders(
+     # the query string — the server, not the frontend, owns this boundary.
+     if user.role == "tech":
+         team_id = user.team_id
++    # Enhancement backlog Phase 21 (PRD §17#10): same principle, one
++    # level narrower — a Task Worker only ever sees WOs assigned to them
++    # personally, never their whole team's queue (that's the Dispatcher's
++    # view). assigned_person_id is a query param a client *could* try to
++    # pass, but it's always overridden to the caller's own id here.
++    assigned_person_id = None
++    if user.role == "task_worker":
++        assigned_person_id = user.id
      priority_list = [p.strip() for p in priority_in.split(",")] if priority_in else None
      return crud.list_work_orders(
          db, status=status, priority=priority, team_id=team_id,
@@ -1401,10 +1700,11 @@ index c3e80e3..846f532 100644
 -        opened_today=opened_today, closed_today=closed_today,
 +        opened_today=opened_today, closed_today=closed_today, handled_by=handled_by,
 +        approaching_deadline=approaching_deadline, past_deadline=past_deadline,
++        assigned_person_id=assigned_person_id,
          limit=limit, offset=offset,
      )
  
-@@ -89,6 +122,7 @@ def update_work_order(wo_id: int, payload: schemas.WorkOrderUpdate,
+@@ -89,6 +142,7 @@ def update_work_order(wo_id: int, payload: schemas.WorkOrderUpdate,
                         db: Session = Depends(get_db),
                         user: models.User = Depends(loc_or_admin)):
      wo = _get_wo_or_404(db, wo_id)
@@ -1412,7 +1712,7 @@ index c3e80e3..846f532 100644
      return crud.update_work_order_fields(db, wo, payload, changed_by=user.id)
  
  
-@@ -103,6 +137,7 @@ def assign_work_order(wo_id: int, payload: schemas.AssignRequest,
+@@ -103,6 +157,7 @@ def assign_work_order(wo_id: int, payload: schemas.AssignRequest,
      # unassigned WOs from a tech's reach, so this only opens up the
      # "mis-routed, hand it to the right team" case from PRD 4.3.
      _enforce_team_scope(wo, user)
@@ -1420,7 +1720,7 @@ index c3e80e3..846f532 100644
      return crud.assign_work_order(db, wo, payload, changed_by=user.id)
  
  
-@@ -112,6 +147,7 @@ def change_status(wo_id: int, payload: schemas.StatusChangeRequest,
+@@ -112,6 +167,7 @@ def change_status(wo_id: int, payload: schemas.StatusChangeRequest,
                     user: models.User = Depends(get_current_user)):
      wo = _get_wo_or_404(db, wo_id)
      _enforce_team_scope(wo, user)
@@ -1428,7 +1728,7 @@ index c3e80e3..846f532 100644
      if user.role == "tech" and payload.status not in TECH_ALLOWED_STATUSES:
          raise HTTPException(
              403,
-@@ -127,6 +163,67 @@ def add_note(wo_id: int, payload: schemas.NoteCreate,
+@@ -127,6 +183,108 @@ def add_note(wo_id: int, payload: schemas.NoteCreate,
               user: models.User = Depends(get_current_user)):
      wo = _get_wo_or_404(db, wo_id)
      _enforce_team_scope(wo, user)
@@ -1496,8 +1796,49 @@ index c3e80e3..846f532 100644
 +        raise HTTPException(403, "instructions are LOC-authored; technicians can add work notes")
 +
 +    return crud.save_work_order(db, wo, payload, changed_by=user.id)
++
++
++# ---- Enhancement backlog Phase 21 (PRD §17#10): Task Team assignment ----
++
++task_worker_only = require_roles("task_worker")
++
++
++@router.post("/{wo_id}/complete", response_model=schemas.WorkOrderDetail)
++def complete_work_order(wo_id: int, payload: schemas.CompleteWorkOrderRequest,
++                         db: Session = Depends(get_db),
++                         user: models.User = Depends(task_worker_only)):
++    """The 'simple Completed button' — a Task Worker's single-action way
++    to close out their own assigned WO. Locking (§14#1) doesn't apply
++    here — that's a LOC/tech edit-drawer concept for the fuller editing
++    surface, not this narrower action."""
++    wo = _get_wo_or_404(db, wo_id)
++    _enforce_team_scope(wo, user)  # covers the task_worker "must be assigned to me" check
++    return crud.complete_work_order(db, wo, payload, changed_by=user.id)
++
++
++@router.post("/{wo_id}/attachments", response_model=schemas.AttachmentOut, status_code=201)
++async def upload_completion_photo(wo_id: int, file: UploadFile = File(...),
++                                   db: Session = Depends(get_db),
++                                   user: models.User = Depends(task_worker_only)):
++    """A Task Worker's completion photo — deliberately its own endpoint
++    (not reusing the public submission upload path) since it's
++    authenticated, scoped to the worker's own assigned WO, and always
++    tagged stage='completion'. Same validation (allowed types, size
++    limit) as the public upload."""
++    wo = _get_wo_or_404(db, wo_id)
++    _enforce_team_scope(wo, user)
++    if file.content_type not in ALLOWED_CONTENT_TYPES:
++        raise HTTPException(400, "unsupported file type")
++    contents = await file.read()
++    if len(contents) > MAX_FILE_BYTES:
++        raise HTTPException(400, "file too large (10 MB max)")
++    ext = os.path.splitext(file.filename or "")[1][:10]
++    safe_name = f"{wo.wo_number}-completion-{uuid.uuid4().hex}{ext}"
++    with open(os.path.join(UPLOAD_DIR, safe_name), "wb") as out:
++        out.write(contents)
++    return crud.add_attachment(db, wo, f"/uploads/{safe_name}", uploaded_by=user.id, stage="completion")
 diff --git a/phase1/app/schemas.py b/phase1/app/schemas.py
-index 8500922..9b1b3dd 100644
+index 8500922..23763b6 100644
 --- a/phase1/app/schemas.py
 +++ b/phase1/app/schemas.py
 @@ -1,8 +1,58 @@
@@ -1621,7 +1962,51 @@ index 8500922..9b1b3dd 100644
  
  
  class AssignRequest(BaseModel):
-@@ -107,6 +176,42 @@ class StatusChangeRequest(BaseModel):
+@@ -102,11 +171,86 @@ class AssignRequest(BaseModel):
+     note: Optional[str] = None  # required if this is a reassignment reroute; see router
+ 
+ 
++# ---- Enhancement backlog Phase 21 (PRD §17#10): Task Team assignment ----
++
++class TaskWorkerCreate(BaseModel):
++    name: str
++
++
++class TaskWorkerOut(BaseModel):
++    model_config = ConfigDict(from_attributes=True)
++    id: int
++    name: str
++    is_active: bool
++    team: Optional[TeamOut] = None
++
++
++class TaskWorkerCreated(BaseModel):
++    """Returned once, at creation only — the plaintext PIN is never
++    retrievable again afterward (only its hash is stored). The
++    Dispatcher creating the worker is responsible for sharing it with
++    them (verbally, over radio, written down — per the decision to use
++    a PIN specifically because it doesn't depend on any delivery
++    mechanism)."""
++    worker: TaskWorkerOut
++    pin: str
++
++
++class WorkerLoginRequest(BaseModel):
++    worker_id: int
++    pin: str
++
++
++class CompleteWorkOrderRequest(BaseModel):
++    """The 'simple Completed button' (PRD §17#10) — deliberately just
++    these three optional fields, not the fuller status/notes/reassignment
++    surface Dispatchers/LOC have."""
++    note: Optional[str] = None
++    completion_latitude: Optional[float] = None
++    completion_longitude: Optional[float] = None
++
++
+ class StatusChangeRequest(BaseModel):
+     status: str
      note: Optional[str] = None
  
  
@@ -1664,7 +2049,7 @@ index 8500922..9b1b3dd 100644
  class WorkOrderListItem(BaseModel):
      model_config = ConfigDict(from_attributes=True)
      id: int
-@@ -117,14 +222,28 @@ class WorkOrderListItem(BaseModel):
+@@ -117,14 +261,33 @@ class WorkOrderListItem(BaseModel):
      description: str
      asset: AssetOut
      assigned_team: Optional[TeamOut] = None
@@ -1692,10 +2077,15 @@ index 8500922..9b1b3dd 100644
      file_url: str
 -    uploaded_at: dt.datetime
 +    uploaded_at: UTCDateTime
++    # Enhancement backlog Phase 21 (PRD §17#10): 'submission' (the
++    # requester's original photo) or 'completion' (a Task Worker's
++    # photo of the finished work) — lets any UI showing both keep them
++    # visually distinguishable rather than conflated.
++    stage: str = "submission"
  
  
  class WorkOrderDetail(WorkOrderListItem):
-@@ -137,8 +256,19 @@ class WorkOrderDetail(WorkOrderListItem):
+@@ -137,8 +300,24 @@ class WorkOrderDetail(WorkOrderListItem):
      notify_preference: Optional[str] = None
      work_type: str
      assigned_person: Optional[UserOut] = None
@@ -1714,10 +2104,15 @@ index 8500922..9b1b3dd 100644
 +    # it) means "no pin" — the WO detail screen shows no map at all.
 +    latitude: Optional[float] = None
 +    longitude: Optional[float] = None
++    # Enhancement backlog Phase 21 (PRD §17#10): the Task Worker's own
++    # completion pin — separate from the requester's submission pin
++    # above, always optional, never an overwrite of it.
++    completion_latitude: Optional[float] = None
++    completion_longitude: Optional[float] = None
      notes: List[NoteOut] = []
      history: List[HistoryOut] = []
      attachments: List[AttachmentOut] = []
-@@ -158,16 +288,30 @@ class PublicWorkOrderConfirmation(BaseModel):
+@@ -158,16 +337,30 @@ class PublicWorkOrderConfirmation(BaseModel):
  
  
  class PublicWorkOrderStatus(BaseModel):
@@ -1753,7 +2148,7 @@ index 8500922..9b1b3dd 100644
  
  
  class KPIOut(BaseModel):
-@@ -175,9 +319,14 @@ class KPIOut(BaseModel):
+@@ -175,9 +368,14 @@ class KPIOut(BaseModel):
      open: int
      closed: int
      highest_high_open: int
@@ -1768,7 +2163,7 @@ index 8500922..9b1b3dd 100644
  
  
  class BreakdownOut(BaseModel):
-@@ -199,7 +348,7 @@ class UserAdminOut(BaseModel):
+@@ -199,7 +397,7 @@ class UserAdminOut(BaseModel):
      role: str
      team: Optional[TeamOut] = None
      is_active: bool
@@ -1777,7 +2172,7 @@ index 8500922..9b1b3dd 100644
  
  
  class UserCreate(BaseModel):
-@@ -340,4 +489,17 @@ class AssetChangeLogOut(BaseModel):
+@@ -340,4 +538,17 @@ class AssetChangeLogOut(BaseModel):
      from_value: Optional[str]
      to_value: Optional[str]
      changed_by: Optional[int]
@@ -3238,7 +3633,7 @@ index 2ecf37e..e882a00 100644
        <td>${escapeHtml((w.description||'').slice(0,90))}</td>
        <td>${escapeHtml(w.asset ? w.asset.name : '')}</td>
 diff --git a/phase1/static/index.html b/phase1/static/index.html
-index 430ff1e..0ecf9e7 100644
+index 430ff1e..3e4cced 100644
 --- a/phase1/static/index.html
 +++ b/phase1/static/index.html
 @@ -70,9 +70,9 @@ th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--khaki-line)
@@ -3333,11 +3728,12 @@ index 430ff1e..0ecf9e7 100644
    <table>
      <thead><tr>
        <th class="sortable" onclick="setSort('wo_number')">WO# <span class="sort-icon" id="sortIcon-wo_number"></span></th>
-@@ -157,18 +210,71 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
+@@ -157,18 +210,72 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
  <div id="drawer"></div>
  <div id="toastStack"></div>
  
 +<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
++<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
  <script src="location-picker.js"></script>
  <script>
  const API = '';
@@ -3408,7 +3804,7 @@ index 430ff1e..0ecf9e7 100644
  const WORK_TYPES = ["NJ Maintenance","NJ IT","NJ Items/Parts","NJ Transportation"];
  const STATUS_COLOR = {"Requested":"#C9962B","Assigned":"#3E6B4F","Work In Progress":"#E8620C","On Hold":"#5A7385","Closed, Completed":"#7A8471","Closed, Incomplete":"#7A8471"};
  const QUICK_VIEWS = [
-@@ -241,12 +347,33 @@ async function boot() {
+@@ -241,12 +348,33 @@ async function boot() {
    document.getElementById('loginBox').style.display = 'none';
    document.getElementById('app').style.display = 'block';
    try {
@@ -3442,7 +3838,7 @@ index 430ff1e..0ecf9e7 100644
    populateFilterOptions();
    renderQuickViews();
    await load();
-@@ -262,8 +389,22 @@ function populateFilterOptions(){
+@@ -262,8 +390,22 @@ function populateFilterOptions(){
    const fTeam = document.getElementById('fTeam');
    TEAMS.forEach(t => fTeam.insertAdjacentHTML('beforeend', `<option value="${t.id}">${t.name}</option>`));
    const fLocation = document.getElementById('fLocation');
@@ -3467,7 +3863,7 @@ index 430ff1e..0ecf9e7 100644
  }
  
  function renderQuickViews(){
-@@ -275,7 +416,7 @@ function renderQuickViews(){
+@@ -275,7 +417,7 @@ function renderQuickViews(){
  function applyQuickView(key){
    activeQuickView = key;
    renderQuickViews();
@@ -3476,7 +3872,7 @@ index 430ff1e..0ecf9e7 100644
      document.getElementById('fStatus').value = '';
      document.getElementById('fPriority').value = '';
    } else {
-@@ -286,8 +427,12 @@ function applyQuickView(key){
+@@ -286,8 +428,12 @@ function applyQuickView(key){
  }
  
  function clearFilters(){
@@ -3490,7 +3886,7 @@ index 430ff1e..0ecf9e7 100644
    activeQuickView = '';
    renderQuickViews();
    load();
-@@ -296,8 +441,13 @@ function clearFilters(){
+@@ -296,8 +442,13 @@ function clearFilters(){
  let debounceTimer;
  function debouncedLoad(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(load, 300); }
  
@@ -3506,7 +3902,7 @@ index 430ff1e..0ecf9e7 100644
  
    const params = new URLSearchParams();
    const status = document.getElementById('fStatus').value;
-@@ -305,6 +455,7 @@ async function load() {
+@@ -305,6 +456,7 @@ async function load() {
    const workType = document.getElementById('fWorkType').value;
    const location = document.getElementById('fLocation').value;
    const team = document.getElementById('fTeam').value;
@@ -3514,7 +3910,7 @@ index 430ff1e..0ecf9e7 100644
    const search = document.getElementById('fSearch').value;
  
    // These quick views used to be applied client-side against whatever
-@@ -327,13 +478,19 @@ async function load() {
+@@ -327,13 +479,19 @@ async function load() {
      params.set('opened_today', 'true');
    } else if (activeQuickView === 'ClosedToday') {
      params.set('closed_today', 'true');
@@ -3534,7 +3930,7 @@ index 430ff1e..0ecf9e7 100644
    if (search) params.set('search', search);
    params.set('limit', '200');
  
-@@ -354,9 +511,51 @@ async function load() {
+@@ -354,9 +512,51 @@ async function load() {
    renderTable(sortWOs(wos));
  }
  
@@ -3587,7 +3983,7 @@ index 430ff1e..0ecf9e7 100644
      case 'priority': return PRIORITY_ORDER[w.priority] ?? 99;
      case 'status': return w.status || '';
      case 'location': return (w.asset ? w.asset.name : '') || '';
-@@ -395,12 +594,17 @@ function setSort(key){
+@@ -395,12 +595,17 @@ function setSort(key){
  function renderKPIs(k){
    const items = [
      {num:k.total, lbl:'Total', key:''},
@@ -3606,7 +4002,7 @@ index 430ff1e..0ecf9e7 100644
    ];
    document.getElementById('kpiRow').innerHTML = items.map(i => {
      const clickable = i.key !== null;
-@@ -413,16 +617,50 @@ function renderKPIs(k){
+@@ -413,16 +618,50 @@ function renderKPIs(k){
  }
  
  function renderTable(wos){
@@ -3663,7 +4059,7 @@ index 430ff1e..0ecf9e7 100644
  }
  
  function escapeHtml(s){
-@@ -436,12 +674,59 @@ function openDrawer(html){
+@@ -436,12 +675,59 @@ function openDrawer(html){
    document.getElementById('drawer').classList.add('open');
    document.getElementById('drawerBackdrop').classList.add('open');
  }
@@ -3724,7 +4120,7 @@ index 430ff1e..0ecf9e7 100644
    let w;
    try {
      w = await api('/work-orders/' + id);
-@@ -449,222 +734,316 @@ async function openWO(id){
+@@ -449,222 +735,340 @@ async function openWO(id){
      if (e.message !== 'session expired') showToast('Could not open work order: ' + e.message, 'err');
      return;
    }
@@ -3816,18 +4212,33 @@ index 430ff1e..0ecf9e7 100644
 +          <span style="display:none;width:72px;height:72px;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#f4f1e8;font-size:9px;color:var(--ink-soft);text-align:center;padding:2px;box-sizing:border-box;">🖼️<span>Can't preview — tap to open</span></span>
 +        </a>`;
 +      }).join('') + `</div>`
-+    : '';
-+  // Enhancement backlog Phase 1 (PRD §14#3, same "already have the data"
+     : '';
++  // Enhancement backlog Phase 15 (PRD §14#7): pin display, unblocked by
++  // §13#14 (pin-drop on Submit WO) shipping. No pin -> no map section at
++  // all, not a blank/broken one. "Expand" opens the point in
++  // OpenStreetMap in a new tab rather than a custom in-app modal.
++  const hasPin = w.latitude != null && w.longitude != null;
++
++  // Enhancement backlog Phase 3 (PRD §14#12), same "already have the data"
 +  // rationale as history above): POC block at the top when the requester
 +  // isn't the point of contact.
 +  const pocHtml = (!w.poc_is_requester && (w.poc_name || w.poc_phone))
 +    ? `<p style="font-size:12px;color:var(--ink-soft);margin:2px 0 0;"><strong>POC:</strong> ${escapeHtml(w.poc_name||'')} ${escapeHtml(w.poc_phone||'')}</p>`
-     : '';
- 
++    : '';
++
 +  // Enhancement backlog Phase 3 (PRD §14#12): plain-text summary shown
 +  // only when printing (see the .print-only / @media print CSS) — the
 +  // editable form controls above get hidden on print instead, since a
 +  // printed textarea/select just shows an empty box, not its value.
++  //
++  // Enhancement backlog Phase 21 (PRD §17#10): if the WO has a pin, a QR
++  // code linking to it is added below — for a WO handed out as a
++  // printed paper copy (no app access), scanning it goes straight to
++  // the pinned location without anyone needing to type coordinates or
++  // search for the address by hand. Rendered into #qrCodeContainer
++  // after openDrawer() below actually inserts it into the DOM — a QR
++  // library needs a real element to draw into, can't render into a
++  // template string.
 +  const printOnlyHtml = `
 +    <div class="print-only">
 +      <p><strong>Location:</strong> ${escapeHtml(w.asset ? w.asset.name : '—')}</p>
@@ -3835,20 +4246,16 @@ index 430ff1e..0ecf9e7 100644
 +      <p><strong>Status:</strong> ${escapeHtml(w.status)} &nbsp; <strong>Team:</strong> ${escapeHtml(w.assigned_team ? w.assigned_team.name : '—')}</p>
 +      <p><strong>Description:</strong><br>${escapeHtml(w.description)}</p>
 +      ${w.note_to_requester ? `<p><strong>Note to requestor:</strong><br>${escapeHtml(w.note_to_requester)}</p>` : ''}
++      ${hasPin ? `<div style="margin-top:10px;"><strong>Scan for exact location:</strong><br><div id="qrCodeContainer"></div></div>` : ''}
 +      <p style="font-size:11px;color:#666;">Printed ${fmtDateTime(new Date().toISOString())}</p>
 +    </div>`;
 +
-+  // Enhancement backlog Phase 15 (PRD §14#7): pin display, unblocked by
-+  // §13#14 (pin-drop on Submit WO) shipping. No pin -> no map section at
-+  // all, not a blank/broken one. "Expand" opens the point in
-+  // OpenStreetMap in a new tab rather than a custom in-app modal.
-+  const hasPin = w.latitude != null && w.longitude != null;
 +  const pinHtml = hasPin ? `
 +    <div class="drawer-group">
 +      <label>Pinned location <a href="https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17" target="_blank" rel="noopener" style="font-weight:400;font-size:12px;">Open full map ↗</a></label>
 +      <div id="drawerPinMap"></div>
 +    </div>` : '';
-+
+ 
    openDrawer(`
      <button class="close-btn" onclick="closeDrawer()">×</button>
      <h2>${w.wo_number}${w.external_ref ? ` <span style="font-size:12px;font-weight:400;color:var(--ink-soft);">(Fiix #${escapeHtml(w.external_ref)})</span>` : ''}</h2>
@@ -3968,6 +4375,8 @@ index 430ff1e..0ecf9e7 100644
 -  } finally {
 -    btn.disabled = false;
 -    btn.textContent = original;
+-  }
+-}
 +  // Enhancement backlog Phase 15 (PRD §14#7): small preview map — has
 +  // to happen after openDrawer() above actually inserts #drawerPinMap
 +  // into the DOM. Deliberately not draggable/heavily interactive (this
@@ -3981,8 +4390,6 @@ index 430ff1e..0ecf9e7 100644
 +      attribution: '&copy; OpenStreetMap contributors',
 +    }).addTo(dmap);
 +    L.marker([w.latitude, w.longitude]).addTo(dmap);
-   }
- }
  
 -async function saveDetails(id){
 -  const btn = event.target;
@@ -4001,19 +4408,21 @@ index 430ff1e..0ecf9e7 100644
 -      closeDrawer(); load();
 -    } catch (e) {
 -      if (e.message !== 'session expired') showToast('Could not save details: ' + e.message, 'err');
--    }
++    // Enhancement backlog Phase 21 (PRD §17#10): QR code for printed
++    // WOs — scans to the pinned location. Rendered here (not in the
++    // template string above) because QRCode.js needs a real DOM element
++    // to draw into; #qrCodeContainer only exists once openDrawer()
++    // above has actually inserted the HTML.
++    const qrEl = document.getElementById('qrCodeContainer');
++    if (qrEl) {
++      new QRCode(qrEl, {
++        text: `https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17`,
++        width: 120, height: 120,
++      });
+     }
 -  });
 -}
-+// Enhancement backlog Phase 1 (PRD §14#2): single Save, one request,
-+// one transaction on the backend (crud.save_work_order). Returns true on
-+// success, false on failure, so closeDrawer()'s save-prompt flow knows
-+// whether it's safe to actually close.
-+async function saveDrawer(){
-+  const id = drawerState.woId;
-+  const btn = document.getElementById('saveDrawerBtn');
-+  document.getElementById('dAssignErr').textContent = '';
-+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
- 
+-
 -async function saveStatus(id){
 -  const btn = event.target;
 -  await withButtonLock(btn, async () => {
@@ -4027,17 +4436,19 @@ index 430ff1e..0ecf9e7 100644
 -      if (e.message !== 'session expired') showToast('Could not update status: ' + e.message, 'err');
 -    }
 -  });
--}
-+  const assetId = drawerLocationPicker ? drawerLocationPicker.getValue() : null;
-+  if (!assetId) {
-+    showToast('Choose a location before saving.', 'err');
-+    if (btn) { btn.disabled = false; btn.textContent = 'Save changes'; }
-+    return false;
 +  }
+ }
  
 -async function saveAssign(id){
 -  const btn = event.target;
--  document.getElementById('dAssignErr').textContent = '';
++// Enhancement backlog Phase 1 (PRD §14#2): single Save, one request,
++// one transaction on the backend (crud.save_work_order). Returns true on
++// success, false on failure, so closeDrawer()'s save-prompt flow knows
++// whether it's safe to actually close.
++async function saveDrawer(){
++  const id = drawerState.woId;
++  const btn = document.getElementById('saveDrawerBtn');
+   document.getElementById('dAssignErr').textContent = '';
 -  await withButtonLock(btn, async () => {
 -    const team_id = parseInt(document.getElementById('dTeam').value);
 -    const note = document.getElementById('dAssignNote').value || null;
@@ -4054,6 +4465,26 @@ index 430ff1e..0ecf9e7 100644
 -    }
 -  });
 -}
++  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+ 
+-async function saveNote(id){
+-  const btn = event.target;
+-  await withButtonLock(btn, async () => {
+-    const note_text = document.getElementById('dNote').value;
+-    if (!note_text) { showToast('Write a note before saving.', 'err'); return; }
+-    try {
+-      await api(`/work-orders/${id}/notes`, {method:'POST', body:{note_text, note_type:'internal'}});
+-      showToast('Note added.', 'ok');
+-      closeDrawer(); load();
+-    } catch (e) {
+-      if (e.message !== 'session expired') showToast('Could not add note: ' + e.message, 'err');
++  const assetId = drawerLocationPicker ? drawerLocationPicker.getValue() : null;
++  if (!assetId) {
++    showToast('Choose a location before saving.', 'err');
++    if (btn) { btn.disabled = false; btn.textContent = 'Save changes'; }
++    return false;
++  }
++
 +  const payload = {
 +    description: document.getElementById('dDescription').value,
 +    asset_id: assetId,
@@ -4067,18 +4498,7 @@ index 430ff1e..0ecf9e7 100644
 +    new_note_text: document.getElementById('dNote').value || null,
 +    new_note_type: 'internal',
 +  };
- 
--async function saveNote(id){
--  const btn = event.target;
--  await withButtonLock(btn, async () => {
--    const note_text = document.getElementById('dNote').value;
--    if (!note_text) { showToast('Write a note before saving.', 'err'); return; }
--    try {
--      await api(`/work-orders/${id}/notes`, {method:'POST', body:{note_text, note_type:'internal'}});
--      showToast('Note added.', 'ok');
--      closeDrawer(); load();
--    } catch (e) {
--      if (e.message !== 'session expired') showToast('Could not add note: ' + e.message, 'err');
++
 +  try {
 +    await api(`/work-orders/${id}/save`, {method:'POST', body:payload});
 +    showToast('Work order saved.', 'ok');
@@ -4651,7 +5071,7 @@ index c3ebaa9..cf5ff3e 100644
      resultEl.innerHTML = '<div class="field-err">Network error — try again.</div>';
    } finally {
 diff --git a/phase1/static/technician.html b/phase1/static/technician.html
-index 71d59e6..86f0fbc 100644
+index 71d59e6..6af6cdb 100644
 --- a/phase1/static/technician.html
 +++ b/phase1/static/technician.html
 @@ -3,7 +3,7 @@
@@ -4724,7 +5144,7 @@ index 71d59e6..86f0fbc 100644
      </div>
      <button class="btn" onclick="logout()">Sign out</button>
    </div>
-@@ -134,10 +159,17 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
+@@ -134,10 +159,35 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
      <select id="fStatus" onchange="load()"><option value="">All statuses</option></select>
      <select id="fPriority" onchange="load()"><option value="">All priorities</option></select>
      <input id="fSearch" placeholder="Search description or WO#…" oninput="debouncedLoad()">
@@ -4739,14 +5159,33 @@ index 71d59e6..86f0fbc 100644
    <div class="chips" id="quickViews"></div>
  
 -  <div class="section-title">Queue</div>
++  <!-- Enhancement backlog Phase 21 (PRD §17#10): delegated Task Worker
++       management — a Dispatcher manages their own team's workers
++       directly here, no Admin involvement needed per worker. -->
++  <div id="workersSection" style="display:none;">
++    <div class="section-title" style="cursor:pointer;" onclick="toggleWorkersPanel()">
++      <span>My Workers <span class="hint" id="workersCount"></span></span>
++      <span id="workersToggleIcon">▸</span>
++    </div>
++    <div id="workersPanel" style="display:none;">
++      <div id="workersList" style="margin-bottom:10px;"></div>
++      <div style="display:flex;gap:8px;align-items:center;">
++        <input id="newWorkerName" placeholder="Worker's name" style="flex:1;padding:10px;border:1px solid var(--khaki-line);border-radius:6px;font-size:14px;">
++        <button class="btn btn-ghost" onclick="addWorker()">+ Add worker</button>
++      </div>
++      <div class="hint" style="margin-top:6px;">Share the PIN shown after adding a worker with them directly — it's only shown once. Workers log in at <span style="font-family:var(--font-mono);">worker.html</span>.</div>
++    </div>
++  </div>
++
 +  <div class="section-title"><span>Queue <span class="hint" id="queueCount"></span></span></div>
    <div class="cards" id="woCards"><div class="empty-state">Loading…</div></div>
  </div>
  
-@@ -145,14 +177,39 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
+@@ -145,14 +195,45 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
  <div id="drawer"></div>
  <div id="toastStack"></div>
  
++<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 +<script src="location-picker.js"></script>
  <script>
  const API = '';
@@ -4758,6 +5197,11 @@ index 71d59e6..86f0fbc 100644
 +// Enhancement backlog Phase 17 (PRD §17#13): holds whatever's currently
 +// loaded/filtered, for CSV export.
 +let LAST_WOS = [];
++// Enhancement backlog Phase 21 (PRD §17#10): the open drawer's WO's
++// current team — assigning to a worker via the combined save needs
++// team_id sent too (crud.assign_work_order requires it), even when the
++// team itself isn't being changed.
++let currentWoTeamId = null;
 +// Enhancement backlog Phase 4 (PRD §15#1): same pattern as index.html —
 +// admin-configured display time zone, fetched from the no-auth public
 +// settings endpoint so this screen agrees with LOC triage and the
@@ -4784,7 +5228,7 @@ index 71d59e6..86f0fbc 100644
  const STATUS_LABELS = ["Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
  const QUICK_VIEWS = [
    {key:'', label:'All open'},
-@@ -224,6 +281,35 @@ async function login() {
+@@ -224,6 +305,97 @@ async function login() {
  }
  function logout(){ localStorage.removeItem('tech_token'); TOKEN=''; location.reload(); }
  
@@ -4817,10 +5261,72 @@ index 71d59e6..86f0fbc 100644
 +  URL.revokeObjectURL(url);
 +}
 +
++// Enhancement backlog Phase 21 (PRD §17#10): delegated Task Worker
++// management — visible/loaded for tech (Dispatcher) role only, see
++// boot(). Every call here hits /my-team/workers, which is scoped
++// server-side to the caller's own team — there's no team_id to pass.
++let MY_WORKERS = [];
++
++function toggleWorkersPanel(){
++  const panel = document.getElementById('workersPanel');
++  const icon = document.getElementById('workersToggleIcon');
++  const showing = panel.style.display !== 'none';
++  panel.style.display = showing ? 'none' : 'block';
++  icon.textContent = showing ? '▸' : '▾';
++}
++
++async function loadWorkers(){
++  document.getElementById('workersSection').style.display = 'block';
++  try {
++    MY_WORKERS = await api('/my-team/workers');
++  } catch (e) {
++    showToast('Could not load workers: ' + e.message, 'err');
++    return;
++  }
++  document.getElementById('workersCount').textContent = `(${MY_WORKERS.length})`;
++  const el = document.getElementById('workersList');
++  el.innerHTML = MY_WORKERS.length
++    ? MY_WORKERS.map(w => `
++        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px dashed var(--khaki-line);">
++          <span>${escapeHtml(w.name)}</span>
++          <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px;" onclick="deactivateWorker(${w.id})">Remove</button>
++        </div>
++      `).join('')
++    : '<div class="empty-state" style="padding:6px 0;">No workers yet — add one below.</div>';
++}
++
++async function addWorker(){
++  const input = document.getElementById('newWorkerName');
++  const name = input.value.trim();
++  if (!name) { showToast('Enter a name first.', 'err'); return; }
++  try {
++    const created = await api('/my-team/workers', {method: 'POST', body: {name}});
++    input.value = '';
++    await loadWorkers();
++    // Enhancement backlog Phase 21: the PIN is only ever returned here,
++    // once — alert() is deliberately blocking/modal so it can't be
++    // missed or accidentally scrolled past.
++    alert(`${created.worker.name}'s PIN is ${created.pin}\n\nShare this with them directly — it won't be shown again. They log in at worker.html.`);
++  } catch (e) {
++    showToast('Could not add worker: ' + e.message, 'err');
++  }
++}
++
++async function deactivateWorker(id){
++  if (!confirm('Remove this worker? They will no longer be able to log in or be assigned new tasks.')) return;
++  try {
++    await api(`/my-team/workers/${id}`, {method: 'DELETE'});
++    showToast('Worker removed.', 'ok');
++    loadWorkers();
++  } catch (e) {
++    showToast('Could not remove worker: ' + e.message, 'err');
++  }
++}
++
  async function boot() {
    try {
      ME = await api('/auth/me');
-@@ -244,6 +330,10 @@ async function boot() {
+@@ -244,6 +416,10 @@ async function boot() {
      showToast('Could not load teams: ' + e.message, 'err');
      return;
    }
@@ -4831,7 +5337,18 @@ index 71d59e6..86f0fbc 100644
  
    if (ME.role === 'tech') {
      scopeTeamId = ME.team ? ME.team.id : null;
-@@ -263,6 +353,21 @@ async function boot() {
+@@ -252,6 +428,10 @@ async function boot() {
+     if (!scopeTeamId) {
+       showToast('Your account has no team assigned — contact the LOC to get set up.', 'err');
+     }
++    // Enhancement backlog Phase 21 (PRD §17#10): My Workers is a
++    // Dispatcher (tech) concept specifically — loc/admin viewers don't
++    // have a "my team" to manage workers for.
++    loadWorkers();
+   } else {
+     document.getElementById('teamLabel').textContent = 'LOC/admin view · ' + ME.name;
+     document.getElementById('teamSelectWrap').style.display = 'block';
+@@ -263,6 +443,21 @@ async function boot() {
  
    populateFilterOptions();
    renderQuickViews();
@@ -4853,7 +5370,7 @@ index 71d59e6..86f0fbc 100644
    await load();
  }
  
-@@ -309,6 +414,7 @@ async function load() {
+@@ -309,6 +504,7 @@ async function load() {
    if (status) params.set('status', status);
    if (priority) params.set('priority', priority);
    if (search) params.set('search', search);
@@ -4861,7 +5378,7 @@ index 71d59e6..86f0fbc 100644
    params.set('limit', '200');
  
    let wos;
-@@ -326,6 +432,7 @@ async function load() {
+@@ -326,6 +522,7 @@ async function load() {
      wos = wos.filter(w => !w.status.startsWith('Closed'));
    }
  
@@ -4869,7 +5386,7 @@ index 71d59e6..86f0fbc 100644
    renderStats(wos);
    renderCards(wos);
  }
-@@ -335,7 +442,13 @@ function renderStats(wos){
+@@ -335,7 +532,13 @@ function renderStats(wos){
    const inProgress = wos.filter(w => w.status === 'Work In Progress').length;
    const onHold = wos.filter(w => w.status === 'On Hold').length;
    const newAssigned = wos.filter(w => w.status === 'Assigned').length;
@@ -4884,7 +5401,7 @@ index 71d59e6..86f0fbc 100644
    const items = [
      {n: newAssigned, l:'New'}, {n: inProgress, l:'In progress'},
      {n: onHold, l:'On hold'}, {n: highestHigh, l:'High priority open'},
-@@ -346,33 +459,69 @@ function renderStats(wos){
+@@ -346,33 +549,69 @@ function renderStats(wos){
  }
  
  function renderCards(wos){
@@ -4960,7 +5477,7 @@ index 71d59e6..86f0fbc 100644
    document.getElementById('drawer').classList.remove('open');
    document.getElementById('drawerBackdrop').classList.remove('open');
  }
-@@ -385,55 +534,110 @@ async function openDetail(id){
+@@ -385,55 +624,134 @@ async function openDetail(id){
      if (e.message !== 'session expired') showToast('Could not load work order: ' + e.message, 'err');
      return;
    }
@@ -4988,6 +5505,21 @@ index 71d59e6..86f0fbc 100644
 -    <div class="note">${escapeHtml(n.note_text)}
 -      <div class="meta">${n.note_type} &middot; ${n.author ? escapeHtml(n.author.name) : 'system'} &middot; ${new Date(n.created_at).toLocaleString()}</div>
 -    </div>`).join('') || '<div class="empty-state" style="padding:10px 0;">No notes yet.</div>';
++  // Enhancement backlog Phase 21 (PRD §17#10): assign this WO to a
++  // specific worker on my team — tech (Dispatcher) role only, and only
++  // once MY_WORKERS has loaded (boot() loads it for tech role). Saved
++  // as part of the combined save below; crud.save_work_order already
++  // accepted person_id, it just had no frontend control to set it from.
++  currentWoTeamId = w.assigned_team ? w.assigned_team.id : null;
++  const workerAssignHtml = (ME.role === 'tech' && MY_WORKERS.length) ? `
++    <div class="drawer-group">
++      <label>Assign to worker</label>
++      <select id="dWorker" onchange="markDirty()">
++        <option value="">— Unassigned —</option>
++        ${MY_WORKERS.map(worker => `<option value="${worker.id}" ${w.assigned_person && w.assigned_person.id === worker.id ? 'selected' : ''}>${escapeHtml(worker.name)}</option>`).join('')}
++      </select>
++    </div>` : '';
++
 +  // Enhancement backlog Phase 12 (PRD §16#3): label who a note is from
 +  // — specifically flag LOC/admin-authored notes so it's clear which
 +  // ones are LOC guidance vs. another tech's own update. Notes were
@@ -5028,12 +5560,19 @@ index 71d59e6..86f0fbc 100644
 +  // Enhancement backlog Phase 12 (PRD §16#2): print-only plain-text
 +  // summary, same reasoning as the LOC drawer — a printed <select> just
 +  // shows an empty box, not its value.
++  //
++  // Enhancement backlog Phase 21 (PRD §17#10): QR code linking to the
++  // pinned location, if the WO has one — same reasoning as the LOC
++  // drawer's equivalent. Rendered after openDrawer() below, once
++  // #qrCodeContainer actually exists in the DOM.
++  const hasPin = w.latitude != null && w.longitude != null;
 +  const printOnlyHtml = `
 +    <div class="print-only">
 +      <p><strong>Location:</strong> ${escapeHtml(w.asset ? w.asset.name : '—')}</p>
 +      <p><strong>Work type:</strong> ${escapeHtml(w.work_type || '—')} &nbsp; <strong>Priority:</strong> ${escapeHtml(w.priority)}</p>
 +      <p><strong>Status:</strong> ${escapeHtml(w.status)} &nbsp; <strong>Team:</strong> ${escapeHtml(w.assigned_team ? w.assigned_team.name : '—')}</p>
 +      <p><strong>Description:</strong><br>${escapeHtml(w.description)}</p>
++      ${hasPin ? `<div style="margin-top:10px;"><strong>Scan for exact location:</strong><br><div id="qrCodeContainer"></div></div>` : ''}
 +      <p style="font-size:11px;color:#666;">Printed ${fmtDateTime(new Date().toISOString())}</p>
 +    </div>`;
 +
@@ -5074,6 +5613,8 @@ index 71d59e6..86f0fbc 100644
 -      </div>
      </div>
  
++    ${workerAssignHtml}
++
      <div class="drawer-group">
        <label>Add a work note</label>
 -      <textarea id="dNote" placeholder="Progress update, blocker, parts needed…"></textarea>
@@ -5092,34 +5633,34 @@ index 71d59e6..86f0fbc 100644
      </div>
  
      <div class="section-title" style="margin-top:20px;">Notes</div>
-@@ -443,71 +647,56 @@ async function openDetail(id){
+@@ -441,73 +759,89 @@ async function openDetail(id){
+     <div class="section-title">History</div>
+     ${histHtml}
    `);
- }
+-}
  
 -async function withButtonLock(btn, fn){
 -  if (!btn) { await fn(); return; }
-+async function saveDrawer(){
-+  const id = drawerState.woId;
-+  const btn = document.getElementById('saveDrawerBtn');
-+  document.getElementById('dStatusErr').textContent = '';
-+  document.getElementById('dAssignErr').textContent = '';
-   btn.disabled = true;
+-  btn.disabled = true;
 -  const original = btn.textContent;
 -  try {
 -    await fn();
 -  } finally {
 -    btn.disabled = false;
 -    btn.textContent = original;
-+  btn.textContent = 'Saving…';
-+
-+  const status = document.getElementById('dStatus').value;
-+  const statusNote = document.getElementById('dStatusNote').value || null;
-+  if (status.startsWith('Closed') && !statusNote) {
-+    document.getElementById('dStatusErr').textContent = 'A note is required when closing.';
-+    btn.disabled = false; btn.textContent = 'Save changes';
-+    return;
++  // Enhancement backlog Phase 21 (PRD §17#10): see index.html's
++  // equivalent — needs a real DOM element to draw into, so this runs
++  // after openDrawer() above, not inside the template string.
++  if (hasPin) {
++    const qrEl = document.getElementById('qrCodeContainer');
++    if (qrEl) {
++      new QRCode(qrEl, {
++        text: `https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17`,
++        width: 120, height: 120,
++      });
++    }
    }
--}
+ }
  
 -async function saveStatus(id){
 -  const btn = event.target;
@@ -5141,13 +5682,13 @@ index 71d59e6..86f0fbc 100644
 -    }
 -  });
 -}
-+  const teamVal = document.getElementById('dTeam').value;
-+  const assignNote = document.getElementById('dAssignNote').value || null;
-+  if (teamVal && !assignNote) {
-+    document.getElementById('dAssignErr').textContent = 'A reason is required when reassigning.';
-+    btn.disabled = false; btn.textContent = 'Save changes';
-+    return;
-+  }
++async function saveDrawer(){
++  const id = drawerState.woId;
++  const btn = document.getElementById('saveDrawerBtn');
++  document.getElementById('dStatusErr').textContent = '';
++  document.getElementById('dAssignErr').textContent = '';
++  btn.disabled = true;
++  btn.textContent = 'Saving…';
  
 -async function saveAssign(id){
 -  const btn = event.target;
@@ -5167,19 +5708,12 @@ index 71d59e6..86f0fbc 100644
 -    }
 -  });
 -}
-+  const payload = {
-+    status,
-+    status_note: statusNote,
-+    new_note_text: document.getElementById('dNote').value || null,
-+    new_note_type: 'work_note',
-+  };
-+  // Only include team_id if the tech actually picked one — reassignment
-+  // here is an optional "wrong team, send it to the right one" action,
-+  // not a default resend of the current team (unlike the status field,
-+  // which always reflects a real current value either way).
-+  if (teamVal) {
-+    payload.team_id = parseInt(teamVal, 10);
-+    payload.assign_note = assignNote;
++  const status = document.getElementById('dStatus').value;
++  const statusNote = document.getElementById('dStatusNote').value || null;
++  if (status.startsWith('Closed') && !statusNote) {
++    document.getElementById('dStatusErr').textContent = 'A note is required when closing.';
++    btn.disabled = false; btn.textContent = 'Save changes';
++    return;
 +  }
  
 -async function saveNote(id){
@@ -5195,6 +5729,47 @@ index 71d59e6..86f0fbc 100644
 -      if (e.message !== 'session expired') showToast('Could not add note: ' + e.message, 'err');
 -    }
 -  });
++  const teamVal = document.getElementById('dTeam').value;
++  const assignNote = document.getElementById('dAssignNote').value || null;
++  if (teamVal && !assignNote) {
++    document.getElementById('dAssignErr').textContent = 'A reason is required when reassigning.';
++    btn.disabled = false; btn.textContent = 'Save changes';
++    return;
++  }
++  // Enhancement backlog Phase 21 (PRD §17#10): a worker dropdown only
++  // exists in the DOM for tech role with workers loaded — guard for its
++  // absence rather than assuming it's always there.
++  const workerEl = document.getElementById('dWorker');
++  const workerVal = workerEl ? workerEl.value : '';
++
++  const payload = {
++    status,
++    status_note: statusNote,
++    new_note_text: document.getElementById('dNote').value || null,
++    new_note_type: 'work_note',
++  };
++  // Only include team_id if the tech actually picked one — reassignment
++  // here is an optional "wrong team, send it to the right one" action,
++  // not a default resend of the current team (unlike the status field,
++  // which always reflects a real current value either way).
++  if (teamVal) {
++    payload.team_id = parseInt(teamVal, 10);
++    payload.assign_note = assignNote;
++  } else if (workerVal) {
++    // Enhancement backlog Phase 21: assigning to a worker without also
++    // reassigning teams still has to send team_id — crud.assign_work_order
++    // requires it — so this resends the WO's current team unchanged.
++    payload.team_id = currentWoTeamId;
++  }
++  if (workerVal) {
++    payload.person_id = parseInt(workerVal, 10);
++  } else if (workerEl && !workerVal && teamVal) {
++    // Explicitly unassigning the worker (blank selected) while also
++    // reassigning teams — person_id=null clears it rather than leaving
++    // a stale assignment pointing at a worker on the old team.
++    payload.person_id = null;
++  }
++
 +  try {
 +    await api(`/work-orders/${id}/save`, {method:'POST', body:payload});
 +    showToast('Work order saved.', 'ok');

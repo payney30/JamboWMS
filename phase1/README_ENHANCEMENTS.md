@@ -1,37 +1,48 @@
-# Public Management Dashboard (Phase 20, §17#15)
+# Task Team Assignment (Phase 21, §17#10) — the big one
 
-Full cumulative state. No new migration this round — new endpoints and
-one new static page only.
+Full cumulative state. New migration this round.
 
-## What's new this round
+## What this is
 
-**New file:** `static/management-dashboard.html` — no login gate, no
-`Authorization` header anywhere in it. Shareable link, viewable by
-anyone with the URL.
+The largest single feature in this whole backlog. A new lightweight
+role — Task Worker — sitting below the existing team level:
+Dispatchers (team leads) can now assign a specific work order to a
+specific worker on their team, and that worker gets their own simple,
+PIN-login queue with a one-tap Completed action.
 
-Shows: KPI tiles (Total/Requested/Active/Closed/Completion Rate,
-non-clickable), the requested open-vs-closed trend graph, and status/
-priority/work-type/location breakdown bars. Auto-refreshes every 60s.
-**No WO-level detail anywhere** — no inbox, no individual WO lookup, no
-requester info of any kind.
+Full spec and build write-up are in the PRD under §17 item #10 — this
+README is a shorter practical summary.
 
-**New backend endpoints** (`app/routers/public.py`):
-- `GET /public/dashboard/kpis`
-- `GET /public/dashboard/breakdowns`
-- `GET /public/dashboard/trend?days=N` (bounded 1-90)
+## New migration
 
-These reuse the exact same `crud.get_kpis`/`get_breakdowns`/
-`get_daily_trend` functions the authenticated `/dashboard/*` router
-already uses — none of the three have ever returned WO-level detail, so
-the real decision here was "allow no login," not "build different,
-more-restricted data." No filter params are exposed on any of the
-three — fixed to the overall system view, nothing configurable, on
-purpose (every filter could be used to slice toward something more
-identifiable than a flat aggregate).
+- `users.pin_hash` (nullable) + widened role constraint (adds
+  `task_worker`)
+- `work_orders.completion_latitude`/`completion_longitude` — the
+  worker's own optional "here's where I actually dropped it" pin,
+  separate from the requester's submission pin
+- `wo_attachments.stage` — distinguishes a worker's completion photo
+  from the requester's original submission photo(s)
 
-**Rate-limited per-IP**, same limiter the phone-based public status
-lookup already uses — a public no-auth GET endpoint is exactly the kind
-of thing that can get scraped.
+**Did NOT need a new "assigned worker" column** — found during
+implementation that `WorkOrder.assigned_person_id` (and the validation
+that a person must belong to the team they're assigned into) already
+existed in the backend, just never wired to any frontend.
+
+## New surface area
+
+- **`app/routers/task_workers.py`** — delegated worker management
+  (`/my-team/workers`), scoped entirely to the calling Dispatcher's own
+  team, no Admin involvement needed
+- **New public endpoints** (`/public/worker-login/*`) — the PIN login
+  flow, rate-limited the same way the phone-based status lookup is
+- **New `static/worker.html`** — the whole worker-facing app: PIN
+  login, own queue, WO detail (read-only), and the Completed action
+  (optional note/photo/completion pin)
+- **Dispatcher Console additions** (`technician.html`) — a "My
+  Workers" panel and an "Assign to worker" dropdown in the WO detail
+  drawer
+- **QR code on printed WOs** (both LOC triage and Dispatcher Console) —
+  scans to the pinned location, shown only when a WO has one
 
 ## How to apply
 
@@ -43,36 +54,42 @@ of thing that can get scraped.
     #   alembic/versions/d3f8a2c1e5b7_widen_priority_check_constraint.py
     #   alembic/versions/e7c4b9d2a1f6_add_geo_pin_drop.py
     #   alembic/versions/f4a8d1c6e3b2_convert_priority_data_narrow_constraint.py
+    #   alembic/versions/a1b2c3d4e5f6_add_task_worker_role_and_assignment.py
     #   tests/test_enhancement_phase1.py
     #   tests/test_enhancement_phase4.py
     #   tests/test_enhancement_phase5.py
     #   tests/test_enhancement_phase12.py
     #   tests/test_enhancement_phase15.py
     #   tests/test_enhancement_phase20.py
+    #   tests/test_enhancement_phase21.py
     alembic upgrade head
-
-No new migration this round specifically.
 
 ## Verify after deploying
 
-- Open `management-dashboard.html` in a private/incognito window (no
-  logged-in session) — it should load and show data with zero sign-in.
-- Confirm there's genuinely no way to see an individual WO, requester
-  name, or description anywhere on the page.
-- Hit `/public/dashboard/kpis` rapidly (or check the rate-limit test) to
-  confirm the 429 response kicks in as expected.
+1. **As a Dispatcher** (log into `technician.html` as a `tech` user):
+   open "My Workers," add a worker, confirm the PIN shows once in a
+   blocking alert. Open a WO, assign it to that worker, save.
+2. **As the worker**: go to `worker.html`, pick your team, pick your
+   name, enter the PIN, confirm the assigned WO shows in your queue.
+   Open it, confirm you can see the description/location/any submitted
+   photos, mark it completed with an optional note/photo/pin.
+3. Confirm the worker **cannot** see any other WO — try navigating
+   directly to a different WO's URL/ID and confirm it's rejected.
+4. Print a WO that has a pin (from either LOC triage or Dispatcher
+   Console) and confirm a scannable QR code appears on the printout.
 
 ## Test status
 
-**257 passing, 0 failing** — fully green. Added 6 new tests: no-auth
-access for all three endpoints, the `days` bound clamping both
-directions, a check that KPIOut never contains WO-shaped keys, and
-confirmation the rate limiter actually trips.
+**279 passing, 0 failing** — fully green. 22 new tests specifically for
+this feature, including several negative/security cases (wrong team,
+wrong PIN, deactivated worker, cross-role access attempts).
 
-## What's left in §17
+## What's still open in §17
 
-§17#1-4 and #10 (Fulfillment Worker / assignment hierarchy), #5 (SKU
-matching, blocked on you providing the catalog), #6-8 (texting, blocked
-on a provider decision), #9 (BOM import, blocked on the BOM data),
-#16 (inactionable/cancel analysis — cheap, still open). Plus trivial PRD
-housekeeping (§13#6, §14#22/#23).
+Texting (§6-8, blocked on a provider decision — this is what would
+eventually notify a worker of a new assignment), SKU matching (§5,
+blocked on you providing the catalog), BOM import (§9, blocked on the
+BOM data, and now dependent on this feature per the revised scope), the
+inactionable/cancel analysis (§16), and the two dashboards' visual
+alignment with the original 2026 dashboard (§17 item 17, cosmetic-only,
+not scoped yet).
