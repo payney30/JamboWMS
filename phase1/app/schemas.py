@@ -171,6 +171,45 @@ class AssignRequest(BaseModel):
     note: Optional[str] = None  # required if this is a reassignment reroute; see router
 
 
+# ---- Enhancement backlog Phase 21 (PRD §17#10): Task Team assignment ----
+
+class TaskWorkerCreate(BaseModel):
+    name: str
+
+
+class TaskWorkerOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    is_active: bool
+    team: Optional[TeamOut] = None
+
+
+class TaskWorkerCreated(BaseModel):
+    """Returned once, at creation only — the plaintext PIN is never
+    retrievable again afterward (only its hash is stored). The
+    Dispatcher creating the worker is responsible for sharing it with
+    them (verbally, over radio, written down — per the decision to use
+    a PIN specifically because it doesn't depend on any delivery
+    mechanism)."""
+    worker: TaskWorkerOut
+    pin: str
+
+
+class WorkerLoginRequest(BaseModel):
+    worker_id: int
+    pin: str
+
+
+class CompleteWorkOrderRequest(BaseModel):
+    """The 'simple Completed button' (PRD §17#10) — deliberately just
+    these three optional fields, not the fuller status/notes/reassignment
+    surface Dispatchers/LOC have."""
+    note: Optional[str] = None
+    completion_latitude: Optional[float] = None
+    completion_longitude: Optional[float] = None
+
+
 class StatusChangeRequest(BaseModel):
     status: str
     note: Optional[str] = None
@@ -244,6 +283,11 @@ class AttachmentOut(BaseModel):
     id: int
     file_url: str
     uploaded_at: UTCDateTime
+    # Enhancement backlog Phase 21 (PRD §17#10): 'submission' (the
+    # requester's original photo) or 'completion' (a Task Worker's
+    # photo of the finished work) — lets any UI showing both keep them
+    # visually distinguishable rather than conflated.
+    stage: str = "submission"
 
 
 class WorkOrderDetail(WorkOrderListItem):
@@ -269,6 +313,11 @@ class WorkOrderDetail(WorkOrderListItem):
     # it) means "no pin" — the WO detail screen shows no map at all.
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    # Enhancement backlog Phase 21 (PRD §17#10): the Task Worker's own
+    # completion pin — separate from the requester's submission pin
+    # above, always optional, never an overwrite of it.
+    completion_latitude: Optional[float] = None
+    completion_longitude: Optional[float] = None
     notes: List[NoteOut] = []
     history: List[HistoryOut] = []
     attachments: List[AttachmentOut] = []

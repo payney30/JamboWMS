@@ -57,15 +57,28 @@ class User(Base):
     name = Column(String, nullable=False)
     email = Column(String, nullable=False, unique=True)
     password_hash = Column(String, nullable=False)
-    role = Column(String, nullable=False)  # loc | tech | leadership | admin
+    role = Column(String, nullable=False)  # loc | tech | leadership | admin | task_worker
     team_id = Column(Integer, ForeignKey("teams.id"), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(TIMESTAMP, default=now)
+    # Enhancement backlog Phase 21 (PRD §17#10): Task Workers log in with
+    # a PIN instead of email/password (verbal/radio-shareable, works from
+    # any device, easy for a Dispatcher to reset — see the PRD for the
+    # full reasoning against a per-worker magic link instead). Only ever
+    # set for role='task_worker'; every other role keeps using
+    # password_hash as before. email/password_hash still get populated
+    # for task_worker rows too (both columns are NOT NULL) with
+    # unusable placeholder values — see crud.create_task_worker — purely
+    # to satisfy the schema without adding a second nullable-columns
+    # code path throughout the rest of the app.
+    pin_hash = Column(String, nullable=True)
 
     team = relationship("Team", back_populates="users")
 
     __table_args__ = (
-        CheckConstraint("role IN ('loc','tech','leadership','admin')", name="ck_user_role"),
+        CheckConstraint(
+            "role IN ('loc','tech','leadership','admin','task_worker')", name="ck_user_role"
+        ),
     )
 
 
@@ -212,6 +225,14 @@ class WorkOrder(Base):
     # Nullable: a WO with no pin just shows no map on the detail screen.
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
+    # Enhancement backlog Phase 21 (PRD §17#10): the Task Worker's own
+    # "here's where I actually dropped it / did the repair" pin —
+    # deliberately separate from the requester's submission pin above,
+    # not an overwrite of it (confirmed 7/31/26 — they can legitimately
+    # differ). Always optional; a WO can be marked complete with no
+    # completion pin at all.
+    completion_latitude = Column(Float, nullable=True)
+    completion_longitude = Column(Float, nullable=True)
 
     asset = relationship("Asset")
     assigned_team = relationship("Team")
@@ -346,6 +367,17 @@ class WOAttachment(Base):
     uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     file_url = Column(String, nullable=False)
     uploaded_at = Column(TIMESTAMP, default=now)
+    # Enhancement backlog Phase 21 (PRD §17#10): distinguishes a Task
+    # Worker's completion photo from the requester's original submission
+    # photo(s) — confirmed 7/31/26 these need to stay visually separate,
+    # not conflated. Defaults to 'submission' since every attachment in
+    # the system predating this column genuinely was one (there was no
+    # authenticated upload path before Task Worker completion photos).
+    stage = Column(String, nullable=False, default="submission")
+
+    __table_args__ = (
+        CheckConstraint("stage IN ('submission','completion')", name="ck_attachment_stage"),
+    )
 
 
 class ResponseTemplate(Base):

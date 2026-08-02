@@ -8,12 +8,13 @@ mutation later, ask "does this need a history row?" before wiring it up.
 """
 import datetime as dt
 import secrets
+import uuid
 from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case, or_ as sql_or
 from fastapi import HTTPException
 from . import models, schemas
-from .auth import hash_password
+from .auth import hash_password, verify_password
 
 # Lower rank = higher priority = sorts first. Ties (an unrecognized value,
 # which the CHECK constraint shouldn't allow, but belt-and-suspenders)
@@ -206,11 +207,16 @@ def create_work_order(db: Session, payload: schemas.WorkOrderCreate) -> models.W
 
 
 def add_attachment(db: Session, wo: models.WorkOrder, file_url: str,
-                    uploaded_by: int | None = None) -> models.WOAttachment:
+                    uploaded_by: int | None = None, stage: str = "submission") -> models.WOAttachment:
     """No history row here on purpose — attachments aren't one of the
     tracked mutation fields (status/team/priority) the status-history
-    engine covers; they're just files hung off the WO."""
-    att = models.WOAttachment(work_order_id=wo.id, uploaded_by=uploaded_by, file_url=file_url)
+    engine covers; they're just files hung off the WO.
+
+    Enhancement backlog Phase 21 (PRD §17#10): stage defaults to
+    'submission' (the original caller — public.py's requester upload —
+    never passes anything else), and is explicitly set to 'completion'
+    by the new Task Worker completion-photo upload path."""
+    att = models.WOAttachment(work_order_id=wo.id, uploaded_by=uploaded_by, file_url=file_url, stage=stage)
     db.add(att)
     db.commit()
     db.refresh(att)
@@ -569,6 +575,7 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
                       exclude_closed=False, closed_only=False, priority_in=None,
                       opened_today=False, closed_today=False, handled_by=None,
                       approaching_deadline=False, past_deadline=False,
+                      assigned_person_id=None,
                       limit=100, offset=0):
     q = db.query(models.WorkOrder)
     if status:
@@ -577,6 +584,12 @@ def list_work_orders(db: Session, status=None, priority=None, team_id=None,
         q = q.filter(models.WorkOrder.priority == priority)
     if team_id:
         q = q.filter(models.WorkOrder.assigned_team_id == team_id)
+    # Enhancement backlog Phase 21 (PRD §17#10): a Task Worker's own
+    # queue — WOs assigned to them specifically, not their whole team's.
+    # Server-enforced to the caller's own id for task_worker role (see
+    # the router), same pattern as team_id already is for tech.
+    if assigned_person_id:
+        q = q.filter(models.WorkOrder.assigned_person_id == assigned_person_id)
     if work_type:
         q = q.filter(models.WorkOrder.work_type == work_type)
     if location_group:
@@ -925,6 +938,103 @@ def reset_password(db: Session, user: models.User) -> str:
     user.password_hash = hash_password(password)
     db.commit()
     return password
+
+
+# ---- Enhancement backlog Phase 21 (PRD §17#10): Task Team assignment ----
+# Deliberately NOT going through create_user/schemas.ROLES above — those
+# back the Admin-only user-management screen, and Task Worker setup was
+# explicitly decided to be delegated to Dispatchers instead (a team
+# lead manages their own team's workers directly, no Admin involvement
+# needed per worker). Same User table, same auth.create_access_token/
+# get_current_user machinery underneath (a Task Worker is still just a
+# User row with role='task_worker') — only the creation/login *path* is
+# different.
+
+def _generate_pin() -> str:
+    """4-digit numeric PIN — verbally/radio-shareable, per the decision
+    to use a PIN over a magic link (see PRD §17#10 for the full
+    reasoning). Scoped for uniqueness within a team only (enforced by
+    the caller, not here), not system-wide — a worker logs in by first
+    picking their team, so a 4-digit space is more than enough to avoid
+    collisions within one team's roster."""
+    return f"{secrets.randbelow(10000):04d}"
+
+
+def create_task_worker(db: Session, team_id: int, payload: schemas.TaskWorkerCreate) -> tuple[models.User, str]:
+    if not db.get(models.Team, team_id):
+        raise HTTPException(404, "team not found")
+    pin = _generate_pin()
+    worker = models.User(
+        name=payload.name,
+        # Placeholder, unusable values — task_worker rows never log in
+        # via email/password, but both columns are NOT NULL on the
+        # shared users table (see models.py's User docstring for why
+        # this wasn't worth a schema change).
+        email=f"worker-{uuid.uuid4().hex}@task-worker.internal",
+        password_hash=hash_password(secrets.token_urlsafe(24)),
+        role="task_worker",
+        team_id=team_id,
+        pin_hash=hash_password(pin),
+    )
+    db.add(worker)
+    db.commit()
+    db.refresh(worker)
+    return worker, pin
+
+
+def list_task_workers(db: Session, team_id: int, include_inactive: bool = False) -> list[models.User]:
+    q = db.query(models.User).filter(models.User.role == "task_worker", models.User.team_id == team_id)
+    if not include_inactive:
+        q = q.filter(models.User.is_active == True)  # noqa: E712
+    return q.order_by(models.User.name).all()
+
+
+def deactivate_task_worker(db: Session, worker: models.User) -> models.User:
+    """Soft-delete, matching how every other role's deactivation works
+    in this app — history/notes/completed-WO attribution stays intact,
+    the account just can't log in or receive new assignments anymore."""
+    worker.is_active = False
+    db.commit()
+    return worker
+
+
+def verify_worker_login(db: Session, worker_id: int, pin: str) -> models.User | None:
+    worker = db.get(models.User, worker_id)
+    if not worker or worker.role != "task_worker" or not worker.is_active:
+        return None
+    if not worker.pin_hash or not verify_password(pin, worker.pin_hash):
+        return None
+    return worker
+
+
+def complete_work_order(db: Session, wo: models.WorkOrder, payload: schemas.CompleteWorkOrderRequest,
+                         changed_by: int) -> models.WorkOrder:
+    """The 'simple Completed button' (PRD §17#10) — a Task Worker's
+    single-action way to close out their own assigned WO. Deliberately
+    narrower than the full status-change surface Dispatchers/LOC have:
+    no arbitrary status choice, always goes to Closed/Completed; no
+    reassignment; note/completion pin are both optional, never
+    required, unlike LOC's close-requires-a-note rule."""
+    if payload.completion_latitude is not None and not (-90 <= payload.completion_latitude <= 90):
+        raise HTTPException(400, "invalid completion latitude")
+    if payload.completion_longitude is not None and not (-180 <= payload.completion_longitude <= 180):
+        raise HTTPException(400, "invalid completion longitude")
+
+    from_status = wo.status
+    wo.status = "Closed, Completed"
+    wo.completion_latitude = payload.completion_latitude
+    wo.completion_longitude = payload.completion_longitude
+    db.add(models.WOStatusHistory(
+        work_order_id=wo.id, event_type="status_change",
+        from_value=from_status, to_value="Closed, Completed", changed_by=changed_by,
+    ))
+    if payload.note:
+        db.add(models.WONote(
+            work_order_id=wo.id, note_text=payload.note, note_type="work_note", author_id=changed_by,
+        ))
+    db.commit()
+    db.refresh(wo)
+    return wo
 
 
 # ============================================================
