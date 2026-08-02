@@ -5,6 +5,12 @@ to Work In Progress, and closed. (Worker-tasking notification was
 explicitly descoped, 8/2/26 — internal to the team, the requester
 doesn't need those details.)
 
+Sent automatically by both SMS and email whenever the corresponding
+contact info exists — there is no opt-in preference selector.
+(Correction, 8/2/26: an earlier "notify_preference" field was removed
+from the Submit WO form when POC contact was added, in favor of always
+notifying by both channels — see notify_work_order_event's docstring.)
+
 Design goal: swapping from the trial Twilio/SendGrid accounts to
 production ones — or even swapping providers entirely later — should
 only ever mean updating environment variables (or, for a provider
@@ -167,8 +173,7 @@ def notify_work_order_event(wo, event: str) -> None:
     """Fire-and-forget entry point, called from crud.py at submission
     and at the Work In Progress / Closed status transitions. Returns
     immediately — the calling request is never delayed or failed by a
-    notification issue, even if NOTIFICATIONS_ENABLED is on and a
-    provider is slow or down.
+    notification issue, even if a provider is slow or down.
 
     Reads every field it needs off `wo` *before* spawning the
     background thread, rather than passing the ORM object itself
@@ -178,17 +183,21 @@ def notify_work_order_event(wo, event: str) -> None:
     nothing in the background thread ever touches `wo` directly.
 
     event: 'submitted' | 'in_progress' | 'closed'
+
+    Design correction (8/2/26): there is no opt-in preference selector
+    — an earlier "notify_preference" (email/text/both/none) field was
+    deliberately removed from the Submit WO form when POC contact was
+    added, in favor of always notifying by both SMS and email (per
+    explicit decision) whenever the corresponding contact info exists.
+    The requester phone/email fields are enforced as required by the
+    public submission form itself (app/routers/public.py), but this
+    still checks each independently before sending — WOs created
+    through other paths (the authenticated LOC/tech endpoint, bulk
+    import) aren't guaranteed to have both.
     """
     if not NOTIFICATIONS_ENABLED:
         return
     if event not in ("submitted", "in_progress", "closed"):
-        return
-    if not wo.notify_preference:
-        return  # no preference on file — requester didn't opt in
-
-    wants_email = wo.notify_preference in ("email", "both")
-    wants_text = wo.notify_preference in ("text", "both")
-    if not (wants_email or wants_text):
         return
 
     wo_number = wo.wo_number
@@ -202,13 +211,12 @@ def notify_work_order_event(wo, event: str) -> None:
     poc_phone = None if wo.poc_is_requester else wo.poc_phone
 
     def _send():
-        if wants_text:
-            body = _sms_body(event, wo_number, description, status)
-            if requester_phone:
-                send_sms(requester_phone, body)
-            if poc_phone:
-                send_sms(poc_phone, body)
-        if wants_email and requester_email:
+        body = _sms_body(event, wo_number, description, status)
+        if requester_phone:
+            send_sms(requester_phone, body)
+        if poc_phone:
+            send_sms(poc_phone, body)
+        if requester_email:
             subject = _email_subject(event, wo_number)
             html = _email_html(event, wo_number, description, status, note_to_requester)
             send_email(requester_email, subject, html)
