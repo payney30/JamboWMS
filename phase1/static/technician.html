@@ -697,12 +697,18 @@ async function openDetail(id){
   const attachmentsHtml = (w.attachments||[]).length
     ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;">` + (w.attachments||[]).map(a => {
         const isPdf = /\.pdf($|\?)/i.test(a.file_url);
+        // Bug fix (PRD §17#10 follow-up, 8/1/26): same fix as index.html
+        // — distinguish a Task Worker's completion photo from the
+        // requester's original submission photo(s).
+        const completionBadge = a.stage === 'completion'
+          ? `<span title="Completion photo" style="position:absolute;top:-4px;right:-4px;background:var(--moss);color:#fff;font-size:9px;padding:1px 4px;border-radius:4px;line-height:1.4;">✓</span>` : '';
         if (isPdf) {
-          return `<a href="${a.file_url}" target="_blank" rel="noopener" style="width:64px;height:64px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:9px;color:var(--ink-soft);text-decoration:none;">📄<span>PDF</span></a>`;
+          return `<a href="${a.file_url}" target="_blank" rel="noopener" style="position:relative;width:64px;height:64px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:9px;color:var(--ink-soft);text-decoration:none;">📄<span>PDF</span>${completionBadge}</a>`;
         }
         return `<a href="${a.file_url}" target="_blank" rel="noopener" style="position:relative;width:64px;height:64px;display:block;">
           <img src="${a.file_url}" alt="attachment" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--khaki-line);" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
           <span style="display:none;width:64px;height:64px;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:8px;color:var(--ink-soft);text-align:center;padding:2px;box-sizing:border-box;">🖼️<span>Can't preview</span></span>
+          ${completionBadge}
         </a>`;
       }).join('') + `</div>`
     : '';
@@ -716,6 +722,20 @@ async function openDetail(id){
   // drawer's equivalent. Rendered after openDrawer() below, once
   // #qrCodeContainer actually exists in the DOM.
   const hasPin = w.latitude != null && w.longitude != null;
+  // Bug fix (PRD §17#10 follow-up, found while prepping test scripts,
+  // 8/1/26): neither pin was ever visible on-screen here before —
+  // hasPin only fed the print-only QR code, so a Dispatcher had no way
+  // to see either location without printing the WO. Added a lightweight
+  // link row (not a full map — this screen never had live map previews
+  // for either pin, matching its existing lighter-weight pattern) so
+  // both are actually visible day-to-day, not just on a printout.
+  const hasCompletionPin = w.completion_latitude != null && w.completion_longitude != null;
+  const pinLinksHtml = (hasPin || hasCompletionPin) ? `
+    <div class="readonly-block" style="margin-top:8px;">
+      ${hasPin ? `<div>📍 Submitted location: <a href="https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17" target="_blank" rel="noopener">Open map ↗</a></div>` : ''}
+      ${hasCompletionPin ? `<div>✅ Completed at: <a href="https://www.openstreetmap.org/?mlat=${w.completion_latitude}&mlon=${w.completion_longitude}&zoom=17" target="_blank" rel="noopener">Open map ↗</a></div>` : ''}
+    </div>` : '';
+
   const printOnlyHtml = `
     <div class="print-only">
       <p><strong>Location:</strong> ${escapeHtml(w.asset ? w.asset.name : '—')}</p>
@@ -733,6 +753,7 @@ async function openDetail(id){
 
     <div class="readonly-block"><strong>${escapeHtml(w.asset ? w.asset.name : 'No location')}</strong><br>${escapeHtml(w.description)}</div>
     ${attachmentsHtml}
+    ${pinLinksHtml}
     ${printOnlyHtml}
 
     <div class="drawer-group">

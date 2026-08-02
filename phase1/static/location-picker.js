@@ -151,8 +151,21 @@
 
     function showSelected() {
       if (!selected) {
+        // Bug fix (found in Submit WO testing, 8/1/26): this used to
+        // only hide the chip and reveal the input wrapper again —
+        // leftover typed search text and any open results/tree list
+        // from the previous selection stayed exactly as they were,
+        // so a programmatic reset (setValue(null), e.g. after
+        // submitting and the form resetting for another entry) looked
+        // like the picker had "remembered" the old session instead of
+        // presenting a clean search view. Now fully restores the
+        // picker to its pristine just-mounted state.
         chip.classList.remove('show');
         inputWrap.style.display = '';
+        if (searchEl) searchEl.value = '';
+        resultsEl.classList.add('hidden');
+        resultsEl.innerHTML = '';
+        treeEl.classList.add('hidden');
         return;
       }
       chipName.textContent = selected.name;

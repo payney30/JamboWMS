@@ -35,6 +35,9 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
 #loginErr{color:var(--hivis);font-size:12px;min-height:16px;margin-top:8px;}
 
 .section-title{font-family:var(--font-display);text-transform:uppercase;letter-spacing:.06em;font-size:13px;color:var(--ink-soft);margin:22px 0 10px;display:flex;align-items:center;justify-content:space-between;}
+.tab-row{display:flex;gap:8px;margin-top:16px;}
+.tab{flex:1;padding:10px;border:1px solid var(--khaki-line);background:var(--canvas-panel);border-radius:6px;font-size:13px;cursor:pointer;color:var(--ink-soft);font-family:var(--font-body);}
+.tab.active{background:var(--moss);color:#fff;border-color:var(--moss);}
 .wo-card{background:var(--canvas-panel);border:1px solid var(--khaki-line);border-radius:8px;padding:14px;margin-bottom:10px;cursor:pointer;}
 .wo-card:hover{border-color:var(--moss);}
 .wo-card-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
@@ -95,7 +98,17 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
   </div>
 
   <div id="app" style="display:none;">
-    <div class="section-title">Assigned to me <span id="queueCount"></span></div>
+    <!-- Bug fix (PRD §17#10 follow-up, found while prepping test
+         scripts, 8/1/26): a worker had no way to see their own
+         completed tasks — the queue query always excluded closed WOs,
+         so once marked complete, a task (and any completion pin/photo
+         the worker themselves had just set) vanished from view
+         entirely, for everyone. -->
+    <div class="tab-row">
+      <button class="tab active" id="tabActive" onclick="setViewMode('active')">Assigned to me</button>
+      <button class="tab" id="tabCompleted" onclick="setViewMode('completed')">Completed</button>
+    </div>
+    <div class="section-title" id="queueSectionTitle">Assigned to me <span id="queueCount"></span></div>
     <div id="queueList"></div>
 
     <div id="detailView">
@@ -126,6 +139,19 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
       </div>
 
       <hr class="divider">
+
+      <!-- Bug fix (PRD §17#10 follow-up, 8/1/26): for a task the worker
+           has already completed, show what they recorded (read-only)
+           instead of the "mark completed" form again. -->
+      <div id="completionDetailsSection" style="display:none;">
+        <div class="section-title" style="margin-top:0;">Completion details</div>
+        <div class="field" id="dCompletionNoteWrap" style="display:none;"><label>Note</label><div class="val" id="dCompletionNote"></div></div>
+        <div id="dCompletionPhotos"></div>
+        <div class="field" id="dCompletionPinWrap" style="display:none;">
+          <label>Completed at <a id="dCompletionPinLink" href="#" target="_blank" rel="noopener" style="font-weight:400;">Open full map ↗</a></label>
+          <div id="completionViewMap"></div>
+        </div>
+      </div>
 
       <div id="completeSection">
         <div class="section-title" style="margin-top:0;">Mark completed</div>
@@ -161,7 +187,11 @@ let TOKEN = localStorage.getItem('worker_token') || '';
 let ME = null;
 let LAST_QUEUE = [];
 let currentWo = null;
-let submissionMap = null, completionMap = null, completionMarker = null;
+let submissionMap = null, completionMap = null, completionMarker = null, completionViewMap = null;
+// Bug fix (PRD §17#10 follow-up, 8/1/26): which tab is showing —
+// 'active' (assigned, not yet completed) or 'completed' (my finished
+// tasks, previously unviewable by anyone once closed).
+let viewMode = 'active';
 
 function escapeHtml(s){
   const d = document.createElement('div');
@@ -285,10 +315,19 @@ function showApp(){
   loadQueue();
 }
 
+function setViewMode(mode){
+  viewMode = mode;
+  document.getElementById('tabActive').classList.toggle('active', mode === 'active');
+  document.getElementById('tabCompleted').classList.toggle('active', mode === 'completed');
+  document.getElementById('queueSectionTitle').firstChild.textContent =
+    mode === 'active' ? 'Assigned to me ' : 'Completed ';
+  loadQueue();
+}
+
 async function loadQueue(){
   let wos;
   try {
-    wos = await api('/work-orders?exclude_closed=true');
+    wos = await api(viewMode === 'active' ? '/work-orders?exclude_closed=true' : '/work-orders?closed_only=true');
   } catch (e) {
     if (e.message !== 'session expired') showToast('Could not load your tasks: ' + e.message, 'err');
     return;
@@ -296,7 +335,8 @@ async function loadQueue(){
   LAST_QUEUE = wos;
   document.getElementById('queueCount').textContent = `(${wos.length})`;
   const el = document.getElementById('queueList');
-  if (!wos.length) { el.innerHTML = '<div class="empty-state">Nothing assigned to you right now.</div>'; return; }
+  const emptyMsg = viewMode === 'active' ? 'Nothing assigned to you right now.' : "You haven't completed any tasks yet.";
+  if (!wos.length) { el.innerHTML = `<div class="empty-state">${emptyMsg}</div>`; return; }
   el.innerHTML = wos.map(w => `
     <div class="wo-card" onclick="openDetail(${w.id})">
       <div class="wo-card-top">
@@ -319,6 +359,7 @@ async function openDetail(id){
   }
   currentWo = w;
   document.querySelectorAll('.wrap > #app > .section-title').forEach(el => el.style.display = 'none');
+  document.querySelector('.tab-row').style.display = 'none';
   document.getElementById('queueList').style.display = 'none';
   document.getElementById('detailView').classList.add('open');
 
@@ -384,15 +425,55 @@ async function openDetail(id){
   document.getElementById('cPhoto').value = '';
   clearCompletionPin();
   if (completionMap) { completionMap.remove(); completionMap = null; }
-  completionMap = L.map('completionPinMap').setView(hasPin ? [w.latitude, w.longitude] : [37.860, -81.132], hasPin ? 15 : 13);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap contributors'}).addTo(completionMap);
-  completionMap.on('click', (e) => placeCompletionPin(e.latlng.lat, e.latlng.lng));
+  if (completionViewMap) { completionViewMap.remove(); completionViewMap = null; }
+
+  // Bug fix (PRD §17#10 follow-up, 8/1/26): a completed task shows what
+  // was recorded (read-only), not the "mark completed" form again.
+  const isCompleted = w.status.startsWith('Closed');
+  document.getElementById('completeSection').style.display = isCompleted ? 'none' : 'block';
+  document.getElementById('completionDetailsSection').style.display = isCompleted ? 'block' : 'none';
+
+  if (isCompleted) {
+    const completionNotes = (w.notes || []).filter(n => n.author && n.author.id === ME.id);
+    const noteWrap = document.getElementById('dCompletionNoteWrap');
+    if (completionNotes.length) {
+      noteWrap.style.display = 'block';
+      document.getElementById('dCompletionNote').textContent = completionNotes[completionNotes.length - 1].note_text;
+    } else {
+      noteWrap.style.display = 'none';
+    }
+
+    const completionPhotos = (w.attachments || []).filter(a => a.stage === 'completion');
+    const cPhotosEl = document.getElementById('dCompletionPhotos');
+    cPhotosEl.innerHTML = completionPhotos.length
+      ? `<div class="field"><label>Photo</label><div style="display:flex;gap:8px;flex-wrap:wrap;">` +
+        completionPhotos.map(a => {
+          const isPdf = /\.pdf($|\?)/i.test(a.file_url);
+          if (isPdf) return `<a href="${a.file_url}" target="_blank" rel="noopener" style="width:64px;height:64px;display:flex;align-items:center;justify-content:center;border:1px solid var(--khaki-line);border-radius:6px;background:#F1EDDF;font-size:22px;text-decoration:none;">📄</a>`;
+          return `<a href="${a.file_url}" target="_blank" rel="noopener"><img src="${a.file_url}" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--khaki-line);" onerror="this.style.display='none';"></a>`;
+        }).join('') + `</div></div>`
+      : '';
+
+    const hasCompletionPin = w.completion_latitude != null && w.completion_longitude != null;
+    document.getElementById('dCompletionPinWrap').style.display = hasCompletionPin ? 'block' : 'none';
+    if (hasCompletionPin) {
+      document.getElementById('dCompletionPinLink').href = `https://www.openstreetmap.org/?mlat=${w.completion_latitude}&mlon=${w.completion_longitude}&zoom=17`;
+      completionViewMap = L.map('completionViewMap', {zoomControl:false}).setView([w.completion_latitude, w.completion_longitude], 16);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap contributors'}).addTo(completionViewMap);
+      L.marker([w.completion_latitude, w.completion_longitude]).addTo(completionViewMap);
+    }
+  } else {
+    completionMap = L.map('completionPinMap').setView(hasPin ? [w.latitude, w.longitude] : [37.860, -81.132], hasPin ? 15 : 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap contributors'}).addTo(completionMap);
+    completionMap.on('click', (e) => placeCompletionPin(e.latlng.lat, e.latlng.lng));
+  }
 }
 
 function closeDetail(){
   currentWo = null;
   document.getElementById('detailView').classList.remove('open');
   document.querySelectorAll('.wrap > #app > .section-title').forEach(el => el.style.display = 'flex');
+  document.querySelector('.tab-row').style.display = 'flex';
   document.getElementById('queueList').style.display = 'block';
   loadQueue();
 }

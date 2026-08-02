@@ -132,6 +132,7 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
    custom in-app modal — simpler, and more useful (native map app
    deep-linking) for LOC/techs than a bespoke lightbox. */
 #drawerPinMap{height:160px;border-radius:8px;border:1px solid var(--khaki-line);margin:8px 0;}
+#drawerCompletionPinMap{height:160px;border-radius:8px;border:1px solid var(--khaki-line);margin:8px 0;}
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
@@ -151,7 +152,10 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
       <p class="brand-eyebrow">Live &middot; National Jamboree Work Orders</p>
       <h1 class="brand-title">LOC Triage</h1>
     </div>
-    <button class="btn" onclick="logout()">Sign out</button>
+    <div style="display:flex;align-items:center;gap:14px;">
+      <span id="signedInAs" style="font-size:13px;color:var(--canvas-panel);"></span>
+      <button class="btn" onclick="logout()">Sign out</button>
+    </div>
   </div>
 
   <div class="kpis" id="kpiRow"></div>
@@ -162,7 +166,7 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
   </div>
   <div class="filters">
     <select id="fStatus" onchange="load()"><option value="">All Statuses</option></select>
-    <select id="fPriority" onchange="load()"><option value="">All Priorities</option></select>
+    <select id="fPriority" onchange="load()"><option value="">All Urgency Levels</option></select>
     <select id="fWorkType" onchange="load()"><option value="">All Work Types</option></select>
     <!-- Enhancement backlog Phase 13 (PRD §14#37): relabeled from "All
          Locations" — location_group is actually the resolved/cached
@@ -195,7 +199,7 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
   <table>
     <thead><tr>
       <th class="sortable" onclick="setSort('wo_number')">WO# <span class="sort-icon" id="sortIcon-wo_number"></span></th>
-      <th class="sortable" onclick="setSort('priority')">Priority <span class="sort-icon" id="sortIcon-priority"></span></th>
+      <th class="sortable" onclick="setSort('priority')">Urgency <span class="sort-icon" id="sortIcon-priority"></span></th>
       <th class="sortable" onclick="setSort('status')">Status <span class="sort-icon" id="sortIcon-status"></span></th>
       <th>Description</th>
       <th class="sortable" onclick="setSort('location')">Location <span class="sort-icon" id="sortIcon-location"></span></th>
@@ -284,7 +288,6 @@ const QUICK_VIEWS = [
   {key:'Assigned', label:'Assigned'},
   {key:'Work In Progress', label:'In Progress'},
   {key:'On Hold', label:'On Hold'},
-  {key:'HighestHighOpen', label:'Highest + High, open'},
   {key:'Closed', label:'Closed'},
 ];
 
@@ -377,6 +380,10 @@ async function boot() {
   } catch (e) { /* keep the UTC fallback */ }
   populateFilterOptions();
   renderQuickViews();
+  // Bug fix (found in LOC triage testing, 8/1/26): no way to tell who's
+  // actually signed in, useful when several LOC staff share a device
+  // throughout the day.
+  document.getElementById('signedInAs').textContent = CURRENT_USER.name + ' (' + CURRENT_USER.role.toUpperCase() + ')';
   await load();
 }
 
@@ -468,13 +475,23 @@ async function load(quiet) {
   // the WO existed. These are now real server-side filters, so
   // pagination is applied *after* filtering and nothing gets silently
   // excluded before the client ever sees it.
+  // Bug fix (found in LOC triage testing, 8/1/26): this used the
+  // pre-rename priority names ('Highest','High'), which no longer
+  // match anything since migration f4a8d1c6e3b2 converted all data to
+  // the new names — clicking "Urgent Open" always returned zero
+  // results. Fixed to the current names.
   if (activeQuickView === 'HighestHighOpen') {
-    params.set('priority_in', 'Highest,High');
+    params.set('priority_in', 'Immediate,Same Day');
     params.set('exclude_closed', 'true');
   } else if (activeQuickView === 'Closed') {
     params.set('closed_only', 'true');
   } else if (activeQuickView === 'OpenActive') {
-    params.set('exclude_closed', 'true');
+    // Bug fix (found in LOC triage testing, 8/1/26): "Open/Active" is
+    // NOT the same as "not closed" (exclude_closed) — that silently
+    // included "Requested," which has its own separate tile. Per
+    // explicit spec: Open/Active means specifically Assigned, On Hold,
+    // or Work In Progress.
+    params.set('status_in', 'Assigned,On Hold,Work In Progress');
   } else if (activeQuickView === 'OpenedToday') {
     params.set('opened_today', 'true');
   } else if (activeQuickView === 'ClosedToday') {
@@ -493,7 +510,11 @@ async function load(quiet) {
   if (team) params.set('team_id', team);
   if (handledBy) params.set('handled_by', handledBy);
   if (search) params.set('search', search);
-  params.set('limit', '200');
+  // Bug fix (found in LOC triage testing, 8/1/26): 200 could silently
+  // cut off newer/lower-priority WOs once total volume grew past it —
+  // LOC's whole job is to see everything. Matches the backend's raised
+  // cap (le=2000).
+  params.set('limit', '2000');
 
   let wos, kpis;
   try {
@@ -802,8 +823,16 @@ function renderWODrawer(w, lockBanner){
   const attachmentsHtml = (w.attachments||[]).length
     ? `<div style="display:flex;gap:8px;flex-wrap:wrap;">` + (w.attachments||[]).map(a => {
         const isPdf = /\.pdf($|\?)/i.test(a.file_url);
+        // Bug fix (PRD §17#10 follow-up, found while prepping test
+        // scripts, 8/1/26): a Task Worker's completion photo rendered
+        // identically to the requester's original submission photo —
+        // no way to tell them apart. Small corner badge, only shown for
+        // stage='completion' (submission photos, the vast majority,
+        // stay exactly as they looked before this fix).
+        const completionBadge = a.stage === 'completion'
+          ? `<span title="Completion photo" style="position:absolute;top:-4px;right:-4px;background:var(--moss);color:#fff;font-size:9px;padding:1px 4px;border-radius:4px;line-height:1.4;">✓</span>` : '';
         if (isPdf) {
-          return `<a href="${a.file_url}" target="_blank" rel="noopener" style="width:72px;height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#f4f1e8;font-size:10px;color:var(--ink-soft);text-decoration:none;">📄<span>PDF</span></a>`;
+          return `<a href="${a.file_url}" target="_blank" rel="noopener" style="position:relative;width:72px;height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#f4f1e8;font-size:10px;color:var(--ink-soft);text-decoration:none;">📄<span>PDF</span>${completionBadge}</a>`;
         }
         // Bug fix (PRD §14#29): a photo that fails to render as an <img>
         // — either because it's HEIC (iPhone default; most desktop
@@ -815,6 +844,7 @@ function renderWODrawer(w, lockBanner){
         return `<a href="${a.file_url}" target="_blank" rel="noopener" style="position:relative;width:72px;height:72px;display:block;">
           <img src="${a.file_url}" alt="attachment" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--khaki-line);" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
           <span style="display:none;width:72px;height:72px;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#f4f1e8;font-size:9px;color:var(--ink-soft);text-align:center;padding:2px;box-sizing:border-box;">🖼️<span>Can't preview — tap to open</span></span>
+          ${completionBadge}
         </a>`;
       }).join('') + `</div>`
     : '';
@@ -857,8 +887,21 @@ function renderWODrawer(w, lockBanner){
 
   const pinHtml = hasPin ? `
     <div class="drawer-group">
-      <label>Pinned location <a href="https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17" target="_blank" rel="noopener" style="font-weight:400;font-size:12px;">Open full map ↗</a></label>
+      <label>Submitted location <a href="https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17" target="_blank" rel="noopener" style="font-weight:400;font-size:12px;">Open full map ↗</a></label>
       <div id="drawerPinMap"></div>
+    </div>` : '';
+
+  // Bug fix (PRD §17#10 follow-up, found while prepping test scripts,
+  // 8/1/26): the completion pin was fully captured by the backend but
+  // never displayed anywhere — invisible to LOC/Dispatcher, and even to
+  // the worker who set it. Labeled distinctly from the submission pin
+  // above ("Completed at," not "Submitted location") since the two can
+  // legitimately differ.
+  const hasCompletionPin = w.completion_latitude != null && w.completion_longitude != null;
+  const completionPinHtml = hasCompletionPin ? `
+    <div class="drawer-group">
+      <label>Completed at <a href="https://www.openstreetmap.org/?mlat=${w.completion_latitude}&mlon=${w.completion_longitude}&zoom=17" target="_blank" rel="noopener" style="font-weight:400;font-size:12px;">Open full map ↗</a></label>
+      <div id="drawerCompletionPinMap"></div>
     </div>` : '';
 
   openDrawer(`
@@ -869,6 +912,7 @@ function renderWODrawer(w, lockBanner){
     ${lockBanner}
     ${attachmentsHtml}
     ${pinHtml}
+    ${completionPinHtml}
     ${printOnlyHtml}
 
     <div class="drawer-group">
@@ -972,6 +1016,17 @@ function renderWODrawer(w, lockBanner){
         width: 120, height: 120,
       });
     }
+  }
+
+  // Bug fix (PRD §17#10 follow-up, 8/1/26): same treatment as the
+  // submission pin above, for the completion pin.
+  if (hasCompletionPin) {
+    const cmap = L.map('drawerCompletionPinMap', {zoomControl: false}).setView([w.completion_latitude, w.completion_longitude], 16);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors',
+    }).addTo(cmap);
+    L.marker([w.completion_latitude, w.completion_longitude]).addTo(cmap);
   }
 }
 
