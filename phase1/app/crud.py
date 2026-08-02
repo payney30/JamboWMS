@@ -15,6 +15,7 @@ from sqlalchemy import func, case, or_ as sql_or
 from fastapi import HTTPException
 from . import models, schemas
 from .auth import hash_password, verify_password
+from . import notifications
 
 # Lower rank = higher priority = sorts first. Ties (an unrecognized value,
 # which the CHECK constraint shouldn't allow, but belt-and-suspenders)
@@ -203,6 +204,10 @@ def create_work_order(db: Session, payload: schemas.WorkOrderCreate) -> models.W
     ))
     db.commit()
     db.refresh(wo)
+    # Enhancement backlog Phase 25 (PRD §17#6-8): fire-and-forget,
+    # never affects this function's return or timing even if a
+    # provider is slow/down — see notifications.py.
+    notifications.notify_work_order_event(wo, "submitted")
     return wo
 
 
@@ -367,6 +372,21 @@ def change_status(db: Session, wo: models.WorkOrder, payload: schemas.StatusChan
     if commit:
         db.commit()
         db.refresh(wo)
+
+        # Enhancement backlog Phase 25 (PRD §17#6-8): only fires here
+        # when this call owns its own commit — when commit=False (this
+        # function is one step inside save_work_order's larger
+        # transaction), the notification instead fires from
+        # save_work_order itself, after ITS commit succeeds. Firing
+        # here unconditionally would risk sending a notification for a
+        # status change that a later step in the same outer transaction
+        # then rolled back.
+        if from_status != payload.status:
+            if payload.status == "Work In Progress":
+                notifications.notify_work_order_event(wo, "in_progress")
+            elif payload.status.startswith("Closed"):
+                notifications.notify_work_order_event(wo, "closed")
+
     return wo
 
 
@@ -460,11 +480,19 @@ def save_work_order(db: Session, wo: models.WorkOrder, payload: schemas.WorkOrde
         )
 
     if payload.status is not None:
+        # Enhancement backlog Phase 25 (PRD §17#6-8): captured before
+        # change_status mutates wo.status, so the notification fired
+        # below (after THIS function's own commit, not change_status'
+        # internal one — see change_status' commit=False branch) can
+        # tell whether this was a real transition.
+        status_from = wo.status
         change_status(
             db, wo,
             schemas.StatusChangeRequest(status=payload.status, note=payload.status_note),
             changed_by=changed_by, commit=False,
         )
+    else:
+        status_from = None
 
     if payload.new_note_text:
         add_note(
@@ -481,6 +509,18 @@ def save_work_order(db: Session, wo: models.WorkOrder, payload: schemas.WorkOrde
 
     db.commit()
     db.refresh(wo)
+
+    # Enhancement backlog Phase 25 (PRD §17#6-8): fires here, after this
+    # function's own commit, rather than inside change_status' commit=False
+    # branch — see the comment there for why (avoids notifying for a
+    # status change a later step in this same transaction might still roll
+    # back).
+    if status_from is not None and status_from != wo.status:
+        if wo.status == "Work In Progress":
+            notifications.notify_work_order_event(wo, "in_progress")
+        elif wo.status.startswith("Closed"):
+            notifications.notify_work_order_event(wo, "closed")
+
     return wo
 
 
@@ -1101,6 +1141,11 @@ def complete_work_order(db: Session, wo: models.WorkOrder, payload: schemas.Comp
         ))
     db.commit()
     db.refresh(wo)
+    # Enhancement backlog Phase 25 (PRD §17#6-8): guarded the same way
+    # as change_status — only fires on a real transition, so an
+    # accidental double-tap on an already-closed WO can't re-send.
+    if from_status != "Closed, Completed":
+        notifications.notify_work_order_event(wo, "closed")
     return wo
 
 
