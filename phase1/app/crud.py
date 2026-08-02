@@ -1036,6 +1036,19 @@ def create_task_worker(db: Session, team_id: int, payload: schemas.TaskWorkerCre
     return worker, pin
 
 
+def reset_task_worker_pin(db: Session, worker: models.User) -> str:
+    """Enhancement backlog Phase 24 follow-up (found in Dispatcher
+    Console testing, 8/1/26): closes a gap explicitly flagged when
+    Task Worker creation first shipped — a Dispatcher had no way to get
+    a new PIN for a worker who forgot theirs, short of deactivating and
+    re-creating the account entirely. Same generation/hashing as
+    creation; the old PIN stops working the moment this commits."""
+    pin = _generate_pin()
+    worker.pin_hash = hash_password(pin)
+    db.commit()
+    return pin
+
+
 def list_task_workers(db: Session, team_id: int, include_inactive: bool = False) -> list[models.User]:
     q = db.query(models.User).filter(models.User.role == "task_worker", models.User.team_id == team_id)
     if not include_inactive:
