@@ -1,47 +1,33 @@
-# Notifications, Corrected: No Preference Selector (Phase 25, corrected)
+# SMS Phone Format Fix (E.164) - Notifications, continued
 
-Full cumulative state. No new migration this round. This supersedes
-the notifications package from earlier today - do not deploy that one.
+Full cumulative state. No new migration this round. This includes the
+earlier "no preference selector" correction plus this new fix - if
+you already deployed that one, this package is still safe to apply.
 
-## What happened
+## Root cause of "email works, SMS doesn't"
 
-The original build gated notifications on a "notify_preference" field
-and, when testing showed nothing was sending, I added a checkbox UI to
-the Submit WO form to let the requester choose email/text/both. That
-was wrong - notify_preference was deliberately removed from the form
-when POC contact was added, in favor of anchoring on the requester's
-phone number (required) as the single notification identifier, with
-email captured for the requester only. The checkbox UI has been fully
-reverted.
+Confirmed your hypothesis exactly. Every phone number in this app is
+stored and displayed in the app's own format - "xxx-xxx-xxxx" (see
+request.html's formatPhoneAsTyped) - never in the E.164 format
+("+15551234567") Twilio's API requires for the "To" number.
 
-## The actual root cause of "no SMS on submit"
+send_sms was passing the raw stored string straight through to
+Twilio. Twilio silently rejected every send as an API error - caught
+by the existing try/except (so nothing crashed), just never
+delivered. Email worked because SendGrid doesn't have this formatting
+requirement.
 
-notify_preference was never set by the real form (correctly, since it
-shouldn't exist there) - and the original notification logic required
-it to be set before sending anything. So notifications were silently
-skipping every real submission, with everything else (Twilio config,
-NOTIFICATIONS_ENABLED) completely correct.
+## The fix
 
-## Corrected design
+New _to_e164 helper in app/notifications.py, called before every
+Twilio send. Normalizes:
+- Bare 10-digit numbers (5550199000)
+- Dashes/parens/spaces (555-019-9000, (555) 019-9000)
+- 11-digit with leading country code (15550199000)
+- Already-E.164 (+15550199000)
 
-Per explicit decision: notifications now go out automatically by both
-SMS and email, for every requester, whenever the corresponding contact
-field exists on the WO - no selector, nothing to opt into.
-app/notifications.py's notify_work_order_event no longer checks
-notify_preference at all.
-
-- Requester gets SMS (if phone present) and email (if email present).
-- POC gets SMS too, if distinct from the requester and a phone number
-  was given - POC can never be emailed (no POC email field exists in
-  the data model at all).
-
-## PRD updated
-
-Added a prominent standing note at the top of Section 13 (Submit Order
-Screen backlog) documenting this decision explicitly, so it doesn't
-get reintroduced by accident in a future session: no preference
-selector belongs on this form, phone is the anchor, and this was tried
-once (the same day it was removed) and reverted before ever deploying.
+All become +15550199000. Scoped to US/Canada only, matching this
+app's single-event scope.
 
 ## How to apply
 
@@ -65,27 +51,19 @@ once (the same day it was removed) and reverted before ever deploying.
     #   tests/test_enhancement_phase25.py
     alembic upgrade head
 
-No new migration this round. Your existing NOTIFICATIONS_ENABLED and
-Twilio/SendGrid environment variables in Render don't need any changes
-- only the application code and PRD changed.
+No new migration. No env var changes needed.
 
 ## Verify after deploying
 
-1. Confirm the Submit WO form has no notification-preference checkboxes
-   or selector of any kind (should look exactly as it did before any of
-   today's notification testing).
-2. Submit a test WO with your Twilio-verified phone number and a real
-   email address - confirm you get BOTH a text and an email, with no
-   preference selection needed anywhere in the form.
-3. Move it to Work In Progress, then close it - confirm a notification
-   each time.
-4. Test with a distinct POC phone number - confirm the POC also gets
-   texted.
+1. Submit a test WO with your Twilio-verified phone number.
+2. Confirm you now receive the SMS (email should already have been
+   working).
+3. Check Render's logs around the submission time - you should see
+   "SMS sent to +1..." rather than a caught exception.
 
 ## Test status
 
-**312 passing, 0 failing** - fully green. Updated the notification
-test file to match the corrected always-on behavior (removed the
-preference-based tests, added tests confirming both channels fire
-automatically, and that each channel independently no-ops when its
-corresponding contact field is missing).
+**314 passing, 0 failing** - fully green. Added dedicated tests for
+_to_e164 covering all the input formats above, plus updated the
+existing Twilio-call test to confirm the actual API call receives the
+converted E.164 number, not the raw stored format.
