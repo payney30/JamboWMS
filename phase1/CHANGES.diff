@@ -1037,7 +1037,7 @@ index 4f2e937..7960004 100644
  # Uploaded photos from the public requester form (see app/routers/public.py)
  app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 diff --git a/phase1/app/models.py b/phase1/app/models.py
-index 1963639..02d2364 100644
+index 1963639..17a6536 100644
 --- a/phase1/app/models.py
 +++ b/phase1/app/models.py
 @@ -5,7 +5,7 @@ forward-compatibility with Phase 2/3 but have no endpoints yet.
@@ -1083,12 +1083,12 @@ index 1963639..02d2364 100644
  class Team(Base):
      __tablename__ = "teams"
      id = Column(Integer, primary_key=True)
-@@ -30,15 +57,28 @@ class User(Base):
+@@ -30,15 +57,35 @@ class User(Base):
      name = Column(String, nullable=False)
      email = Column(String, nullable=False, unique=True)
      password_hash = Column(String, nullable=False)
 -    role = Column(String, nullable=False)  # loc | tech | leadership | admin
-+    role = Column(String, nullable=False)  # loc | tech | leadership | admin | task_worker
++    role = Column(String, nullable=False)  # loc | tech | leadership | admin | task_worker | program_viewer | basecamp_viewer
      team_id = Column(Integer, ForeignKey("teams.id"), nullable=True)
      is_active = Column(Boolean, nullable=False, default=True)
      created_at = Column(TIMESTAMP, default=now)
@@ -1109,12 +1109,19 @@ index 1963639..02d2364 100644
      __table_args__ = (
 -        CheckConstraint("role IN ('loc','tech','leadership','admin')", name="ck_user_role"),
 +        CheckConstraint(
-+            "role IN ('loc','tech','leadership','admin','task_worker')", name="ck_user_role"
++            # Enhancement backlog Phase 26 (§17 follow-up, 8/2/26):
++            # program_viewer/basecamp_viewer — audience-scoped, read-only
++            # dashboard access. Admin-managed like loc/tech/leadership
++            # (not delegated, unlike task_worker) — see
++            # app/routers/users.py's _LOC_MANAGEABLE_ROLES, deliberately
++            # NOT extended to include these.
++            "role IN ('loc','tech','leadership','admin','task_worker','program_viewer','basecamp_viewer')",
++            name="ck_user_role",
 +        ),
      )
  
  
-@@ -87,7 +127,7 @@ class Asset(Base):
+@@ -87,7 +134,7 @@ class Asset(Base):
  
  class ReportingGroup(Base):
      """Admin-editable reporting-group catalog (PRD 4.5b) — e.g. 'Program
@@ -1123,7 +1130,7 @@ index 1963639..02d2364 100644
      Asset.reporting_group_id; see that column's docstring for the
      inheritance model. Set once at the start of an event and read live —
      no versioning/snapshotting, per PRD 4.5b."""
-@@ -168,17 +208,84 @@ class WorkOrder(Base):
+@@ -168,17 +215,84 @@ class WorkOrder(Base):
      # actual email/SMS provider yet; see app/routers/public.py and the
      # README's "Known gaps" list.
      notify_preference = Column(String, nullable=True)
@@ -1210,7 +1217,7 @@ index 1963639..02d2364 100644
          ),
          CheckConstraint(
              "status IN ('Requested','Assigned','Work In Progress','On Hold',"
-@@ -204,6 +311,13 @@ class WONote(Base):
+@@ -204,6 +318,13 @@ class WONote(Base):
      work_order = relationship("WorkOrder", back_populates="notes")
      author = relationship("User")
  
@@ -1224,7 +1231,7 @@ index 1963639..02d2364 100644
      __table_args__ = (
          CheckConstraint(
              "note_type IN ('internal','instruction','work_note')", name="ck_note_type"
-@@ -220,32 +334,58 @@ class WOStatusHistory(Base):
+@@ -220,32 +341,58 @@ class WOStatusHistory(Base):
      __tablename__ = "wo_status_history"
      id = Column(Integer, primary_key=True)
      work_order_id = Column(Integer, ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False)
@@ -1288,7 +1295,7 @@ index 1963639..02d2364 100644
  
  
  class ResponseTemplate(Base):
-@@ -263,3 +403,16 @@ class ResponseTemplate(Base):
+@@ -263,3 +410,16 @@ class ResponseTemplate(Base):
      created_at = Column(TIMESTAMP, default=now)
      updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
      updated_at = Column(TIMESTAMP, default=now, onupdate=now)
@@ -1393,10 +1400,32 @@ index cf37847..7330200 100644
 +    crud.set_setting(db, "timezone", payload.timezone, updated_by=user.id)
 +    return crud.get_all_settings(db)
 diff --git a/phase1/app/routers/dashboard.py b/phase1/app/routers/dashboard.py
-index 4e1a289..3eccdf4 100644
+index 4e1a289..dfa7626 100644
 --- a/phase1/app/routers/dashboard.py
 +++ b/phase1/app/routers/dashboard.py
-@@ -17,11 +17,15 @@ def _filter_params(
+@@ -10,6 +10,21 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+ 
+ Scope = Literal["main", "program", "basecamp"]
+ 
++# Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): audience-scoped,
++# read-only dashboard roles — same VIEWER_ROLE_SCOPES concept as
++# app/routers/work_orders.py, expressed in this router's own "scope"
++# vocabulary (program/basecamp) rather than a location_group string.
++VIEWER_ROLE_FORCED_SCOPE = {"program_viewer": "program", "basecamp_viewer": "basecamp"}
++
++
++def _effective_scope(user: models.User, requested_scope: str) -> str:
++    """A program_viewer/basecamp_viewer can't widen their view by
++    passing a different `scope` query param — the server, not the
++    frontend, owns this boundary, same principle as team_id/
++    location_group being forced elsewhere in this app for tech/
++    task_worker/these same two roles."""
++    return VIEWER_ROLE_FORCED_SCOPE.get(user.role, requested_scope)
++
+ 
+ def _filter_params(
+     status: Optional[str] = None,
+@@ -17,35 +32,39 @@ def _filter_params(
      work_type: Optional[str] = None,
      team_id: Optional[int] = None,
      location_group: Optional[str] = None,
@@ -1413,6 +1442,34 @@ index 4e1a289..3eccdf4 100644
      }
  
  
+ @router.get("/kpis", response_model=schemas.KPIOut)
+ def kpis(scope: Scope = "main", filters: dict = Depends(_filter_params),
+          db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+-    return crud.get_kpis(db, scope=scope, **filters)
++    return crud.get_kpis(db, scope=_effective_scope(user, scope), **filters)
+ 
+ 
+ @router.get("/breakdowns", response_model=schemas.BreakdownOut)
+ def breakdowns(scope: Scope = "main", filters: dict = Depends(_filter_params),
+                db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+-    return crud.get_breakdowns(db, scope=scope, **filters)
++    return crud.get_breakdowns(db, scope=_effective_scope(user, scope), **filters)
+ 
+ 
+ @router.get("/trend")
+ def trend(scope: Scope = "main", days: int = Query(14, ge=1, le=90),
+           filters: dict = Depends(_filter_params),
+           db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+-    return crud.get_daily_trend(db, scope=scope, days=days, **filters)
++    return crud.get_daily_trend(db, scope=_effective_scope(user, scope), days=days, **filters)
+ 
+ 
+ @router.get("/attention", response_model=list[schemas.WorkOrderListItem])
+ def attention(scope: Scope = "main", limit: int = Query(15, ge=1, le=50),
+               filters: dict = Depends(_filter_params),
+               db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+-    return crud.get_needing_attention(db, scope=scope, limit=limit, **filters)
++    return crud.get_needing_attention(db, scope=_effective_scope(user, scope), limit=limit, **filters)
 diff --git a/phase1/app/routers/public.py b/phase1/app/routers/public.py
 index e684f39..fc84181 100644
 --- a/phase1/app/routers/public.py
@@ -1794,7 +1851,7 @@ index 8f4b0d2..9ee0082 100644
  def list_users(
      role: Optional[str] = None,
 diff --git a/phase1/app/routers/work_orders.py b/phase1/app/routers/work_orders.py
-index c3e80e3..27aff56 100644
+index c3e80e3..b28b104 100644
 --- a/phase1/app/routers/work_orders.py
 +++ b/phase1/app/routers/work_orders.py
 @@ -1,10 +1,13 @@
@@ -1825,7 +1882,17 @@ index c3e80e3..27aff56 100644
  
  
  def _get_wo_or_404(db: Session, wo_id: int) -> models.WorkOrder:
-@@ -30,9 +33,45 @@ def _get_wo_or_404(db: Session, wo_id: int) -> models.WorkOrder:
+@@ -27,12 +30,82 @@ def _get_wo_or_404(db: Session, wo_id: int) -> models.WorkOrder:
+     return wo
+ 
+ 
++# Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): audience-scoped,
++# read-only dashboard roles — each can only ever view WOs within their
++# own reporting group, mirroring the exact same location_group values
++# crud._apply_filters' scope="program"/"basecamp" branches already use.
++VIEWER_ROLE_SCOPES = {"program_viewer": "Program Areas", "basecamp_viewer": "Base Camps"}
++
++
  def _enforce_team_scope(wo: models.WorkOrder, user: models.User):
      """A tech can only touch a WO currently assigned to their own team —
      this is the server-side backing for PRD 4.3's 'each team sees only
@@ -1836,11 +1903,38 @@ index c3e80e3..27aff56 100644
 +    one level narrower still — only a WO assigned to *them personally*,
 +    not just their team. Checked here (not a separate function) so
 +    every existing caller of this — get_work_order, status changes,
-+    etc. — picks up the restriction automatically."""
++    etc. — picks up the restriction automatically.
++
++    Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): program_viewer/
++    basecamp_viewer are scoped by *location*, not team or personal
++    assignment — a WO outside their reporting group is invisible to
++    them, full stop, even by direct WO-id lookup. This function only
++    ever runs for callers who've already cleared the endpoint's own
++    role check, so a viewer role reaching here for a *mutating*
++    endpoint (status/notes) is already blocked by _reject_if_view_only
++    below before this scope check would even matter — this function's
++    job is narrowing what's visible, not deciding who may write."""
      if user.role == "tech" and wo.assigned_team_id != user.team_id:
          raise HTTPException(403, "this work order is not assigned to your team")
 +    if user.role == "task_worker" and wo.assigned_person_id != user.id:
 +        raise HTTPException(403, "this work order is not assigned to you")
++    if user.role in VIEWER_ROLE_SCOPES:
++        required_group = VIEWER_ROLE_SCOPES[user.role]
++        if not wo.asset or wo.asset.location_group != required_group:
++            raise HTTPException(403, "this work order is outside your assigned view")
++
++
++def _reject_if_view_only(user: models.User):
++    """Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): these two
++    roles are read-only, full stop — not "read-only except for a few
++    narrow actions." Explicitly rejects at the top of the two mutating
++    endpoints (change_status, add_note) that were otherwise only gated
++    by get_current_user (any authenticated role) — every other
++    mutating endpoint in this router already requires tech/loc/admin
++    via require_roles, which naturally excludes these roles without
++    needing this check, but these two didn't have that protection."""
++    if user.role in VIEWER_ROLE_SCOPES:
++        raise HTTPException(403, "this account has read-only access")
 +
 +
 +def _enforce_not_locked(wo: models.WorkOrder, user: models.User):
@@ -1872,7 +1966,7 @@ index c3e80e3..27aff56 100644
  
  
  @router.get("", response_model=list[schemas.WorkOrderListItem])
-@@ -42,13 +81,23 @@ def list_work_orders(
+@@ -42,13 +115,23 @@ def list_work_orders(
      team_id: Optional[int] = None,
      work_type: Optional[str] = None,
      location_group: Optional[str] = None,
@@ -1898,7 +1992,7 @@ index c3e80e3..27aff56 100644
      offset: int = 0,
      db: Session = Depends(get_db),
      user: models.User = Depends(get_current_user),
-@@ -57,12 +106,24 @@ def list_work_orders(
+@@ -57,12 +140,30 @@ def list_work_orders(
      # the query string — the server, not the frontend, owns this boundary.
      if user.role == "tech":
          team_id = user.team_id
@@ -1910,6 +2004,12 @@ index c3e80e3..27aff56 100644
 +    assigned_person_id = None
 +    if user.role == "task_worker":
 +        assigned_person_id = user.id
++    # Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): same
++    # principle again — program_viewer/basecamp_viewer can't widen their
++    # view past their assigned reporting group by passing a different
++    # location_group (or none at all) in the query string.
++    if user.role in VIEWER_ROLE_SCOPES:
++        location_group = VIEWER_ROLE_SCOPES[user.role]
      priority_list = [p.strip() for p in priority_in.split(",")] if priority_in else None
 +    status_list = [s.strip() for s in status_in.split(",")] if status_in else None
      return crud.list_work_orders(
@@ -1925,7 +2025,7 @@ index c3e80e3..27aff56 100644
          limit=limit, offset=offset,
      )
  
-@@ -89,6 +150,7 @@ def update_work_order(wo_id: int, payload: schemas.WorkOrderUpdate,
+@@ -89,6 +190,7 @@ def update_work_order(wo_id: int, payload: schemas.WorkOrderUpdate,
                         db: Session = Depends(get_db),
                         user: models.User = Depends(loc_or_admin)):
      wo = _get_wo_or_404(db, wo_id)
@@ -1933,7 +2033,7 @@ index c3e80e3..27aff56 100644
      return crud.update_work_order_fields(db, wo, payload, changed_by=user.id)
  
  
-@@ -103,6 +165,7 @@ def assign_work_order(wo_id: int, payload: schemas.AssignRequest,
+@@ -103,6 +205,7 @@ def assign_work_order(wo_id: int, payload: schemas.AssignRequest,
      # unassigned WOs from a tech's reach, so this only opens up the
      # "mis-routed, hand it to the right team" case from PRD 4.3.
      _enforce_team_scope(wo, user)
@@ -1941,16 +2041,22 @@ index c3e80e3..27aff56 100644
      return crud.assign_work_order(db, wo, payload, changed_by=user.id)
  
  
-@@ -112,6 +175,7 @@ def change_status(wo_id: int, payload: schemas.StatusChangeRequest,
+@@ -110,8 +213,10 @@ def assign_work_order(wo_id: int, payload: schemas.AssignRequest,
+ def change_status(wo_id: int, payload: schemas.StatusChangeRequest,
+                    db: Session = Depends(get_db),
                     user: models.User = Depends(get_current_user)):
++    _reject_if_view_only(user)
      wo = _get_wo_or_404(db, wo_id)
      _enforce_team_scope(wo, user)
 +    _enforce_not_locked(wo, user)
      if user.role == "tech" and payload.status not in TECH_ALLOWED_STATUSES:
          raise HTTPException(
              403,
-@@ -127,6 +191,108 @@ def add_note(wo_id: int, payload: schemas.NoteCreate,
+@@ -125,8 +230,111 @@ def change_status(wo_id: int, payload: schemas.StatusChangeRequest,
+ def add_note(wo_id: int, payload: schemas.NoteCreate,
+              db: Session = Depends(get_db),
               user: models.User = Depends(get_current_user)):
++    _reject_if_view_only(user)
      wo = _get_wo_or_404(db, wo_id)
      _enforce_team_scope(wo, user)
 +    _enforce_not_locked(wo, user)
@@ -2059,10 +2165,10 @@ index c3e80e3..27aff56 100644
 +        out.write(contents)
 +    return crud.add_attachment(db, wo, f"/uploads/{safe_name}", uploaded_by=user.id, stage="completion")
 diff --git a/phase1/app/schemas.py b/phase1/app/schemas.py
-index 8500922..7e0f1ad 100644
+index 8500922..911e5ce 100644
 --- a/phase1/app/schemas.py
 +++ b/phase1/app/schemas.py
-@@ -1,8 +1,58 @@
+@@ -1,15 +1,78 @@
  import datetime as dt
 -from typing import Optional, List
 -from pydantic import BaseModel, ConfigDict
@@ -2125,10 +2231,16 @@ index 8500922..7e0f1ad 100644
  STATUSES = (
      "Requested", "Assigned", "Work In Progress", "On Hold",
      "Closed, Completed", "Closed, Incomplete",
-@@ -10,6 +60,14 @@ STATUSES = (
+ )
  WORK_TYPES = ("NJ IT", "NJ Items/Parts", "NJ Maintenance", "NJ Transportation", "")
  NOTIFY_PREFERENCES = ("email", "text", "both")
- ROLES = ("loc", "tech", "leadership", "admin")
+-ROLES = ("loc", "tech", "leadership", "admin")
++# Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): program_viewer/
++# basecamp_viewer — audience-scoped, read-only dashboard roles.
++# Admin-managed like the others here (task_worker is deliberately NOT
++# in this list — that role is delegated to Dispatchers instead, see
++# app/routers/task_workers.py).
++ROLES = ("loc", "tech", "leadership", "admin", "program_viewer", "basecamp_viewer")
 +# Techs work a request-to-close queue, not the LOC's triage states — they
 +# can't move a WO back to "Requested" or hand-set "Assigned". Lives here
 +# (not just app/routers/work_orders.py) so both the granular /status
@@ -2140,7 +2252,7 @@ index 8500922..7e0f1ad 100644
  
  
  class TeamOut(BaseModel):
-@@ -56,7 +114,7 @@ class NoteOut(BaseModel):
+@@ -56,7 +119,7 @@ class NoteOut(BaseModel):
      note_text: str
      note_type: str
      author: Optional[UserOut] = None
@@ -2149,7 +2261,7 @@ index 8500922..7e0f1ad 100644
  
  
  class NoteCreate(BaseModel):
-@@ -71,7 +129,11 @@ class HistoryOut(BaseModel):
+@@ -71,7 +134,11 @@ class HistoryOut(BaseModel):
      from_value: Optional[str]
      to_value: str
      changed_by: Optional[int]
@@ -2162,7 +2274,7 @@ index 8500922..7e0f1ad 100644
  
  
  class WorkOrderCreate(BaseModel):
-@@ -87,6 +149,11 @@ class WorkOrderCreate(BaseModel):
+@@ -87,6 +154,11 @@ class WorkOrderCreate(BaseModel):
      priority: str
      notify_preference: Optional[str] = None  # 'email' | 'text' | 'both' — see NOTIFY_PREFERENCES
      external_ref: Optional[str] = None  # original Fiix ticket number — backfill only
@@ -2174,7 +2286,7 @@ index 8500922..7e0f1ad 100644
  
  
  class WorkOrderUpdate(BaseModel):
-@@ -94,6 +161,8 @@ class WorkOrderUpdate(BaseModel):
+@@ -94,6 +166,8 @@ class WorkOrderUpdate(BaseModel):
      work_type: Optional[str] = None
      priority: Optional[str] = None
      asset_id: Optional[int] = None
@@ -2183,7 +2295,7 @@ index 8500922..7e0f1ad 100644
  
  
  class AssignRequest(BaseModel):
-@@ -102,11 +171,86 @@ class AssignRequest(BaseModel):
+@@ -102,11 +176,86 @@ class AssignRequest(BaseModel):
      note: Optional[str] = None  # required if this is a reassignment reroute; see router
  
  
@@ -2270,7 +2382,7 @@ index 8500922..7e0f1ad 100644
  class WorkOrderListItem(BaseModel):
      model_config = ConfigDict(from_attributes=True)
      id: int
-@@ -117,28 +261,74 @@ class WorkOrderListItem(BaseModel):
+@@ -117,28 +266,74 @@ class WorkOrderListItem(BaseModel):
      description: str
      asset: AssetOut
      assigned_team: Optional[TeamOut] = None
@@ -2355,7 +2467,7 @@ index 8500922..7e0f1ad 100644
      notes: List[NoteOut] = []
      history: List[HistoryOut] = []
      attachments: List[AttachmentOut] = []
-@@ -158,16 +348,30 @@ class PublicWorkOrderConfirmation(BaseModel):
+@@ -158,16 +353,30 @@ class PublicWorkOrderConfirmation(BaseModel):
  
  
  class PublicWorkOrderStatus(BaseModel):
@@ -2391,7 +2503,7 @@ index 8500922..7e0f1ad 100644
  
  
  class KPIOut(BaseModel):
-@@ -175,9 +379,14 @@ class KPIOut(BaseModel):
+@@ -175,9 +384,14 @@ class KPIOut(BaseModel):
      open: int
      closed: int
      highest_high_open: int
@@ -2406,7 +2518,7 @@ index 8500922..7e0f1ad 100644
  
  
  class BreakdownOut(BaseModel):
-@@ -199,7 +408,7 @@ class UserAdminOut(BaseModel):
+@@ -199,7 +413,7 @@ class UserAdminOut(BaseModel):
      role: str
      team: Optional[TeamOut] = None
      is_active: bool
@@ -2415,7 +2527,7 @@ index 8500922..7e0f1ad 100644
  
  
  class UserCreate(BaseModel):
-@@ -340,4 +549,17 @@ class AssetChangeLogOut(BaseModel):
+@@ -340,4 +554,17 @@ class AssetChangeLogOut(BaseModel):
      from_value: Optional[str]
      to_value: Optional[str]
      changed_by: Optional[int]
@@ -2673,10 +2785,18 @@ index 0166411..2242a4c 100644
 +twilio==9.10.9
 +sendgrid==6.12.5
 diff --git a/phase1/static/admin.html b/phase1/static/admin.html
-index 719f0d9..bfcd6b1 100644
+index 719f0d9..283ba4d 100644
 --- a/phase1/static/admin.html
 +++ b/phase1/static/admin.html
-@@ -130,6 +130,8 @@ tr.inactive td{opacity:.5;}
+@@ -60,6 +60,7 @@ tr.inactive td{opacity:.5;}
+ .role-admin,.role-loc{background:var(--danger-bg);color:var(--hivis);}
+ .role-tech{background:var(--ok-bg);color:var(--moss);}
+ .role-leadership{background:#FBF0D6;color:var(--amber);}
++.role-program_viewer,.role-basecamp_viewer{background:#DCE7E0;color:var(--slate, #5A7385);}
+ .row-actions{display:flex;gap:6px;flex-wrap:wrap;}
+ .empty-row td{color:var(--ink-soft);text-align:center;padding:22px 12px;}
+ 
+@@ -130,6 +131,8 @@ tr.inactive td{opacity:.5;}
      <button class="tab-btn" data-tab="reportinggroups" onclick="switchTab('reportinggroups')">Reporting Groups</button>
      <button class="tab-btn" data-tab="requesttypes" onclick="switchTab('requesttypes')">Request Types</button>
      <button class="tab-btn" data-tab="teams" onclick="switchTab('teams')">Teams</button>
@@ -2685,7 +2805,7 @@ index 719f0d9..bfcd6b1 100644
    </div>
  
    <div class="tab-panel active" id="panel-users">
-@@ -189,6 +191,27 @@ tr.inactive td{opacity:.5;}
+@@ -189,6 +192,27 @@ tr.inactive td{opacity:.5;}
        <tbody id="teamTableBody"><tr class="empty-row"><td colspan="3">Loading…</td></tr></tbody>
      </table>
    </div>
@@ -2713,7 +2833,7 @@ index 719f0d9..bfcd6b1 100644
  </div>
  
  <div id="drawerBackdrop" onclick="closeDrawer()"></div>
-@@ -199,6 +222,13 @@ tr.inactive td{opacity:.5;}
+@@ -199,8 +223,29 @@ tr.inactive td{opacity:.5;}
  const API = '';
  let TOKEN = localStorage.getItem('loc_token') || '';
  let ME = null, TEAMS = [], USERS = [];
@@ -2725,9 +2845,26 @@ index 719f0d9..bfcd6b1 100644
 +  return new Date(iso).toLocaleString('en-US', {timeZone: APP_TIMEZONE});
 +}
  let LOCATIONS = [], REPORTING_GROUPS = [], REQUEST_TYPES = [], ADMIN_TEAMS = [];
- const ALL_ROLES = ["tech","leadership","loc","admin"];
+-const ALL_ROLES = ["tech","leadership","loc","admin"];
++// Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): program_viewer/
++// basecamp_viewer — audience-scoped, read-only dashboard roles. Admin-
++// only (not added to the LOC-manageable subset below), matching how
++// this screen already treats loc/admin themselves.
++const ALL_ROLES = ["tech","leadership","loc","admin","program_viewer","basecamp_viewer"];
++
++// Enhancement backlog Phase 26: the two new role values read a little
++// technical shown raw (unlike "tech"/"loc"/"admin", which are already
++// short and clear as-is) — light display-only prettifying, everywhere
++// else in this file still just uses the raw role string.
++function roleLabel(role){
++  if (role === 'program_viewer') return 'Program Viewer';
++  if (role === 'basecamp_viewer') return 'Base Camp Viewer';
++  return role;
++}
  
-@@ -287,6 +317,11 @@ async function boot() {
+ function escapeHtml(s){
+   const d = document.createElement('div');
+@@ -287,6 +332,11 @@ async function boot() {
      });
    }
  
@@ -2739,7 +2876,7 @@ index 719f0d9..bfcd6b1 100644
    try {
      TEAMS = await api('/teams');
    } catch (e) {
-@@ -308,14 +343,63 @@ function switchTab(tab) {
+@@ -308,19 +358,68 @@ function switchTab(tab) {
      requesttypes: ['+ New request type', openNewRequestType],
      teams: ['+ New team', openNewAdminTeam],
    };
@@ -2806,7 +2943,31 @@ index 719f0d9..bfcd6b1 100644
  }
  
  function populateFilterOptions(){
-@@ -412,7 +496,7 @@ function openNewUser(){
+   const fRole = document.getElementById('fRole');
+-  ALL_ROLES.forEach(r => fRole.insertAdjacentHTML('beforeend', `<option value="${r}">${r}</option>`));
++  ALL_ROLES.forEach(r => fRole.insertAdjacentHTML('beforeend', `<option value="${r}">${roleLabel(r)}</option>`));
+   const fTeam = document.getElementById('fTeam');
+   TEAMS.forEach(t => fTeam.insertAdjacentHTML('beforeend', `<option value="${t.id}">${escapeHtml(t.name)}</option>`));
+ }
+@@ -368,7 +467,7 @@ function renderTable(rows){
+     <tr class="${u.is_active ? '' : 'inactive'}">
+       <td>${escapeHtml(u.name)}</td>
+       <td>${escapeHtml(u.email)}</td>
+-      <td><span class="role-chip role-${u.role}">${u.role}</span></td>
++      <td><span class="role-chip role-${u.role}">${roleLabel(u.role)}</span></td>
+       <td>${u.team ? escapeHtml(u.team.name) : '—'}</td>
+       <td>${u.is_active ? 'Active' : 'Deactivated'}</td>
+       <td class="row-actions">
+@@ -395,7 +494,7 @@ function closeDrawer(){
+ 
+ function roleOptions(selected){
+   const allowed = ME.role === 'admin' ? ALL_ROLES : ['tech','leadership'];
+-  return allowed.map(r => `<option value="${r}" ${r===selected?'selected':''}>${r}</option>`).join('');
++  return allowed.map(r => `<option value="${r}" ${r===selected?'selected':''}>${roleLabel(r)}</option>`).join('');
+ }
+ function teamOptions(selected){
+   return '<option value="">No team</option>' + TEAMS.map(t =>
+@@ -412,7 +511,7 @@ function openNewUser(){
      <label>Role</label><select id="nRole" onchange="onNewRoleChange()">${roleOptions('tech')}</select>
      <label>Team ${ME.role==='admin'?'':''}<span id="nTeamReq" style="color:var(--hivis);">*</span></label>
      <select id="nTeam">${teamOptions('')}</select>
@@ -2815,7 +2976,7 @@ index 719f0d9..bfcd6b1 100644
      <div class="field-err" id="nErr"></div>
      <div class="drawer-actions"><button class="btn" onclick="createUser()">Create account</button></div>
    `);
-@@ -450,7 +534,7 @@ function showPasswordReveal(user, password, heading){
+@@ -450,7 +549,7 @@ function showPasswordReveal(user, password, heading){
      <h2>${escapeHtml(heading)}</h2>
      <div class="hint">${escapeHtml(user.name)} · ${escapeHtml(user.email)}</div>
      <div class="pw-reveal">
@@ -2824,7 +2985,7 @@ index 719f0d9..bfcd6b1 100644
        <div class="pw">${escapeHtml(password)}</div>
      </div>
      <div class="drawer-actions"><button class="btn" onclick="closeDrawer()">Done</button></div>
-@@ -703,7 +787,7 @@ async function openLocationHistory(id) {
+@@ -703,7 +802,7 @@ async function openLocationHistory(id) {
        <li>
          <span class="hfield">${escapeHtml(e.field_changed)}</span>:
          ${escapeHtml(e.from_value ?? '—')} → ${escapeHtml(e.to_value ?? '—')}
@@ -2834,7 +2995,7 @@ index 719f0d9..bfcd6b1 100644
    } catch (e) {
      document.getElementById('histBody').textContent = 'Could not load history: ' + e.message;
 diff --git a/phase1/static/dashboard-basecamp.html b/phase1/static/dashboard-basecamp.html
-index ca5d1ed..330dfa3 100644
+index ca5d1ed..f31c975 100644
 --- a/phase1/static/dashboard-basecamp.html
 +++ b/phase1/static/dashboard-basecamp.html
 @@ -51,7 +51,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;}
@@ -2907,7 +3068,7 @@ index ca5d1ed..330dfa3 100644
  
    <div class="stats" id="statRow"></div>
  
-@@ -115,26 +144,57 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
+@@ -115,26 +144,66 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
      <div class="card" style="grid-column:1 / -1;"><h3>Assigned team — total vs closed</h3><div id="byTeam"></div></div>
    </div>
  
@@ -2966,10 +3127,39 @@ index ca5d1ed..330dfa3 100644
 +let currentSort = {key: null, dir: 'asc'};
 +let LAST_INBOX_WOS = [];
 +let drawerFilterLocationPicker = null;
++let ME = null;
++// Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): audience-scoped
++// access — loc/admin can see every dashboard (unrestricted, as before);
++// program_viewer is newly scoped to just this one. Backend already
++// enforces this on every actual data call regardless of what this
++// frontend check does — this exists purely so an unauthorized role
++// gets a clear, immediate message instead of a dashboard that silently
++// shows nothing (since every API call would 403 behind the scenes).
++const ALLOWED_ROLES = ['loc', 'admin', 'basecamp_viewer'];
  
  function escapeHtml(s){
    const d = document.createElement('div');
-@@ -196,6 +256,19 @@ async function boot(){
+@@ -188,6 +257,19 @@ async function login() {
+ }
+ 
+ async function boot(){
++  try {
++    ME = await api('/users/me');
++  } catch (e) {
++    return; // api() already handled the session-expired redirect
++  }
++  if (!ALLOWED_ROLES.includes(ME.role)) {
++    localStorage.removeItem('loc_token');
++    TOKEN = '';
++    document.getElementById('app').style.display = 'none';
++    document.getElementById('loginBox').style.display = 'block';
++    document.getElementById('loginErr').textContent = "This account doesn't have access to the Base Camp Ops dashboard.";
++    return;
++  }
+   document.getElementById('loginBox').style.display = 'none';
+   document.getElementById('app').style.display = 'block';
+   try {
+@@ -196,6 +278,19 @@ async function boot(){
      showToast('Could not load filter reference data: ' + e.message, 'err');
    }
    populateFilterOptions();
@@ -2989,7 +3179,7 @@ index ca5d1ed..330dfa3 100644
    load();
    if (refreshTimer) clearInterval(refreshTimer);
    refreshTimer = setInterval(load, 60000);
-@@ -210,14 +283,24 @@ function populateFilterOptions(){
+@@ -210,14 +305,24 @@ function populateFilterOptions(){
    WORK_TYPES.forEach(w => fWorkType.insertAdjacentHTML('beforeend', `<option value="${w}">${w}</option>`));
    const fTeam = document.getElementById('fTeam');
    TEAMS.forEach(t => fTeam.insertAdjacentHTML('beforeend', `<option value="${t.id}">${escapeHtml(t.name)}</option>`));
@@ -3018,7 +3208,7 @@ index ca5d1ed..330dfa3 100644
    load();
  }
  
-@@ -227,33 +310,114 @@ function currentFilterParams(){
+@@ -227,33 +332,121 @@ function currentFilterParams(){
    const status = document.getElementById('fStatus').value;
    const priority = document.getElementById('fPriority').value;
    const workType = document.getElementById('fWorkType').value;
@@ -3099,7 +3289,14 @@ index ca5d1ed..330dfa3 100644
 +  // reporting-group filter _apply_filters' scope="program" branch uses
 +  // internally, so this keeps the inbox locked to the same scope as
 +  // everything else on this page.
-+  params.set('location_group', SCOPE_LOCATION_GROUP);
++  //
++  // Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): made
++  // conditional — the Main LOC dashboard (scope="main") uses this same
++  // template with SCOPE_LOCATION_GROUP set to null, meaning "every
++  // reporting group, no restriction," so it must NOT send a
++  // location_group param at all rather than sending the literal string
++  // "null".
++  if (SCOPE_LOCATION_GROUP) params.set('location_group', SCOPE_LOCATION_GROUP);
 +  if (s.status) params.set('status', s.status);
 +  if (s.excludeClosed) params.set('exclude_closed', 'true');
 +  if (s.closedOnly) params.set('closed_only', 'true');
@@ -3143,7 +3340,7 @@ index ca5d1ed..330dfa3 100644
      ]);
    } catch (e) {
      if (e.message !== 'session expired') showToast('Could not refresh dashboard: ' + e.message, 'err');
-@@ -261,21 +425,37 @@ async function load(){
+@@ -261,21 +454,37 @@ async function load(){
    }
    renderStats(kpis);
    renderBars('byStatus', breakdowns.by_status);
@@ -3187,7 +3384,7 @@ index ca5d1ed..330dfa3 100644
  }
  
  function renderBars(elId, dataObj, order){
-@@ -335,23 +515,144 @@ function renderTrend(trend){
+@@ -335,23 +544,144 @@ function renderTrend(trend){
    `;
  }
  
@@ -3346,75 +3543,9 @@ index ca5d1ed..330dfa3 100644
  
  if (TOKEN) boot();
 diff --git a/phase1/static/dashboard-main.html b/phase1/static/dashboard-main.html
-index 6dd0b4e..4051079 100644
+index 6dd0b4e..b2dc2ab 100644
 --- a/phase1/static/dashboard-main.html
 +++ b/phase1/static/dashboard-main.html
-@@ -51,7 +51,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;}
- th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--khaki-line);}
- th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:var(--ink-soft);}
- .chip{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;}
--.chip-Highest,.chip-High{background:#FBE4D6;color:var(--hivis);}
-+.chip-Immediate,.chip-Same-Day{background:#FBE4D6;color:var(--hivis);}
- .empty-note{color:var(--ink-soft);font-size:12px;padding:8px 0;}
- 
- #toastStack{position:fixed;bottom:16px;left:16px;right:16px;z-index:50;display:flex;flex-direction:column;gap:8px;align-items:center;}
-@@ -115,7 +115,7 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
-     <div class="card" style="grid-column:1 / -1;"><h3>Assigned team — total vs closed</h3><div id="byTeam"></div></div>
-   </div>
- 
--  <div class="section-title">Needing attention — Highest/High priority, open, oldest first</div>
-+  <div class="section-title">Needing attention — Urgent priority, open, oldest first</div>
-   <div class="card">
-     <table>
-       <thead><tr><th>WO#</th><th>Priority</th><th>Status</th><th>Description</th><th>Location</th><th>Age</th></tr></thead>
-@@ -133,7 +133,8 @@ const currentScope = 'main'; // fixed — this page is scope-locked, see dash-na
- let refreshTimer = null;
- let TEAMS = [], ASSETS = [];
- const STATUSES = ["Requested","Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
--const PRIORITIES = ["Highest","High","Medium","Low","Lowest"];
-+const PRIORITIES = ["Immediate","Same Day","Next Day","2 Days","3 Days"];
-+function priorityClass(p){ return (p || "").replace(/\s+/g, "-"); }
- const WORK_TYPES = ["NJ IT","NJ Items/Parts","NJ Maintenance","NJ Transportation"];
- 
- function escapeHtml(s){
-@@ -261,7 +262,14 @@ async function load(){
-   }
-   renderStats(kpis);
-   renderBars('byStatus', breakdowns.by_status);
--  renderBars('byPriority', breakdowns.by_priority, ['Highest','High','Medium','Low','Lowest']);
-+  // Enhancement backlog Phase 14 (PRD §13#15): urgency-tier rename —
-+  // renderBars' `order` param strictly filters which keys can appear
-+  // at all (see its implementation below), so omitting the new names
-+  // here would silently make every new-style WO invisible in this
-+  // breakdown once any exist. Historic WOs still use the old names
-+  // (never rewritten, by explicit decision), so both sets need to stay
-+  // listed indefinitely.
-+  renderBars('byPriority', breakdowns.by_priority, ['Immediate','Same Day','Next Day','2 Days','3 Days']);
-   renderBars('byWorkType', breakdowns.by_work_type);
-   renderBars('byLocation', breakdowns.by_location);
-   renderTeamTable(breakdowns.by_team, breakdowns.by_status);
-@@ -271,7 +279,7 @@ async function load(){
- 
- function renderStats(k){
-   const items = [
--    {num:k.total, lbl:'Total'}, {num:k.open, lbl:'Open / Active'},
-+    {num:k.total, lbl:'Total'}, {num:k.requested, lbl:'Requested'}, {num:k.open, lbl:'Open / Active'},
-     {num:k.highest_high_open, lbl:'Highest+High Open'}, {num:k.closed, lbl:'Closed'},
-     {num:k.completion_rate+'%', lbl:'Completion Rate'}, {num:k.opened_today, lbl:'Opened Today'}, {num:k.closed_today, lbl:'Closed Today'},
-   ];
-@@ -345,7 +353,7 @@ function renderAttention(rows){
-     const age = hours < 24 ? `${hours}h` : `${Math.floor(hours/24)}d ${hours%24}h`;
-     return `<tr>
-       <td>${escapeHtml(w.wo_number)}</td>
--      <td><span class="chip chip-${w.priority}">${w.priority}</span></td>
-+      <td><span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span></td>
-       <td>${w.status}</td>
-       <td style="white-space:pre-wrap;">${escapeHtml((w.description||'').slice(0,90))}</td>
-       <td>${escapeHtml(w.asset ? w.asset.name : '')}</td>
-diff --git a/phase1/static/dashboard-program.html b/phase1/static/dashboard-program.html
-index 519578d..337cfeb 100644
---- a/phase1/static/dashboard-program.html
-+++ b/phase1/static/dashboard-program.html
 @@ -51,7 +51,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;}
  th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--khaki-line);}
  th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:var(--ink-soft);}
@@ -3455,7 +3586,25 @@ index 519578d..337cfeb 100644
  </head>
  <body>
  
-@@ -93,11 +116,17 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
+@@ -78,26 +101,32 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
+ <div class="wrap" id="app" style="display:none;">
+   <div class="topbar">
+     <div>
+-      <p class="brand-eyebrow">Live · Read-only · Main LOC</p>
+-      <h1 class="brand-title">National Jamboree Work Orders</h1>
++      <p class="brand-eyebrow">Live · Read-only · All reporting groups</p>
++      <h1 class="brand-title">Main LOC Dashboard</h1>
+     </div>
+     <div>
+       <span class="refresh-note" id="refreshNote">Updates automatically every 60s</span>
+     </div>
+   </div>
+ 
+-  <div class="dash-nav"><a href="dashboard-program.html">&larr; Program Team</a><a href="dashboard-basecamp.html">Base Camp Ops &rarr;</a></div>
++  <div class="dash-nav"><a href="dashboard-program.html">Program Team &rarr;</a><a href="dashboard-basecamp.html">Base Camp Ops &rarr;</a></div>
+ 
+   <div class="section-title">Filter <span class="refresh-note" id="filterCount" style="color:var(--ink-soft);"></span></div>
+   <div class="filters">
      <select id="fStatus" onchange="load()"><option value="">All statuses</option></select>
      <select id="fPriority" onchange="load()"><option value="">All priorities</option></select>
      <select id="fWorkType" onchange="load()"><option value="">All work types</option></select>
@@ -3474,7 +3623,7 @@ index 519578d..337cfeb 100644
  
    <div class="stats" id="statRow"></div>
  
-@@ -115,26 +144,57 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
+@@ -115,26 +144,66 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
      <div class="card" style="grid-column:1 / -1;"><h3>Assigned team — total vs closed</h3><div id="byTeam"></div></div>
    </div>
  
@@ -3511,12 +3660,12 @@ index 519578d..337cfeb 100644
  <script>
  const API = '';
  let TOKEN = localStorage.getItem('loc_token') || '';
- const currentScope = 'program'; // fixed — this page is scope-locked, see dash-nav for the other two
+ const currentScope = 'main'; // fixed — this page is scope-locked, see dash-nav for the other two
 +// Enhancement backlog Phase 19 (PRD §17#14): the same reporting-group
 +// name _apply_filters' scope="program" branch resolves to — used here
 +// to also scope the inbox fetch (GET /work-orders), which has no
 +// `scope` concept of its own, only location_group.
-+const SCOPE_LOCATION_GROUP = 'Program Areas';
++const SCOPE_LOCATION_GROUP = null; // unrestricted — every reporting group, see inboxFilterParams' conditional
  let refreshTimer = null;
  let TEAMS = [], ASSETS = [];
  const STATUSES = ["Requested","Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
@@ -3533,10 +3682,39 @@ index 519578d..337cfeb 100644
 +let currentSort = {key: null, dir: 'asc'};
 +let LAST_INBOX_WOS = [];
 +let drawerFilterLocationPicker = null;
++let ME = null;
++// Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): audience-scoped
++// access — loc/admin can see every dashboard (unrestricted, as before);
++// program_viewer is newly scoped to just this one. Backend already
++// enforces this on every actual data call regardless of what this
++// frontend check does — this exists purely so an unauthorized role
++// gets a clear, immediate message instead of a dashboard that silently
++// shows nothing (since every API call would 403 behind the scenes).
++const ALLOWED_ROLES = ['loc', 'admin']; // no viewer role is scoped this broadly, on purpose
  
  function escapeHtml(s){
    const d = document.createElement('div');
-@@ -196,6 +256,19 @@ async function boot(){
+@@ -188,6 +257,19 @@ async function login() {
+ }
+ 
+ async function boot(){
++  try {
++    ME = await api('/users/me');
++  } catch (e) {
++    return; // api() already handled the session-expired redirect
++  }
++  if (!ALLOWED_ROLES.includes(ME.role)) {
++    localStorage.removeItem('loc_token');
++    TOKEN = '';
++    document.getElementById('app').style.display = 'none';
++    document.getElementById('loginBox').style.display = 'block';
++    document.getElementById('loginErr').textContent = "This account doesn't have access to the Main LOC dashboard.";
++    return;
++  }
+   document.getElementById('loginBox').style.display = 'none';
+   document.getElementById('app').style.display = 'block';
+   try {
+@@ -196,6 +278,19 @@ async function boot(){
      showToast('Could not load filter reference data: ' + e.message, 'err');
    }
    populateFilterOptions();
@@ -3556,7 +3734,7 @@ index 519578d..337cfeb 100644
    load();
    if (refreshTimer) clearInterval(refreshTimer);
    refreshTimer = setInterval(load, 60000);
-@@ -210,14 +283,24 @@ function populateFilterOptions(){
+@@ -210,14 +305,24 @@ function populateFilterOptions(){
    WORK_TYPES.forEach(w => fWorkType.insertAdjacentHTML('beforeend', `<option value="${w}">${w}</option>`));
    const fTeam = document.getElementById('fTeam');
    TEAMS.forEach(t => fTeam.insertAdjacentHTML('beforeend', `<option value="${t.id}">${escapeHtml(t.name)}</option>`));
@@ -3585,7 +3763,7 @@ index 519578d..337cfeb 100644
    load();
  }
  
-@@ -227,33 +310,114 @@ function currentFilterParams(){
+@@ -227,33 +332,121 @@ function currentFilterParams(){
    const status = document.getElementById('fStatus').value;
    const priority = document.getElementById('fPriority').value;
    const workType = document.getElementById('fWorkType').value;
@@ -3666,7 +3844,14 @@ index 519578d..337cfeb 100644
 +  // reporting-group filter _apply_filters' scope="program" branch uses
 +  // internally, so this keeps the inbox locked to the same scope as
 +  // everything else on this page.
-+  params.set('location_group', SCOPE_LOCATION_GROUP);
++  //
++  // Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): made
++  // conditional — the Main LOC dashboard (scope="main") uses this same
++  // template with SCOPE_LOCATION_GROUP set to null, meaning "every
++  // reporting group, no restriction," so it must NOT send a
++  // location_group param at all rather than sending the literal string
++  // "null".
++  if (SCOPE_LOCATION_GROUP) params.set('location_group', SCOPE_LOCATION_GROUP);
 +  if (s.status) params.set('status', s.status);
 +  if (s.excludeClosed) params.set('exclude_closed', 'true');
 +  if (s.closedOnly) params.set('closed_only', 'true');
@@ -3710,7 +3895,7 @@ index 519578d..337cfeb 100644
      ]);
    } catch (e) {
      if (e.message !== 'session expired') showToast('Could not refresh dashboard: ' + e.message, 'err');
-@@ -261,21 +425,37 @@ async function load(){
+@@ -261,21 +454,37 @@ async function load(){
    }
    renderStats(kpis);
    renderBars('byStatus', breakdowns.by_status);
@@ -3754,7 +3939,544 @@ index 519578d..337cfeb 100644
  }
  
  function renderBars(elId, dataObj, order){
-@@ -335,23 +515,144 @@ function renderTrend(trend){
+@@ -335,23 +544,144 @@ function renderTrend(trend){
+   `;
+ }
+ 
+-function renderAttention(rows){
+-  const tbody = document.getElementById('attentionBody');
+-  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-note">Nothing needs attention right now.</td></tr>'; return; }
+-  const now = Date.now();
+-  tbody.innerHTML = rows.map(w => {
+-    const ageMs = now - new Date(w.created_at).getTime();
+-    const hours = Math.floor(ageMs / 3600000);
+-    const age = hours < 24 ? `${hours}h` : `${Math.floor(hours/24)}d ${hours%24}h`;
+-    return `<tr>
++// Enhancement backlog Phase 19 (PRD §17#14): full sortable inbox,
++// replacing the old top-15-urgent "Needing attention" table. No
++// age/elapsed-time column — explicit requirement, this dashboard shows
++// no aging or SLA information anywhere. Read-only: no click handler on
++// rows, nothing here opens an edit view.
++function setSort(key){
++  if (currentSort.key === key) {
++    currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
++  } else {
++    currentSort = {key, dir: 'asc'};
++  }
++  ['wo_number','priority','status','created_at'].forEach(k => {
++    document.getElementById('sortIcon-' + k).textContent = '';
++  });
++  document.getElementById('sortIcon-' + key).textContent = currentSort.dir === 'asc' ? '▲' : '▼';
++  renderInbox(sortInboxWos(LAST_INBOX_WOS));
++}
++
++function sortInboxWos(wos){
++  if (!currentSort.key) return wos;
++  const key = currentSort.key;
++  const dir = currentSort.dir === 'asc' ? 1 : -1;
++  return [...wos].sort((a, b) => {
++    let av, bv;
++    if (key === 'wo_number') { av = parseInt(a.wo_number, 10) || 0; bv = parseInt(b.wo_number, 10) || 0; }
++    else if (key === 'priority') { av = PRIORITY_ORDER[a.priority] ?? 99; bv = PRIORITY_ORDER[b.priority] ?? 99; }
++    else if (key === 'created_at') { av = new Date(a.created_at).getTime(); bv = new Date(b.created_at).getTime(); }
++    else { av = a[key] || ''; bv = b[key] || ''; }
++    if (av < bv) return -1 * dir;
++    if (av > bv) return 1 * dir;
++    return 0;
++  });
++}
++
++function renderInbox(rows){
++  const countEl = document.getElementById('inboxCount');
++  if (countEl) countEl.textContent = `(${rows.length})`;
++  const tbody = document.getElementById('inboxBody');
++  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-note">No work orders match the current filters.</td></tr>'; return; }
++  // Enhancement backlog Phase 19 follow-up (7/31/26): rows are
++  // clickable to a read-only detail view (openDetail below) — "no
++  // editing" in the original spec meant no Save/status-change/notes
++  // controls, not "nothing happens when you click a row." That gap
++  // meant clicking a row previously did nothing at all.
++  tbody.innerHTML = rows.map(w => `<tr class="inbox-row" onclick="openDetail(${w.id})">
+       <td>${escapeHtml(w.wo_number)}</td>
+-      <td><span class="chip chip-${w.priority}">${w.priority}</span></td>
++      <td><span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span></td>
+       <td>${w.status}</td>
+       <td style="white-space:pre-wrap;">${escapeHtml((w.description||'').slice(0,90))}</td>
+       <td>${escapeHtml(w.asset ? w.asset.name : '')}</td>
+-      <td>${age}</td>
+-    </tr>`;
+-  }).join('');
++      <td>${new Date(w.created_at).toLocaleString()}</td>
++    </tr>`).join('');
++}
++
++// Enhancement backlog Phase 19 follow-up (7/31/26): read-only WO detail
++// view. Deliberately no Save/Cancel, no editable inputs anywhere in
++// this — matches the spec's "everything view-only" requirement, while
++// still letting someone actually see the full record.
++let detailPinMap = null;
++
++async function openDetail(id){
++  let w;
++  try {
++    w = await api(`/work-orders/${id}`);
++  } catch (e) {
++    if (e.message !== 'session expired') showToast('Could not load work order: ' + e.message, 'err');
++    return;
++  }
++
++  const notesHtml = (w.notes || []).slice().reverse().map(n => `
++    <div class="note">${escapeHtml(n.note_text)}
++      <div class="meta">${n.note_type} &middot; ${n.author ? escapeHtml(n.author.name) : 'system'} &middot; ${new Date(n.created_at).toLocaleString()}</div>
++    </div>`).join('') || '<div class="empty-note">No notes.</div>';
++
++  const histHtml = (w.history || []).slice().reverse().map(h => `
++    <div class="hist">${h.event_type}: ${h.from_value ? escapeHtml(h.from_value) + ' → ' : ''}${escapeHtml(h.to_value)} &middot; ${new Date(h.changed_at).toLocaleString()}</div>
++  `).join('') || '<div class="empty-note">No history.</div>';
++
++  const attachmentsHtml = (w.attachments || []).length
++    ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;">` + w.attachments.map(a => {
++        const isPdf = /\.pdf($|\?)/i.test(a.file_url);
++        if (isPdf) {
++          return `<a href="${a.file_url}" target="_blank" rel="noopener" style="width:60px;height:60px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:9px;color:var(--ink-soft);text-decoration:none;">📄<span>PDF</span></a>`;
++        }
++        return `<a href="${a.file_url}" target="_blank" rel="noopener" style="position:relative;width:60px;height:60px;display:block;">
++          <img src="${a.file_url}" alt="attachment" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--khaki-line);" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
++          <span style="display:none;width:60px;height:60px;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:8px;color:var(--ink-soft);text-align:center;">🖼️<span>Can't preview</span></span>
++        </a>`;
++      }).join('') + `</div>`
++    : '';
++
++  const hasPin = w.latitude != null && w.longitude != null;
++  const pinHtml = hasPin ? `
++    <div class="field">
++      <label>Pinned location <a href="https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17" target="_blank" rel="noopener" style="font-weight:400;">Open full map ↗</a></label>
++      <div id="detailPinMap"></div>
++    </div>` : '';
++
++  document.getElementById('detailModal').innerHTML = `
++    <button class="close-btn" onclick="closeDetail()">×</button>
++    <h2>${escapeHtml(w.wo_number)}${w.external_ref ? ` <span style="font-size:11px;font-weight:400;color:var(--ink-soft);">(Fiix #${escapeHtml(w.external_ref)})</span>` : ''}</h2>
++    <div class="sub">${escapeHtml(w.work_type || 'No work type')} &middot; <span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span> &middot; ${escapeHtml(w.status)}</div>
++
++    <div class="field"><label>Location</label><div class="val">${escapeHtml(w.asset ? w.asset.name : '—')}</div></div>
++    <div class="field"><label>Description</label><div class="val">${escapeHtml(w.description)}</div></div>
++    <div class="field"><label>Requester</label><div class="val">${escapeHtml(w.requester_name)}${w.requester_phone ? ' · ' + escapeHtml(w.requester_phone) : ''}${w.requester_email ? ' · ' + escapeHtml(w.requester_email) : ''}</div></div>
++    ${!w.poc_is_requester && w.poc_name ? `<div class="field"><label>Point of contact</label><div class="val">${escapeHtml(w.poc_name)}${w.poc_phone ? ' · ' + escapeHtml(w.poc_phone) : ''}</div></div>` : ''}
++    <div class="field"><label>Assigned team</label><div class="val">${w.assigned_team ? escapeHtml(w.assigned_team.name) : '— unassigned —'}</div></div>
++    <div class="field"><label>Submitted</label><div class="val">${new Date(w.created_at).toLocaleString()}</div></div>
++    ${w.closed_at ? `<div class="field"><label>Closed</label><div class="val">${new Date(w.closed_at).toLocaleString()}</div></div>` : ''}
++    ${w.note_to_requester ? `<div class="field"><label>Note to requester</label><div class="val">${escapeHtml(w.note_to_requester)}</div></div>` : ''}
++    ${attachmentsHtml}
++    ${pinHtml}
++
++    <hr class="divider">
++    <div class="field"><label>Notes</label></div>
++    ${notesHtml}
++    <div class="field" style="margin-top:14px;"><label>Status history</label></div>
++    ${histHtml}
++  `;
++
++  document.getElementById('detailModal').classList.add('open');
++  document.getElementById('detailBackdrop').classList.add('open');
++
++  if (hasPin) {
++    if (detailPinMap) { detailPinMap.remove(); detailPinMap = null; }
++    detailPinMap = L.map('detailPinMap', {zoomControl: false}).setView([w.latitude, w.longitude], 16);
++    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
++      maxZoom: 19, attribution: '&copy; OpenStreetMap contributors',
++    }).addTo(detailPinMap);
++    L.marker([w.latitude, w.longitude]).addTo(detailPinMap);
++  }
++}
++
++function closeDetail(){
++  document.getElementById('detailModal').classList.remove('open');
++  document.getElementById('detailBackdrop').classList.remove('open');
++  if (detailPinMap) { detailPinMap.remove(); detailPinMap = null; }
+ }
+ 
+ if (TOKEN) boot();
+diff --git a/phase1/static/dashboard-program.html b/phase1/static/dashboard-program.html
+index 519578d..fe02d0d 100644
+--- a/phase1/static/dashboard-program.html
++++ b/phase1/static/dashboard-program.html
+@@ -51,7 +51,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;}
+ th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--khaki-line);}
+ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:var(--ink-soft);}
+ .chip{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;}
+-.chip-Highest,.chip-High{background:#FBE4D6;color:var(--hivis);}
++.chip-Immediate,.chip-Same-Day{background:#FBE4D6;color:var(--hivis);}
+ .empty-note{color:var(--ink-soft);font-size:12px;padding:8px 0;}
+ 
+ #toastStack{position:fixed;bottom:16px;left:16px;right:16px;z-index:50;display:flex;flex-direction:column;gap:8px;align-items:center;}
+@@ -63,7 +63,30 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
+ .filters input{flex:1;min-width:180px;}
+ .filters .reset-btn{background:transparent;color:var(--ink-soft);border:1px solid var(--khaki-line);border-radius:6px;padding:8px 14px;font-size:12px;cursor:pointer;}
+ .filters .reset-btn:hover{border-color:var(--pine);color:var(--pine);}
++
++/* Enhancement backlog Phase 19 follow-up (7/31/26): read-only WO detail
++   view — clicking an inbox row shows this. Never has a Save button or
++   any input; this dashboard is view-only end to end. */
++#detailBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;z-index:40;}
++#detailBackdrop.open{display:block;}
++#detailModal{position:fixed;top:0;right:0;bottom:0;width:420px;max-width:92vw;background:var(--canvas-panel);
++  box-shadow:-6px 0 20px rgba(0,0,0,.2);z-index:41;overflow-y:auto;padding:22px;transform:translateX(100%);transition:transform .2s;}
++#detailModal.open{transform:translateX(0);}
++#detailModal .close-btn{position:absolute;top:16px;right:16px;background:none;border:none;font-size:22px;cursor:pointer;color:var(--ink-soft);}
++#detailModal h2{font-family:var(--font-display);margin:0 0 2px;font-size:18px;}
++#detailModal .sub{font-size:12px;color:var(--ink-soft);margin-bottom:14px;}
++#detailModal .field{margin:12px 0;}
++#detailModal .field label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin-bottom:3px;}
++#detailModal .field .val{font-size:13px;white-space:pre-wrap;}
++#detailModal .divider{border:none;border-top:1px solid var(--khaki-line);margin:18px 0;}
++#detailModal .note{background:#F1EDDF;border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px;}
++#detailModal .note .meta{color:var(--ink-soft);font-size:10px;margin-top:3px;}
++#detailModal .hist{font-size:11px;color:var(--ink-soft);padding:4px 0;border-bottom:1px dashed var(--khaki-line);}
++#detailPinMap{height:160px;border-radius:8px;border:1px solid var(--khaki-line);margin:8px 0;}
++.inbox-row{cursor:pointer;}
++.inbox-row:hover{background:#F1EDDF;}
+ </style>
++<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+ </head>
+ <body>
+ 
+@@ -93,11 +116,17 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
+     <select id="fStatus" onchange="load()"><option value="">All statuses</option></select>
+     <select id="fPriority" onchange="load()"><option value="">All priorities</option></select>
+     <select id="fWorkType" onchange="load()"><option value="">All work types</option></select>
+-    <select id="fLocation" onchange="load()"><option value="">All locations</option></select>
+     <select id="fTeam" onchange="load()"><option value="">All teams</option></select>
+     <input id="fSearch" placeholder="Search description or WO#…" oninput="debouncedLoad()">
+     <button class="reset-btn" onclick="clearFilters()">Reset filters</button>
+   </div>
++  <!-- Enhancement backlog Phase 19 (PRD §17#14): exact-location filter,
++       upgraded from a broad location_group dropdown to the full
++       hierarchical LocationPicker, same component LOC triage and the
++       technician queue use. -->
++  <div style="margin:10px 0;max-width:360px;">
++    <div id="fLocationPicker"></div>
++  </div>
+ 
+   <div class="stats" id="statRow"></div>
+ 
+@@ -115,26 +144,66 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
+     <div class="card" style="grid-column:1 / -1;"><h3>Assigned team — total vs closed</h3><div id="byTeam"></div></div>
+   </div>
+ 
+-  <div class="section-title">Needing attention — Highest/High priority, open, oldest first</div>
++  <!-- Enhancement backlog Phase 19 (PRD §17#14): full sortable read-only
++       inbox, replacing the old top-15 "Needing attention" table. No
++       aging/SLA info by design (explicit requirement) — nothing here
++       computes or displays elapsed time or deadline status. Read-only:
++       no row is clickable to an edit view, this is display only. -->
++  <div class="section-title">Inbox <span class="refresh-note" id="inboxCount" style="color:var(--ink-soft);"></span></div>
+   <div class="card">
+     <table>
+-      <thead><tr><th>WO#</th><th>Priority</th><th>Status</th><th>Description</th><th>Location</th><th>Age</th></tr></thead>
+-      <tbody id="attentionBody"></tbody>
++      <thead><tr>
++        <th class="sortable" onclick="setSort('wo_number')" style="cursor:pointer;">WO# <span id="sortIcon-wo_number"></span></th>
++        <th class="sortable" onclick="setSort('priority')" style="cursor:pointer;">Priority <span id="sortIcon-priority"></span></th>
++        <th class="sortable" onclick="setSort('status')" style="cursor:pointer;">Status <span id="sortIcon-status"></span></th>
++        <th>Description</th>
++        <th>Location</th>
++        <th class="sortable" onclick="setSort('created_at')" style="cursor:pointer;">Submitted <span id="sortIcon-created_at"></span></th>
++      </tr></thead>
++      <tbody id="inboxBody"></tbody>
+     </table>
+   </div>
+ </div>
+ 
++<div id="detailBackdrop" onclick="closeDetail()"></div>
++<div id="detailModal"></div>
+ <div id="toastStack"></div>
+ 
++<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
++<script src="location-picker.js"></script>
+ <script>
+ const API = '';
+ let TOKEN = localStorage.getItem('loc_token') || '';
+ const currentScope = 'program'; // fixed — this page is scope-locked, see dash-nav for the other two
++// Enhancement backlog Phase 19 (PRD §17#14): the same reporting-group
++// name _apply_filters' scope="program" branch resolves to — used here
++// to also scope the inbox fetch (GET /work-orders), which has no
++// `scope` concept of its own, only location_group.
++const SCOPE_LOCATION_GROUP = 'Program Areas';
+ let refreshTimer = null;
+ let TEAMS = [], ASSETS = [];
+ const STATUSES = ["Requested","Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
+-const PRIORITIES = ["Highest","High","Medium","Low","Lowest"];
++const PRIORITIES = ["Immediate","Same Day","Next Day","2 Days","3 Days"];
++const PRIORITY_ORDER = {"Immediate":0,"Same Day":1,"Next Day":2,"2 Days":3,"3 Days":4};
++function priorityClass(p){ return (p || "").replace(/\s+/g, "-"); }
+ const WORK_TYPES = ["NJ IT","NJ Items/Parts","NJ Maintenance","NJ Transportation"];
++// Enhancement backlog Phase 19 (PRD §17#14): quick-view tile state
++// (Total/Requested/Active/Closed) and inbox sort state, same pattern as
++// LOC triage.
++let activeQuickView = '';
++let locationFilterAssetId = null;
++let currentSort = {key: null, dir: 'asc'};
++let LAST_INBOX_WOS = [];
++let drawerFilterLocationPicker = null;
++let ME = null;
++// Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): audience-scoped
++// access — loc/admin can see every dashboard (unrestricted, as before);
++// program_viewer is newly scoped to just this one. Backend already
++// enforces this on every actual data call regardless of what this
++// frontend check does — this exists purely so an unauthorized role
++// gets a clear, immediate message instead of a dashboard that silently
++// shows nothing (since every API call would 403 behind the scenes).
++const ALLOWED_ROLES = ['loc', 'admin', 'program_viewer'];
+ 
+ function escapeHtml(s){
+   const d = document.createElement('div');
+@@ -188,6 +257,19 @@ async function login() {
+ }
+ 
+ async function boot(){
++  try {
++    ME = await api('/users/me');
++  } catch (e) {
++    return; // api() already handled the session-expired redirect
++  }
++  if (!ALLOWED_ROLES.includes(ME.role)) {
++    localStorage.removeItem('loc_token');
++    TOKEN = '';
++    document.getElementById('app').style.display = 'none';
++    document.getElementById('loginBox').style.display = 'block';
++    document.getElementById('loginErr').textContent = "This account doesn't have access to the Program Team dashboard.";
++    return;
++  }
+   document.getElementById('loginBox').style.display = 'none';
+   document.getElementById('app').style.display = 'block';
+   try {
+@@ -196,6 +278,19 @@ async function boot(){
+     showToast('Could not load filter reference data: ' + e.message, 'err');
+   }
+   populateFilterOptions();
++  // Enhancement backlog Phase 19 (PRD §17#14). Best-effort — if the
++  // location tree fails to load, the filter just isn't offered rather
++  // than blocking the rest of the dashboard.
++  try {
++    drawerFilterLocationPicker = LocationPicker.mount(document.getElementById('fLocationPicker'), {
++      treeUrl: '/locations/tree',
++      fetchOpts: { headers: { Authorization: 'Bearer ' + TOKEN } },
++      placeholder: 'Filter by exact location…',
++      onChange: (assetId) => { locationFilterAssetId = assetId; load(); },
++    });
++  } catch (e) {
++    console.error('Location filter failed to load:', e);
++  }
+   load();
+   if (refreshTimer) clearInterval(refreshTimer);
+   refreshTimer = setInterval(load, 60000);
+@@ -210,14 +305,24 @@ function populateFilterOptions(){
+   WORK_TYPES.forEach(w => fWorkType.insertAdjacentHTML('beforeend', `<option value="${w}">${w}</option>`));
+   const fTeam = document.getElementById('fTeam');
+   TEAMS.forEach(t => fTeam.insertAdjacentHTML('beforeend', `<option value="${t.id}">${escapeHtml(t.name)}</option>`));
+-  const fLocation = document.getElementById('fLocation');
+-  const locations = Array.from(new Set(ASSETS.map(a => a.location_group))).sort();
+-  locations.forEach(l => fLocation.insertAdjacentHTML('beforeend', `<option value="${l}">${escapeHtml(l)}</option>`));
+ }
+ 
+ function clearFilters(){
+-  ['fStatus','fPriority','fWorkType','fLocation','fTeam'].forEach(id => document.getElementById(id).value = '');
++  ['fStatus','fPriority','fWorkType','fTeam'].forEach(id => document.getElementById(id).value = '');
+   document.getElementById('fSearch').value = '';
++  if (drawerFilterLocationPicker) drawerFilterLocationPicker.setValue(null, null);
++  locationFilterAssetId = null;
++  activeQuickView = '';
++  load();
++}
++
++// Enhancement backlog Phase 19 (PRD §17#14): clicking a KPI tile sets
++// this, same pattern as LOC triage — Total clears it, Requested sets a
++// plain status filter, Active/Closed map to exclude_closed/closed_only
++// (booleans currentFilterParams below translates into request params).
++function applyQuickView(key){
++  activeQuickView = key;
++  document.getElementById('fStatus').value = '';
+   load();
+ }
+ 
+@@ -227,33 +332,121 @@ function currentFilterParams(){
+   const status = document.getElementById('fStatus').value;
+   const priority = document.getElementById('fPriority').value;
+   const workType = document.getElementById('fWorkType').value;
+-  const location = document.getElementById('fLocation').value;
+   const team = document.getElementById('fTeam').value;
+   const search = document.getElementById('fSearch').value;
+-  if (status) params.set('status', status);
++  if (activeQuickView === 'Requested') {
++    params.set('status', 'Requested');
++  } else if (activeQuickView === 'Active') {
++    params.set('exclude_closed', 'true');
++  } else if (activeQuickView === 'Closed') {
++    params.set('closed_only', 'true');
++  } else if (status) {
++    params.set('status', status);
++  }
+   if (priority) params.set('priority', priority);
+   if (workType) params.set('work_type', workType);
+-  if (location) params.set('location_group', location);
+   if (team) params.set('team_id', team);
++  if (locationFilterAssetId) params.set('asset_id', locationFilterAssetId);
+   if (search) params.set('search', search);
+-  document.getElementById('filterCount').textContent =
+-    [status, priority, workType, location, team, search].filter(Boolean).length
+-      ? `(${[status, priority, workType, location, team, search].filter(Boolean).length} active)` : '';
++  const activeCount = [activeQuickView, priority, workType, team, locationFilterAssetId, search]
++    .filter(Boolean).length + (status && !activeQuickView ? 1 : 0);
++  document.getElementById('filterCount').textContent = activeCount ? `(${activeCount} active)` : '';
+   return params;
+ }
+ 
+ let debounceTimer;
+ function debouncedLoad(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(load, 300); }
+ 
++// Enhancement backlog Phase 19 (PRD §17#14): currentFilterParams() now
++// returns the raw filter state once, so both the /dashboard/* calls
++// (which use scope=program) and the /work-orders inbox call (which has
++// no scope concept, only location_group) can build their own param
++// sets from the same underlying state without re-reading the DOM twice
++// or duplicating the quick-view logic.
++function currentFilterState(){
++  const status = document.getElementById('fStatus').value;
++  return {
++    status: activeQuickView === 'Requested' ? 'Requested' : (activeQuickView ? '' : status),
++    excludeClosed: activeQuickView === 'Active',
++    closedOnly: activeQuickView === 'Closed',
++    priority: document.getElementById('fPriority').value,
++    workType: document.getElementById('fWorkType').value,
++    team: document.getElementById('fTeam').value,
++    search: document.getElementById('fSearch').value,
++    assetId: locationFilterAssetId,
++  };
++}
++
++function currentFilterParams(){
++  const s = currentFilterState();
++  const params = new URLSearchParams();
++  params.set('scope', currentScope);
++  if (s.status) params.set('status', s.status);
++  if (s.excludeClosed) params.set('exclude_closed', 'true');
++  if (s.closedOnly) params.set('closed_only', 'true');
++  if (s.priority) params.set('priority', s.priority);
++  if (s.workType) params.set('work_type', s.workType);
++  if (s.team) params.set('team_id', s.team);
++  if (s.assetId) params.set('asset_id', s.assetId);
++  if (s.search) params.set('search', s.search);
++  const activeCount = [activeQuickView, s.priority, s.workType, s.team, s.assetId, s.search]
++    .filter(Boolean).length + (s.status && !activeQuickView ? 1 : 0);
++  document.getElementById('filterCount').textContent = activeCount ? `(${activeCount} active)` : '';
++  return params;
++}
++
++function inboxFilterParams(){
++  const s = currentFilterState();
++  const params = new URLSearchParams();
++  // Enhancement backlog Phase 19 (PRD §17#14): GET /work-orders has no
++  // `scope` concept of its own — location_group is the exact same
++  // reporting-group filter _apply_filters' scope="program" branch uses
++  // internally, so this keeps the inbox locked to the same scope as
++  // everything else on this page.
++  //
++  // Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): made
++  // conditional — the Main LOC dashboard (scope="main") uses this same
++  // template with SCOPE_LOCATION_GROUP set to null, meaning "every
++  // reporting group, no restriction," so it must NOT send a
++  // location_group param at all rather than sending the literal string
++  // "null".
++  if (SCOPE_LOCATION_GROUP) params.set('location_group', SCOPE_LOCATION_GROUP);
++  if (s.status) params.set('status', s.status);
++  if (s.excludeClosed) params.set('exclude_closed', 'true');
++  if (s.closedOnly) params.set('closed_only', 'true');
++  if (s.priority) params.set('priority', s.priority);
++  if (s.workType) params.set('work_type', s.workType);
++  if (s.team) params.set('team_id', s.team);
++  if (s.assetId) params.set('asset_id', s.assetId);
++  if (s.search) params.set('search', s.search);
++  params.set('limit', '500');
++  return params;
++}
++
+ async function load(){
+   const params = currentFilterParams();
+-  let kpis, breakdowns, trend, attention;
++  // Enhancement backlog Phase 19 follow-up (7/31/26): the 4 KPI tiles
++  // must always report the true totals for the whole reporting group —
++  // scope only, nothing else — not shift every time a filter or a
++  // quick-view tile is applied. Previously this used the same
++  // currentFilterParams() as breakdowns/trend/inbox, so e.g. picking a
++  // priority in the filter bar made "Total" silently mean "total
++  // matching that priority" instead of the true reporting-group total.
++  // Kept as a fully separate request/param set on purpose, rather than
++  // trying to reuse currentFilterParams() with pieces stripped out — the
++  // two have fundamentally different jobs now (fixed overview vs.
++  // filterable drill-down) and conflating them again is exactly how
++  // this bug happened the first time.
++  const scopeOnlyParams = new URLSearchParams();
++  scopeOnlyParams.set('scope', currentScope);
++
++  let kpis, breakdowns, trend, inboxWos;
+   try {
+-    [kpis, breakdowns, trend, attention] = await Promise.all([
+-      api(`/dashboard/kpis?${params.toString()}`),
++    [kpis, breakdowns, trend, inboxWos] = await Promise.all([
++      api(`/dashboard/kpis?${scopeOnlyParams.toString()}`),
+       api(`/dashboard/breakdowns?${params.toString()}`),
+       api(`/dashboard/trend?${params.toString()}&days=14`),
+-      api(`/dashboard/attention?${params.toString()}&limit=15`),
++      api(`/work-orders?${inboxFilterParams().toString()}`),
+     ]);
+   } catch (e) {
+     if (e.message !== 'session expired') showToast('Could not refresh dashboard: ' + e.message, 'err');
+@@ -261,21 +454,37 @@ async function load(){
+   }
+   renderStats(kpis);
+   renderBars('byStatus', breakdowns.by_status);
+-  renderBars('byPriority', breakdowns.by_priority, ['Highest','High','Medium','Low','Lowest']);
++  // Enhancement backlog Phase 14 (PRD §13#15): urgency-tier rename —
++  // renderBars' `order` param strictly filters which keys can appear
++  // at all (see its implementation below), so omitting the new names
++  // here would silently make every new-style WO invisible in this
++  // breakdown once any exist. Historic WOs still use the old names
++  // (never rewritten, by explicit decision), so both sets need to stay
++  // listed indefinitely.
++  renderBars('byPriority', breakdowns.by_priority, ['Immediate','Same Day','Next Day','2 Days','3 Days']);
+   renderBars('byWorkType', breakdowns.by_work_type);
+   renderBars('byLocation', breakdowns.by_location);
+   renderTeamTable(breakdowns.by_team, breakdowns.by_status);
+   renderTrend(trend);
+-  renderAttention(attention);
++  LAST_INBOX_WOS = inboxWos;
++  renderInbox(sortInboxWos(inboxWos));
+ }
+ 
++// Enhancement backlog Phase 19 (PRD §17#14): simplified to the 4 tiles
++// explicitly requested — Total/Requested/Active/Closed — dropping the
++// richer LOC triage-style tile row (Urgent Open, Completion Rate,
++// Opened/Closed Today) for this "simple tiles" informational view. All
++// four are clickable filters, same pattern as LOC triage's KPI row.
+ function renderStats(k){
+   const items = [
+-    {num:k.total, lbl:'Total'}, {num:k.open, lbl:'Open / Active'},
+-    {num:k.highest_high_open, lbl:'Highest+High Open'}, {num:k.closed, lbl:'Closed'},
+-    {num:k.completion_rate+'%', lbl:'Completion Rate'}, {num:k.opened_today, lbl:'Opened Today'}, {num:k.closed_today, lbl:'Closed Today'},
++    {num:k.total, lbl:'Total WO', key:''},
++    {num:k.requested, lbl:'Requested', key:'Requested'},
++    {num:k.open, lbl:'Active', key:'Active'},
++    {num:k.closed, lbl:'Closed', key:'Closed'},
+   ];
+-  document.getElementById('statRow').innerHTML = items.map(i=>`<div class="stat"><div class="num">${i.num}</div><div class="lbl">${i.lbl}</div></div>`).join('');
++  document.getElementById('statRow').innerHTML = items.map(i =>
++    `<div class="stat" onclick="applyQuickView('${i.key}')" style="cursor:pointer;${activeQuickView===i.key?'border-color:var(--pine);':''}"><div class="num">${i.num}</div><div class="lbl">${i.lbl}</div></div>`
++  ).join('');
+ }
+ 
+ function renderBars(elId, dataObj, order){
+@@ -335,23 +544,144 @@ function renderTrend(trend){
    `;
  }
  
@@ -3989,7 +4711,7 @@ index 2ecf37e..e882a00 100644
        <td>${escapeHtml((w.description||'').slice(0,90))}</td>
        <td>${escapeHtml(w.asset ? w.asset.name : '')}</td>
 diff --git a/phase1/static/index.html b/phase1/static/index.html
-index 430ff1e..223fdef 100644
+index 430ff1e..6a1b722 100644
 --- a/phase1/static/index.html
 +++ b/phase1/static/index.html
 @@ -70,9 +70,9 @@ th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--khaki-line)
@@ -4048,19 +4770,20 @@ index 430ff1e..223fdef 100644
  </head>
  <body>
  
-@@ -117,7 +152,10 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
+@@ -117,7 +152,11 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
        <p class="brand-eyebrow">Live &middot; National Jamboree Work Orders</p>
        <h1 class="brand-title">LOC Triage</h1>
      </div>
 -    <button class="btn" onclick="logout()">Sign out</button>
 +    <div style="display:flex;align-items:center;gap:14px;">
++      <a href="dashboard-main.html" style="color:var(--canvas-panel);font-size:13px;text-decoration:underline;">View Dashboard</a>
 +      <span id="signedInAs" style="font-size:13px;color:var(--canvas-panel);"></span>
 +      <button class="btn" onclick="logout()">Sign out</button>
 +    </div>
    </div>
  
    <div class="kpis" id="kpiRow"></div>
-@@ -128,21 +166,40 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
+@@ -128,21 +167,40 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
    </div>
    <div class="filters">
      <select id="fStatus" onchange="load()"><option value="">All Statuses</option></select>
@@ -4105,7 +4828,7 @@ index 430ff1e..223fdef 100644
        <th class="sortable" onclick="setSort('status')">Status <span class="sort-icon" id="sortIcon-status"></span></th>
        <th>Description</th>
        <th class="sortable" onclick="setSort('location')">Location <span class="sort-icon" id="sortIcon-location"></span></th>
-@@ -157,18 +214,72 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
+@@ -157,18 +215,72 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
  <div id="drawer"></div>
  <div id="toastStack"></div>
  
@@ -4181,7 +4904,7 @@ index 430ff1e..223fdef 100644
  const WORK_TYPES = ["NJ Maintenance","NJ IT","NJ Items/Parts","NJ Transportation"];
  const STATUS_COLOR = {"Requested":"#C9962B","Assigned":"#3E6B4F","Work In Progress":"#E8620C","On Hold":"#5A7385","Closed, Completed":"#7A8471","Closed, Incomplete":"#7A8471"};
  const QUICK_VIEWS = [
-@@ -177,7 +288,6 @@ const QUICK_VIEWS = [
+@@ -177,7 +289,6 @@ const QUICK_VIEWS = [
    {key:'Assigned', label:'Assigned'},
    {key:'Work In Progress', label:'In Progress'},
    {key:'On Hold', label:'On Hold'},
@@ -4189,7 +4912,7 @@ index 430ff1e..223fdef 100644
    {key:'Closed', label:'Closed'},
  ];
  
-@@ -237,18 +347,54 @@ async function login() {
+@@ -237,18 +348,54 @@ async function login() {
  }
  function logout(){ localStorage.removeItem('loc_token'); TOKEN=''; location.reload(); }
  
@@ -4244,7 +4967,7 @@ index 430ff1e..223fdef 100644
    await load();
  }
  
-@@ -262,8 +408,22 @@ function populateFilterOptions(){
+@@ -262,8 +409,22 @@ function populateFilterOptions(){
    const fTeam = document.getElementById('fTeam');
    TEAMS.forEach(t => fTeam.insertAdjacentHTML('beforeend', `<option value="${t.id}">${t.name}</option>`));
    const fLocation = document.getElementById('fLocation');
@@ -4269,7 +4992,7 @@ index 430ff1e..223fdef 100644
  }
  
  function renderQuickViews(){
-@@ -275,7 +435,7 @@ function renderQuickViews(){
+@@ -275,7 +436,7 @@ function renderQuickViews(){
  function applyQuickView(key){
    activeQuickView = key;
    renderQuickViews();
@@ -4278,7 +5001,7 @@ index 430ff1e..223fdef 100644
      document.getElementById('fStatus').value = '';
      document.getElementById('fPriority').value = '';
    } else {
-@@ -286,8 +446,12 @@ function applyQuickView(key){
+@@ -286,8 +447,12 @@ function applyQuickView(key){
  }
  
  function clearFilters(){
@@ -4292,7 +5015,7 @@ index 430ff1e..223fdef 100644
    activeQuickView = '';
    renderQuickViews();
    load();
-@@ -296,8 +460,13 @@ function clearFilters(){
+@@ -296,8 +461,13 @@ function clearFilters(){
  let debounceTimer;
  function debouncedLoad(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(load, 300); }
  
@@ -4308,7 +5031,7 @@ index 430ff1e..223fdef 100644
  
    const params = new URLSearchParams();
    const status = document.getElementById('fStatus').value;
-@@ -305,6 +474,7 @@ async function load() {
+@@ -305,6 +475,7 @@ async function load() {
    const workType = document.getElementById('fWorkType').value;
    const location = document.getElementById('fLocation').value;
    const team = document.getElementById('fTeam').value;
@@ -4316,7 +5039,7 @@ index 430ff1e..223fdef 100644
    const search = document.getElementById('fSearch').value;
  
    // These quick views used to be applied client-side against whatever
-@@ -316,26 +486,46 @@ async function load() {
+@@ -316,26 +487,46 @@ async function load() {
    // the WO existed. These are now real server-side filters, so
    // pagination is applied *after* filtering and nothing gets silently
    // excluded before the client ever sees it.
@@ -4366,7 +5089,7 @@ index 430ff1e..223fdef 100644
  
    let wos, kpis;
    try {
-@@ -354,9 +544,60 @@ async function load() {
+@@ -354,9 +545,60 @@ async function load() {
    renderTable(sortWOs(wos));
  }
  
@@ -4428,7 +5151,7 @@ index 430ff1e..223fdef 100644
      case 'priority': return PRIORITY_ORDER[w.priority] ?? 99;
      case 'status': return w.status || '';
      case 'location': return (w.asset ? w.asset.name : '') || '';
-@@ -395,12 +636,17 @@ function setSort(key){
+@@ -395,12 +637,17 @@ function setSort(key){
  function renderKPIs(k){
    const items = [
      {num:k.total, lbl:'Total', key:''},
@@ -4447,7 +5170,7 @@ index 430ff1e..223fdef 100644
    ];
    document.getElementById('kpiRow').innerHTML = items.map(i => {
      const clickable = i.key !== null;
-@@ -413,16 +659,50 @@ function renderKPIs(k){
+@@ -413,16 +660,50 @@ function renderKPIs(k){
  }
  
  function renderTable(wos){
@@ -4504,7 +5227,7 @@ index 430ff1e..223fdef 100644
  }
  
  function escapeHtml(s){
-@@ -436,12 +716,59 @@ function openDrawer(html){
+@@ -436,12 +717,59 @@ function openDrawer(html){
    document.getElementById('drawer').classList.add('open');
    document.getElementById('drawerBackdrop').classList.add('open');
  }
@@ -4565,7 +5288,7 @@ index 430ff1e..223fdef 100644
    let w;
    try {
      w = await api('/work-orders/' + id);
-@@ -449,222 +776,377 @@ async function openWO(id){
+@@ -449,222 +777,377 @@ async function openWO(id){
      if (e.message !== 'session expired') showToast('Could not open work order: ' + e.message, 'err');
      return;
    }
