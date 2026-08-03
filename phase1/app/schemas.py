@@ -59,7 +59,12 @@ STATUSES = (
 )
 WORK_TYPES = ("NJ IT", "NJ Items/Parts", "NJ Maintenance", "NJ Transportation", "")
 NOTIFY_PREFERENCES = ("email", "text", "both")
-ROLES = ("loc", "tech", "leadership", "admin")
+# Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): program_viewer/
+# basecamp_viewer — audience-scoped, read-only dashboard roles.
+# Admin-managed like the others here (task_worker is deliberately NOT
+# in this list — that role is delegated to Dispatchers instead, see
+# app/routers/task_workers.py).
+ROLES = ("loc", "tech", "leadership", "admin", "program_viewer", "basecamp_viewer")
 # Techs work a request-to-close queue, not the LOC's triage states — they
 # can't move a WO back to "Requested" or hand-set "Assigned". Lives here
 # (not just app/routers/work_orders.py) so both the granular /status

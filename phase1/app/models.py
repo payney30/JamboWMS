@@ -57,7 +57,7 @@ class User(Base):
     name = Column(String, nullable=False)
     email = Column(String, nullable=False, unique=True)
     password_hash = Column(String, nullable=False)
-    role = Column(String, nullable=False)  # loc | tech | leadership | admin | task_worker
+    role = Column(String, nullable=False)  # loc | tech | leadership | admin | task_worker | program_viewer | basecamp_viewer
     team_id = Column(Integer, ForeignKey("teams.id"), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(TIMESTAMP, default=now)
@@ -77,7 +77,14 @@ class User(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "role IN ('loc','tech','leadership','admin','task_worker')", name="ck_user_role"
+            # Enhancement backlog Phase 26 (§17 follow-up, 8/2/26):
+            # program_viewer/basecamp_viewer — audience-scoped, read-only
+            # dashboard access. Admin-managed like loc/tech/leadership
+            # (not delegated, unlike task_worker) — see
+            # app/routers/users.py's _LOC_MANAGEABLE_ROLES, deliberately
+            # NOT extended to include these.
+            "role IN ('loc','tech','leadership','admin','task_worker','program_viewer','basecamp_viewer')",
+            name="ck_user_role",
         ),
     )
 
