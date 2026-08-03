@@ -66,11 +66,46 @@ def test_send_sms_calls_twilio_client(monkeypatch):
 
     with patch("twilio.rest.Client") as MockClient:
         instance = MockClient.return_value
-        result = notifications.send_sms("+15550199", "test body")
+        # A realistic 10-digit US number, stored/passed in the app's
+        # normal display format (dashes, no country code) -- send_sms
+        # is responsible for converting this to E.164 before calling
+        # Twilio, which is exactly the bug this test guards against.
+        result = notifications.send_sms("555-019-9000", "test body")
         assert result is True
         instance.messages.create.assert_called_once_with(
-            to="+15550199", from_="+15550100", body="test body"
+            to="+15550199000", from_="+15550100", body="test body"
         )
+
+
+def test_send_sms_normalizes_various_phone_formats(monkeypatch):
+    monkeypatch.setattr(notifications, "NOTIFICATIONS_ENABLED", True)
+    monkeypatch.setattr(notifications, "TWILIO_ACCOUNT_SID", "sid")
+    monkeypatch.setattr(notifications, "TWILIO_AUTH_TOKEN", "token")
+    monkeypatch.setattr(notifications, "TWILIO_FROM_NUMBER", "+15550100")
+
+    cases = [
+        ("5550199000", "+15550199000"),          # bare 10 digits
+        ("(555) 019-9000", "+15550199000"),       # parens/spaces
+        ("15550199000", "+15550199000"),          # 11 digits, leading 1
+        ("+15550199000", "+15550199000"),         # already E.164
+    ]
+    with patch("twilio.rest.Client") as MockClient:
+        instance = MockClient.return_value
+        for raw, expected in cases:
+            instance.messages.create.reset_mock()
+            assert notifications.send_sms(raw, "hi") is True
+            assert instance.messages.create.call_args.kwargs["to"] == expected
+
+
+def test_send_sms_rejects_unparseable_phone_number(monkeypatch):
+    monkeypatch.setattr(notifications, "NOTIFICATIONS_ENABLED", True)
+    monkeypatch.setattr(notifications, "TWILIO_ACCOUNT_SID", "sid")
+    monkeypatch.setattr(notifications, "TWILIO_AUTH_TOKEN", "token")
+    monkeypatch.setattr(notifications, "TWILIO_FROM_NUMBER", "+15550100")
+
+    with patch("twilio.rest.Client") as MockClient:
+        assert notifications.send_sms("555-0100", "hi") is False  # only 7 digits
+        MockClient.return_value.messages.create.assert_not_called()
 
 
 def test_send_sms_returns_false_on_provider_error(monkeypatch):
@@ -81,7 +116,7 @@ def test_send_sms_returns_false_on_provider_error(monkeypatch):
 
     with patch("twilio.rest.Client") as MockClient:
         MockClient.return_value.messages.create.side_effect = Exception("boom")
-        assert notifications.send_sms("+15550199", "test body") is False
+        assert notifications.send_sms("555-019-9000", "test body") is False
 
 
 def test_send_email_calls_sendgrid_client(monkeypatch):
