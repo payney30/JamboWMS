@@ -56,6 +56,23 @@ def _email_configured() -> bool:
     return bool(SENDGRID_API_KEY and SENDGRID_FROM_EMAIL)
 
 
+def _to_e164(phone: str) -> str | None:
+    """Bug fix (found in live testing, 8/2/26 — email worked, SMS
+    didn't): every phone number in this app is stored and displayed as
+    US-formatted "xxx-xxx-xxxx" (see request.html's formatPhoneAsTyped)
+    — never in E.164, which Twilio's API requires ("+15551234567").
+    Sending the raw stored string as-is was the actual root cause;
+    this was missing entirely, not a Twilio account/config problem.
+    Assumes US/Canada (+1) — this whole app is scoped to a single U.S.
+    event, so no other country code has ever been relevant."""
+    digits = "".join(ch for ch in (phone or "") if ch.isdigit())
+    if len(digits) == 10:
+        return f"+1{digits}"
+    if len(digits) == 11 and digits[0] == "1":
+        return f"+{digits}"
+    return None
+
+
 def send_sms(to_phone: str, body: str) -> bool:
     """Best-effort, synchronous — always called from a background
     thread (see _run_in_background below), never directly from a
@@ -68,17 +85,25 @@ def send_sms(to_phone: str, body: str) -> bool:
     if not _sms_configured():
         logger.warning("SMS requested but Twilio is not fully configured; skipping")
         return False
+    e164_phone = _to_e164(to_phone)
+    if not e164_phone:
+        logger.warning("SMS requested but %r doesn't look like a valid 10-digit US phone number; skipping", to_phone)
+        return False
     try:
         from twilio.rest import Client
         client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-        client.messages.create(to=to_phone, from_=TWILIO_FROM_NUMBER, body=body)
-        logger.info("SMS sent to %s", to_phone)
+        client.messages.create(to=e164_phone, from_=TWILIO_FROM_NUMBER, body=body)
+        logger.info("SMS sent to %s", e164_phone)
         return True
-    except Exception:
+    except Exception as e:
         # Trial-account note: Twilio trial numbers can only text phone
         # numbers verified in the Twilio console — an unverified
-        # recipient will land here as a caught exception, not a crash.
-        logger.exception("Failed to send SMS to %s", to_phone)
+        # recipient lands here as a caught exception, not a crash.
+        # Logged with the actual exception message (not just
+        # logger.exception's traceback) since Twilio's error text
+        # (e.g. "unverified number", "invalid 'To' phone number") is
+        # the fastest way to tell those two failure modes apart.
+        logger.exception("Failed to send SMS to %s: %s", e164_phone, e)
         return False
 
 
