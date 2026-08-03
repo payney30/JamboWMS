@@ -30,6 +30,13 @@ def _get_wo_or_404(db: Session, wo_id: int) -> models.WorkOrder:
     return wo
 
 
+# Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): audience-scoped,
+# read-only dashboard roles — each can only ever view WOs within their
+# own reporting group, mirroring the exact same location_group values
+# crud._apply_filters' scope="program"/"basecamp" branches already use.
+VIEWER_ROLE_SCOPES = {"program_viewer": "Program Areas", "basecamp_viewer": "Base Camps"}
+
+
 def _enforce_team_scope(wo: models.WorkOrder, user: models.User):
     """A tech can only touch a WO currently assigned to their own team —
     this is the server-side backing for PRD 4.3's 'each team sees only
@@ -39,11 +46,38 @@ def _enforce_team_scope(wo: models.WorkOrder, user: models.User):
     one level narrower still — only a WO assigned to *them personally*,
     not just their team. Checked here (not a separate function) so
     every existing caller of this — get_work_order, status changes,
-    etc. — picks up the restriction automatically."""
+    etc. — picks up the restriction automatically.
+
+    Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): program_viewer/
+    basecamp_viewer are scoped by *location*, not team or personal
+    assignment — a WO outside their reporting group is invisible to
+    them, full stop, even by direct WO-id lookup. This function only
+    ever runs for callers who've already cleared the endpoint's own
+    role check, so a viewer role reaching here for a *mutating*
+    endpoint (status/notes) is already blocked by _reject_if_view_only
+    below before this scope check would even matter — this function's
+    job is narrowing what's visible, not deciding who may write."""
     if user.role == "tech" and wo.assigned_team_id != user.team_id:
         raise HTTPException(403, "this work order is not assigned to your team")
     if user.role == "task_worker" and wo.assigned_person_id != user.id:
         raise HTTPException(403, "this work order is not assigned to you")
+    if user.role in VIEWER_ROLE_SCOPES:
+        required_group = VIEWER_ROLE_SCOPES[user.role]
+        if not wo.asset or wo.asset.location_group != required_group:
+            raise HTTPException(403, "this work order is outside your assigned view")
+
+
+def _reject_if_view_only(user: models.User):
+    """Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): these two
+    roles are read-only, full stop — not "read-only except for a few
+    narrow actions." Explicitly rejects at the top of the two mutating
+    endpoints (change_status, add_note) that were otherwise only gated
+    by get_current_user (any authenticated role) — every other
+    mutating endpoint in this router already requires tech/loc/admin
+    via require_roles, which naturally excludes these roles without
+    needing this check, but these two didn't have that protection."""
+    if user.role in VIEWER_ROLE_SCOPES:
+        raise HTTPException(403, "this account has read-only access")
 
 
 def _enforce_not_locked(wo: models.WorkOrder, user: models.User):
@@ -114,6 +148,12 @@ def list_work_orders(
     assigned_person_id = None
     if user.role == "task_worker":
         assigned_person_id = user.id
+    # Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): same
+    # principle again — program_viewer/basecamp_viewer can't widen their
+    # view past their assigned reporting group by passing a different
+    # location_group (or none at all) in the query string.
+    if user.role in VIEWER_ROLE_SCOPES:
+        location_group = VIEWER_ROLE_SCOPES[user.role]
     priority_list = [p.strip() for p in priority_in.split(",")] if priority_in else None
     status_list = [s.strip() for s in status_in.split(",")] if status_in else None
     return crud.list_work_orders(
@@ -173,6 +213,7 @@ def assign_work_order(wo_id: int, payload: schemas.AssignRequest,
 def change_status(wo_id: int, payload: schemas.StatusChangeRequest,
                    db: Session = Depends(get_db),
                    user: models.User = Depends(get_current_user)):
+    _reject_if_view_only(user)
     wo = _get_wo_or_404(db, wo_id)
     _enforce_team_scope(wo, user)
     _enforce_not_locked(wo, user)
@@ -189,6 +230,7 @@ def change_status(wo_id: int, payload: schemas.StatusChangeRequest,
 def add_note(wo_id: int, payload: schemas.NoteCreate,
              db: Session = Depends(get_db),
              user: models.User = Depends(get_current_user)):
+    _reject_if_view_only(user)
     wo = _get_wo_or_404(db, wo_id)
     _enforce_team_scope(wo, user)
     _enforce_not_locked(wo, user)
