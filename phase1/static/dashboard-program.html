@@ -195,6 +195,15 @@ let locationFilterAssetId = null;
 let currentSort = {key: null, dir: 'asc'};
 let LAST_INBOX_WOS = [];
 let drawerFilterLocationPicker = null;
+let ME = null;
+// Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): audience-scoped
+// access — loc/admin can see every dashboard (unrestricted, as before);
+// program_viewer is newly scoped to just this one. Backend already
+// enforces this on every actual data call regardless of what this
+// frontend check does — this exists purely so an unauthorized role
+// gets a clear, immediate message instead of a dashboard that silently
+// shows nothing (since every API call would 403 behind the scenes).
+const ALLOWED_ROLES = ['loc', 'admin', 'program_viewer'];
 
 function escapeHtml(s){
   const d = document.createElement('div');
@@ -248,6 +257,19 @@ async function login() {
 }
 
 async function boot(){
+  try {
+    ME = await api('/users/me');
+  } catch (e) {
+    return; // api() already handled the session-expired redirect
+  }
+  if (!ALLOWED_ROLES.includes(ME.role)) {
+    localStorage.removeItem('loc_token');
+    TOKEN = '';
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('loginBox').style.display = 'block';
+    document.getElementById('loginErr').textContent = "This account doesn't have access to the Program Team dashboard.";
+    return;
+  }
   document.getElementById('loginBox').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   try {
@@ -381,7 +403,14 @@ function inboxFilterParams(){
   // reporting-group filter _apply_filters' scope="program" branch uses
   // internally, so this keeps the inbox locked to the same scope as
   // everything else on this page.
-  params.set('location_group', SCOPE_LOCATION_GROUP);
+  //
+  // Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): made
+  // conditional — the Main LOC dashboard (scope="main") uses this same
+  // template with SCOPE_LOCATION_GROUP set to null, meaning "every
+  // reporting group, no restriction," so it must NOT send a
+  // location_group param at all rather than sending the literal string
+  // "null".
+  if (SCOPE_LOCATION_GROUP) params.set('location_group', SCOPE_LOCATION_GROUP);
   if (s.status) params.set('status', s.status);
   if (s.excludeClosed) params.set('exclude_closed', 'true');
   if (s.closedOnly) params.set('closed_only', 'true');

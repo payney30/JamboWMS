@@ -60,6 +60,7 @@ tr.inactive td{opacity:.5;}
 .role-admin,.role-loc{background:var(--danger-bg);color:var(--hivis);}
 .role-tech{background:var(--ok-bg);color:var(--moss);}
 .role-leadership{background:#FBF0D6;color:var(--amber);}
+.role-program_viewer,.role-basecamp_viewer{background:#DCE7E0;color:var(--slate, #5A7385);}
 .row-actions{display:flex;gap:6px;flex-wrap:wrap;}
 .empty-row td{color:var(--ink-soft);text-align:center;padding:22px 12px;}
 
@@ -230,7 +231,21 @@ function fmtDateTime(iso){
   return new Date(iso).toLocaleString('en-US', {timeZone: APP_TIMEZONE});
 }
 let LOCATIONS = [], REPORTING_GROUPS = [], REQUEST_TYPES = [], ADMIN_TEAMS = [];
-const ALL_ROLES = ["tech","leadership","loc","admin"];
+// Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): program_viewer/
+// basecamp_viewer — audience-scoped, read-only dashboard roles. Admin-
+// only (not added to the LOC-manageable subset below), matching how
+// this screen already treats loc/admin themselves.
+const ALL_ROLES = ["tech","leadership","loc","admin","program_viewer","basecamp_viewer"];
+
+// Enhancement backlog Phase 26: the two new role values read a little
+// technical shown raw (unlike "tech"/"loc"/"admin", which are already
+// short and clear as-is) — light display-only prettifying, everywhere
+// else in this file still just uses the raw role string.
+function roleLabel(role){
+  if (role === 'program_viewer') return 'Program Viewer';
+  if (role === 'basecamp_viewer') return 'Base Camp Viewer';
+  return role;
+}
 
 function escapeHtml(s){
   const d = document.createElement('div');
@@ -404,7 +419,7 @@ async function saveSettings(){
 
 function populateFilterOptions(){
   const fRole = document.getElementById('fRole');
-  ALL_ROLES.forEach(r => fRole.insertAdjacentHTML('beforeend', `<option value="${r}">${r}</option>`));
+  ALL_ROLES.forEach(r => fRole.insertAdjacentHTML('beforeend', `<option value="${r}">${roleLabel(r)}</option>`));
   const fTeam = document.getElementById('fTeam');
   TEAMS.forEach(t => fTeam.insertAdjacentHTML('beforeend', `<option value="${t.id}">${escapeHtml(t.name)}</option>`));
 }
@@ -452,7 +467,7 @@ function renderTable(rows){
     <tr class="${u.is_active ? '' : 'inactive'}">
       <td>${escapeHtml(u.name)}</td>
       <td>${escapeHtml(u.email)}</td>
-      <td><span class="role-chip role-${u.role}">${u.role}</span></td>
+      <td><span class="role-chip role-${u.role}">${roleLabel(u.role)}</span></td>
       <td>${u.team ? escapeHtml(u.team.name) : '—'}</td>
       <td>${u.is_active ? 'Active' : 'Deactivated'}</td>
       <td class="row-actions">
@@ -479,7 +494,7 @@ function closeDrawer(){
 
 function roleOptions(selected){
   const allowed = ME.role === 'admin' ? ALL_ROLES : ['tech','leadership'];
-  return allowed.map(r => `<option value="${r}" ${r===selected?'selected':''}>${r}</option>`).join('');
+  return allowed.map(r => `<option value="${r}" ${r===selected?'selected':''}>${roleLabel(r)}</option>`).join('');
 }
 function teamOptions(selected){
   return '<option value="">No team</option>' + TEAMS.map(t =>

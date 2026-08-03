@@ -63,7 +63,30 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
 .filters input{flex:1;min-width:180px;}
 .filters .reset-btn{background:transparent;color:var(--ink-soft);border:1px solid var(--khaki-line);border-radius:6px;padding:8px 14px;font-size:12px;cursor:pointer;}
 .filters .reset-btn:hover{border-color:var(--pine);color:var(--pine);}
+
+/* Enhancement backlog Phase 19 follow-up (7/31/26): read-only WO detail
+   view — clicking an inbox row shows this. Never has a Save button or
+   any input; this dashboard is view-only end to end. */
+#detailBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;z-index:40;}
+#detailBackdrop.open{display:block;}
+#detailModal{position:fixed;top:0;right:0;bottom:0;width:420px;max-width:92vw;background:var(--canvas-panel);
+  box-shadow:-6px 0 20px rgba(0,0,0,.2);z-index:41;overflow-y:auto;padding:22px;transform:translateX(100%);transition:transform .2s;}
+#detailModal.open{transform:translateX(0);}
+#detailModal .close-btn{position:absolute;top:16px;right:16px;background:none;border:none;font-size:22px;cursor:pointer;color:var(--ink-soft);}
+#detailModal h2{font-family:var(--font-display);margin:0 0 2px;font-size:18px;}
+#detailModal .sub{font-size:12px;color:var(--ink-soft);margin-bottom:14px;}
+#detailModal .field{margin:12px 0;}
+#detailModal .field label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin-bottom:3px;}
+#detailModal .field .val{font-size:13px;white-space:pre-wrap;}
+#detailModal .divider{border:none;border-top:1px solid var(--khaki-line);margin:18px 0;}
+#detailModal .note{background:#F1EDDF;border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px;}
+#detailModal .note .meta{color:var(--ink-soft);font-size:10px;margin-top:3px;}
+#detailModal .hist{font-size:11px;color:var(--ink-soft);padding:4px 0;border-bottom:1px dashed var(--khaki-line);}
+#detailPinMap{height:160px;border-radius:8px;border:1px solid var(--khaki-line);margin:8px 0;}
+.inbox-row{cursor:pointer;}
+.inbox-row:hover{background:#F1EDDF;}
 </style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 <body>
 
@@ -78,25 +101,31 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
 <div class="wrap" id="app" style="display:none;">
   <div class="topbar">
     <div>
-      <p class="brand-eyebrow">Live · Read-only · Main LOC</p>
-      <h1 class="brand-title">National Jamboree Work Orders</h1>
+      <p class="brand-eyebrow">Live · Read-only · All reporting groups</p>
+      <h1 class="brand-title">Main LOC Dashboard</h1>
     </div>
     <div>
       <span class="refresh-note" id="refreshNote">Updates automatically every 60s</span>
     </div>
   </div>
 
-  <div class="dash-nav"><a href="dashboard-program.html">&larr; Program Team</a><a href="dashboard-basecamp.html">Base Camp Ops &rarr;</a></div>
+  <div class="dash-nav"><a href="dashboard-program.html">Program Team &rarr;</a><a href="dashboard-basecamp.html">Base Camp Ops &rarr;</a></div>
 
   <div class="section-title">Filter <span class="refresh-note" id="filterCount" style="color:var(--ink-soft);"></span></div>
   <div class="filters">
     <select id="fStatus" onchange="load()"><option value="">All statuses</option></select>
     <select id="fPriority" onchange="load()"><option value="">All priorities</option></select>
     <select id="fWorkType" onchange="load()"><option value="">All work types</option></select>
-    <select id="fLocation" onchange="load()"><option value="">All locations</option></select>
     <select id="fTeam" onchange="load()"><option value="">All teams</option></select>
     <input id="fSearch" placeholder="Search description or WO#…" oninput="debouncedLoad()">
     <button class="reset-btn" onclick="clearFilters()">Reset filters</button>
+  </div>
+  <!-- Enhancement backlog Phase 19 (PRD §17#14): exact-location filter,
+       upgraded from a broad location_group dropdown to the full
+       hierarchical LocationPicker, same component LOC triage and the
+       technician queue use. -->
+  <div style="margin:10px 0;max-width:360px;">
+    <div id="fLocationPicker"></div>
   </div>
 
   <div class="stats" id="statRow"></div>
@@ -115,27 +144,66 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
     <div class="card" style="grid-column:1 / -1;"><h3>Assigned team — total vs closed</h3><div id="byTeam"></div></div>
   </div>
 
-  <div class="section-title">Needing attention — Urgent priority, open, oldest first</div>
+  <!-- Enhancement backlog Phase 19 (PRD §17#14): full sortable read-only
+       inbox, replacing the old top-15 "Needing attention" table. No
+       aging/SLA info by design (explicit requirement) — nothing here
+       computes or displays elapsed time or deadline status. Read-only:
+       no row is clickable to an edit view, this is display only. -->
+  <div class="section-title">Inbox <span class="refresh-note" id="inboxCount" style="color:var(--ink-soft);"></span></div>
   <div class="card">
     <table>
-      <thead><tr><th>WO#</th><th>Priority</th><th>Status</th><th>Description</th><th>Location</th><th>Age</th></tr></thead>
-      <tbody id="attentionBody"></tbody>
+      <thead><tr>
+        <th class="sortable" onclick="setSort('wo_number')" style="cursor:pointer;">WO# <span id="sortIcon-wo_number"></span></th>
+        <th class="sortable" onclick="setSort('priority')" style="cursor:pointer;">Priority <span id="sortIcon-priority"></span></th>
+        <th class="sortable" onclick="setSort('status')" style="cursor:pointer;">Status <span id="sortIcon-status"></span></th>
+        <th>Description</th>
+        <th>Location</th>
+        <th class="sortable" onclick="setSort('created_at')" style="cursor:pointer;">Submitted <span id="sortIcon-created_at"></span></th>
+      </tr></thead>
+      <tbody id="inboxBody"></tbody>
     </table>
   </div>
 </div>
 
+<div id="detailBackdrop" onclick="closeDetail()"></div>
+<div id="detailModal"></div>
 <div id="toastStack"></div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="location-picker.js"></script>
 <script>
 const API = '';
 let TOKEN = localStorage.getItem('loc_token') || '';
 const currentScope = 'main'; // fixed — this page is scope-locked, see dash-nav for the other two
+// Enhancement backlog Phase 19 (PRD §17#14): the same reporting-group
+// name _apply_filters' scope="program" branch resolves to — used here
+// to also scope the inbox fetch (GET /work-orders), which has no
+// `scope` concept of its own, only location_group.
+const SCOPE_LOCATION_GROUP = null; // unrestricted — every reporting group, see inboxFilterParams' conditional
 let refreshTimer = null;
 let TEAMS = [], ASSETS = [];
 const STATUSES = ["Requested","Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
 const PRIORITIES = ["Immediate","Same Day","Next Day","2 Days","3 Days"];
+const PRIORITY_ORDER = {"Immediate":0,"Same Day":1,"Next Day":2,"2 Days":3,"3 Days":4};
 function priorityClass(p){ return (p || "").replace(/\s+/g, "-"); }
 const WORK_TYPES = ["NJ IT","NJ Items/Parts","NJ Maintenance","NJ Transportation"];
+// Enhancement backlog Phase 19 (PRD §17#14): quick-view tile state
+// (Total/Requested/Active/Closed) and inbox sort state, same pattern as
+// LOC triage.
+let activeQuickView = '';
+let locationFilterAssetId = null;
+let currentSort = {key: null, dir: 'asc'};
+let LAST_INBOX_WOS = [];
+let drawerFilterLocationPicker = null;
+let ME = null;
+// Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): audience-scoped
+// access — loc/admin can see every dashboard (unrestricted, as before);
+// program_viewer is newly scoped to just this one. Backend already
+// enforces this on every actual data call regardless of what this
+// frontend check does — this exists purely so an unauthorized role
+// gets a clear, immediate message instead of a dashboard that silently
+// shows nothing (since every API call would 403 behind the scenes).
+const ALLOWED_ROLES = ['loc', 'admin']; // no viewer role is scoped this broadly, on purpose
 
 function escapeHtml(s){
   const d = document.createElement('div');
@@ -189,6 +257,19 @@ async function login() {
 }
 
 async function boot(){
+  try {
+    ME = await api('/users/me');
+  } catch (e) {
+    return; // api() already handled the session-expired redirect
+  }
+  if (!ALLOWED_ROLES.includes(ME.role)) {
+    localStorage.removeItem('loc_token');
+    TOKEN = '';
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('loginBox').style.display = 'block';
+    document.getElementById('loginErr').textContent = "This account doesn't have access to the Main LOC dashboard.";
+    return;
+  }
   document.getElementById('loginBox').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   try {
@@ -197,6 +278,19 @@ async function boot(){
     showToast('Could not load filter reference data: ' + e.message, 'err');
   }
   populateFilterOptions();
+  // Enhancement backlog Phase 19 (PRD §17#14). Best-effort — if the
+  // location tree fails to load, the filter just isn't offered rather
+  // than blocking the rest of the dashboard.
+  try {
+    drawerFilterLocationPicker = LocationPicker.mount(document.getElementById('fLocationPicker'), {
+      treeUrl: '/locations/tree',
+      fetchOpts: { headers: { Authorization: 'Bearer ' + TOKEN } },
+      placeholder: 'Filter by exact location…',
+      onChange: (assetId) => { locationFilterAssetId = assetId; load(); },
+    });
+  } catch (e) {
+    console.error('Location filter failed to load:', e);
+  }
   load();
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = setInterval(load, 60000);
@@ -211,14 +305,24 @@ function populateFilterOptions(){
   WORK_TYPES.forEach(w => fWorkType.insertAdjacentHTML('beforeend', `<option value="${w}">${w}</option>`));
   const fTeam = document.getElementById('fTeam');
   TEAMS.forEach(t => fTeam.insertAdjacentHTML('beforeend', `<option value="${t.id}">${escapeHtml(t.name)}</option>`));
-  const fLocation = document.getElementById('fLocation');
-  const locations = Array.from(new Set(ASSETS.map(a => a.location_group))).sort();
-  locations.forEach(l => fLocation.insertAdjacentHTML('beforeend', `<option value="${l}">${escapeHtml(l)}</option>`));
 }
 
 function clearFilters(){
-  ['fStatus','fPriority','fWorkType','fLocation','fTeam'].forEach(id => document.getElementById(id).value = '');
+  ['fStatus','fPriority','fWorkType','fTeam'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('fSearch').value = '';
+  if (drawerFilterLocationPicker) drawerFilterLocationPicker.setValue(null, null);
+  locationFilterAssetId = null;
+  activeQuickView = '';
+  load();
+}
+
+// Enhancement backlog Phase 19 (PRD §17#14): clicking a KPI tile sets
+// this, same pattern as LOC triage — Total clears it, Requested sets a
+// plain status filter, Active/Closed map to exclude_closed/closed_only
+// (booleans currentFilterParams below translates into request params).
+function applyQuickView(key){
+  activeQuickView = key;
+  document.getElementById('fStatus').value = '';
   load();
 }
 
@@ -228,33 +332,121 @@ function currentFilterParams(){
   const status = document.getElementById('fStatus').value;
   const priority = document.getElementById('fPriority').value;
   const workType = document.getElementById('fWorkType').value;
-  const location = document.getElementById('fLocation').value;
   const team = document.getElementById('fTeam').value;
   const search = document.getElementById('fSearch').value;
-  if (status) params.set('status', status);
+  if (activeQuickView === 'Requested') {
+    params.set('status', 'Requested');
+  } else if (activeQuickView === 'Active') {
+    params.set('exclude_closed', 'true');
+  } else if (activeQuickView === 'Closed') {
+    params.set('closed_only', 'true');
+  } else if (status) {
+    params.set('status', status);
+  }
   if (priority) params.set('priority', priority);
   if (workType) params.set('work_type', workType);
-  if (location) params.set('location_group', location);
   if (team) params.set('team_id', team);
+  if (locationFilterAssetId) params.set('asset_id', locationFilterAssetId);
   if (search) params.set('search', search);
-  document.getElementById('filterCount').textContent =
-    [status, priority, workType, location, team, search].filter(Boolean).length
-      ? `(${[status, priority, workType, location, team, search].filter(Boolean).length} active)` : '';
+  const activeCount = [activeQuickView, priority, workType, team, locationFilterAssetId, search]
+    .filter(Boolean).length + (status && !activeQuickView ? 1 : 0);
+  document.getElementById('filterCount').textContent = activeCount ? `(${activeCount} active)` : '';
   return params;
 }
 
 let debounceTimer;
 function debouncedLoad(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(load, 300); }
 
+// Enhancement backlog Phase 19 (PRD §17#14): currentFilterParams() now
+// returns the raw filter state once, so both the /dashboard/* calls
+// (which use scope=program) and the /work-orders inbox call (which has
+// no scope concept, only location_group) can build their own param
+// sets from the same underlying state without re-reading the DOM twice
+// or duplicating the quick-view logic.
+function currentFilterState(){
+  const status = document.getElementById('fStatus').value;
+  return {
+    status: activeQuickView === 'Requested' ? 'Requested' : (activeQuickView ? '' : status),
+    excludeClosed: activeQuickView === 'Active',
+    closedOnly: activeQuickView === 'Closed',
+    priority: document.getElementById('fPriority').value,
+    workType: document.getElementById('fWorkType').value,
+    team: document.getElementById('fTeam').value,
+    search: document.getElementById('fSearch').value,
+    assetId: locationFilterAssetId,
+  };
+}
+
+function currentFilterParams(){
+  const s = currentFilterState();
+  const params = new URLSearchParams();
+  params.set('scope', currentScope);
+  if (s.status) params.set('status', s.status);
+  if (s.excludeClosed) params.set('exclude_closed', 'true');
+  if (s.closedOnly) params.set('closed_only', 'true');
+  if (s.priority) params.set('priority', s.priority);
+  if (s.workType) params.set('work_type', s.workType);
+  if (s.team) params.set('team_id', s.team);
+  if (s.assetId) params.set('asset_id', s.assetId);
+  if (s.search) params.set('search', s.search);
+  const activeCount = [activeQuickView, s.priority, s.workType, s.team, s.assetId, s.search]
+    .filter(Boolean).length + (s.status && !activeQuickView ? 1 : 0);
+  document.getElementById('filterCount').textContent = activeCount ? `(${activeCount} active)` : '';
+  return params;
+}
+
+function inboxFilterParams(){
+  const s = currentFilterState();
+  const params = new URLSearchParams();
+  // Enhancement backlog Phase 19 (PRD §17#14): GET /work-orders has no
+  // `scope` concept of its own — location_group is the exact same
+  // reporting-group filter _apply_filters' scope="program" branch uses
+  // internally, so this keeps the inbox locked to the same scope as
+  // everything else on this page.
+  //
+  // Enhancement backlog Phase 26 (§17 follow-up, 8/2/26): made
+  // conditional — the Main LOC dashboard (scope="main") uses this same
+  // template with SCOPE_LOCATION_GROUP set to null, meaning "every
+  // reporting group, no restriction," so it must NOT send a
+  // location_group param at all rather than sending the literal string
+  // "null".
+  if (SCOPE_LOCATION_GROUP) params.set('location_group', SCOPE_LOCATION_GROUP);
+  if (s.status) params.set('status', s.status);
+  if (s.excludeClosed) params.set('exclude_closed', 'true');
+  if (s.closedOnly) params.set('closed_only', 'true');
+  if (s.priority) params.set('priority', s.priority);
+  if (s.workType) params.set('work_type', s.workType);
+  if (s.team) params.set('team_id', s.team);
+  if (s.assetId) params.set('asset_id', s.assetId);
+  if (s.search) params.set('search', s.search);
+  params.set('limit', '500');
+  return params;
+}
+
 async function load(){
   const params = currentFilterParams();
-  let kpis, breakdowns, trend, attention;
+  // Enhancement backlog Phase 19 follow-up (7/31/26): the 4 KPI tiles
+  // must always report the true totals for the whole reporting group —
+  // scope only, nothing else — not shift every time a filter or a
+  // quick-view tile is applied. Previously this used the same
+  // currentFilterParams() as breakdowns/trend/inbox, so e.g. picking a
+  // priority in the filter bar made "Total" silently mean "total
+  // matching that priority" instead of the true reporting-group total.
+  // Kept as a fully separate request/param set on purpose, rather than
+  // trying to reuse currentFilterParams() with pieces stripped out — the
+  // two have fundamentally different jobs now (fixed overview vs.
+  // filterable drill-down) and conflating them again is exactly how
+  // this bug happened the first time.
+  const scopeOnlyParams = new URLSearchParams();
+  scopeOnlyParams.set('scope', currentScope);
+
+  let kpis, breakdowns, trend, inboxWos;
   try {
-    [kpis, breakdowns, trend, attention] = await Promise.all([
-      api(`/dashboard/kpis?${params.toString()}`),
+    [kpis, breakdowns, trend, inboxWos] = await Promise.all([
+      api(`/dashboard/kpis?${scopeOnlyParams.toString()}`),
       api(`/dashboard/breakdowns?${params.toString()}`),
       api(`/dashboard/trend?${params.toString()}&days=14`),
-      api(`/dashboard/attention?${params.toString()}&limit=15`),
+      api(`/work-orders?${inboxFilterParams().toString()}`),
     ]);
   } catch (e) {
     if (e.message !== 'session expired') showToast('Could not refresh dashboard: ' + e.message, 'err');
@@ -274,16 +466,25 @@ async function load(){
   renderBars('byLocation', breakdowns.by_location);
   renderTeamTable(breakdowns.by_team, breakdowns.by_status);
   renderTrend(trend);
-  renderAttention(attention);
+  LAST_INBOX_WOS = inboxWos;
+  renderInbox(sortInboxWos(inboxWos));
 }
 
+// Enhancement backlog Phase 19 (PRD §17#14): simplified to the 4 tiles
+// explicitly requested — Total/Requested/Active/Closed — dropping the
+// richer LOC triage-style tile row (Urgent Open, Completion Rate,
+// Opened/Closed Today) for this "simple tiles" informational view. All
+// four are clickable filters, same pattern as LOC triage's KPI row.
 function renderStats(k){
   const items = [
-    {num:k.total, lbl:'Total'}, {num:k.requested, lbl:'Requested'}, {num:k.open, lbl:'Open / Active'},
-    {num:k.highest_high_open, lbl:'Highest+High Open'}, {num:k.closed, lbl:'Closed'},
-    {num:k.completion_rate+'%', lbl:'Completion Rate'}, {num:k.opened_today, lbl:'Opened Today'}, {num:k.closed_today, lbl:'Closed Today'},
+    {num:k.total, lbl:'Total WO', key:''},
+    {num:k.requested, lbl:'Requested', key:'Requested'},
+    {num:k.open, lbl:'Active', key:'Active'},
+    {num:k.closed, lbl:'Closed', key:'Closed'},
   ];
-  document.getElementById('statRow').innerHTML = items.map(i=>`<div class="stat"><div class="num">${i.num}</div><div class="lbl">${i.lbl}</div></div>`).join('');
+  document.getElementById('statRow').innerHTML = items.map(i =>
+    `<div class="stat" onclick="applyQuickView('${i.key}')" style="cursor:pointer;${activeQuickView===i.key?'border-color:var(--pine);':''}"><div class="num">${i.num}</div><div class="lbl">${i.lbl}</div></div>`
+  ).join('');
 }
 
 function renderBars(elId, dataObj, order){
@@ -343,23 +544,144 @@ function renderTrend(trend){
   `;
 }
 
-function renderAttention(rows){
-  const tbody = document.getElementById('attentionBody');
-  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-note">Nothing needs attention right now.</td></tr>'; return; }
-  const now = Date.now();
-  tbody.innerHTML = rows.map(w => {
-    const ageMs = now - new Date(w.created_at).getTime();
-    const hours = Math.floor(ageMs / 3600000);
-    const age = hours < 24 ? `${hours}h` : `${Math.floor(hours/24)}d ${hours%24}h`;
-    return `<tr>
+// Enhancement backlog Phase 19 (PRD §17#14): full sortable inbox,
+// replacing the old top-15-urgent "Needing attention" table. No
+// age/elapsed-time column — explicit requirement, this dashboard shows
+// no aging or SLA information anywhere. Read-only: no click handler on
+// rows, nothing here opens an edit view.
+function setSort(key){
+  if (currentSort.key === key) {
+    currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    currentSort = {key, dir: 'asc'};
+  }
+  ['wo_number','priority','status','created_at'].forEach(k => {
+    document.getElementById('sortIcon-' + k).textContent = '';
+  });
+  document.getElementById('sortIcon-' + key).textContent = currentSort.dir === 'asc' ? '▲' : '▼';
+  renderInbox(sortInboxWos(LAST_INBOX_WOS));
+}
+
+function sortInboxWos(wos){
+  if (!currentSort.key) return wos;
+  const key = currentSort.key;
+  const dir = currentSort.dir === 'asc' ? 1 : -1;
+  return [...wos].sort((a, b) => {
+    let av, bv;
+    if (key === 'wo_number') { av = parseInt(a.wo_number, 10) || 0; bv = parseInt(b.wo_number, 10) || 0; }
+    else if (key === 'priority') { av = PRIORITY_ORDER[a.priority] ?? 99; bv = PRIORITY_ORDER[b.priority] ?? 99; }
+    else if (key === 'created_at') { av = new Date(a.created_at).getTime(); bv = new Date(b.created_at).getTime(); }
+    else { av = a[key] || ''; bv = b[key] || ''; }
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
+  });
+}
+
+function renderInbox(rows){
+  const countEl = document.getElementById('inboxCount');
+  if (countEl) countEl.textContent = `(${rows.length})`;
+  const tbody = document.getElementById('inboxBody');
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-note">No work orders match the current filters.</td></tr>'; return; }
+  // Enhancement backlog Phase 19 follow-up (7/31/26): rows are
+  // clickable to a read-only detail view (openDetail below) — "no
+  // editing" in the original spec meant no Save/status-change/notes
+  // controls, not "nothing happens when you click a row." That gap
+  // meant clicking a row previously did nothing at all.
+  tbody.innerHTML = rows.map(w => `<tr class="inbox-row" onclick="openDetail(${w.id})">
       <td>${escapeHtml(w.wo_number)}</td>
       <td><span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span></td>
       <td>${w.status}</td>
       <td style="white-space:pre-wrap;">${escapeHtml((w.description||'').slice(0,90))}</td>
       <td>${escapeHtml(w.asset ? w.asset.name : '')}</td>
-      <td>${age}</td>
-    </tr>`;
-  }).join('');
+      <td>${new Date(w.created_at).toLocaleString()}</td>
+    </tr>`).join('');
+}
+
+// Enhancement backlog Phase 19 follow-up (7/31/26): read-only WO detail
+// view. Deliberately no Save/Cancel, no editable inputs anywhere in
+// this — matches the spec's "everything view-only" requirement, while
+// still letting someone actually see the full record.
+let detailPinMap = null;
+
+async function openDetail(id){
+  let w;
+  try {
+    w = await api(`/work-orders/${id}`);
+  } catch (e) {
+    if (e.message !== 'session expired') showToast('Could not load work order: ' + e.message, 'err');
+    return;
+  }
+
+  const notesHtml = (w.notes || []).slice().reverse().map(n => `
+    <div class="note">${escapeHtml(n.note_text)}
+      <div class="meta">${n.note_type} &middot; ${n.author ? escapeHtml(n.author.name) : 'system'} &middot; ${new Date(n.created_at).toLocaleString()}</div>
+    </div>`).join('') || '<div class="empty-note">No notes.</div>';
+
+  const histHtml = (w.history || []).slice().reverse().map(h => `
+    <div class="hist">${h.event_type}: ${h.from_value ? escapeHtml(h.from_value) + ' → ' : ''}${escapeHtml(h.to_value)} &middot; ${new Date(h.changed_at).toLocaleString()}</div>
+  `).join('') || '<div class="empty-note">No history.</div>';
+
+  const attachmentsHtml = (w.attachments || []).length
+    ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;">` + w.attachments.map(a => {
+        const isPdf = /\.pdf($|\?)/i.test(a.file_url);
+        if (isPdf) {
+          return `<a href="${a.file_url}" target="_blank" rel="noopener" style="width:60px;height:60px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:9px;color:var(--ink-soft);text-decoration:none;">📄<span>PDF</span></a>`;
+        }
+        return `<a href="${a.file_url}" target="_blank" rel="noopener" style="position:relative;width:60px;height:60px;display:block;">
+          <img src="${a.file_url}" alt="attachment" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--khaki-line);" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+          <span style="display:none;width:60px;height:60px;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:6px;border:1px solid var(--khaki-line);background:#F1EDDF;font-size:8px;color:var(--ink-soft);text-align:center;">🖼️<span>Can't preview</span></span>
+        </a>`;
+      }).join('') + `</div>`
+    : '';
+
+  const hasPin = w.latitude != null && w.longitude != null;
+  const pinHtml = hasPin ? `
+    <div class="field">
+      <label>Pinned location <a href="https://www.openstreetmap.org/?mlat=${w.latitude}&mlon=${w.longitude}&zoom=17" target="_blank" rel="noopener" style="font-weight:400;">Open full map ↗</a></label>
+      <div id="detailPinMap"></div>
+    </div>` : '';
+
+  document.getElementById('detailModal').innerHTML = `
+    <button class="close-btn" onclick="closeDetail()">×</button>
+    <h2>${escapeHtml(w.wo_number)}${w.external_ref ? ` <span style="font-size:11px;font-weight:400;color:var(--ink-soft);">(Fiix #${escapeHtml(w.external_ref)})</span>` : ''}</h2>
+    <div class="sub">${escapeHtml(w.work_type || 'No work type')} &middot; <span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span> &middot; ${escapeHtml(w.status)}</div>
+
+    <div class="field"><label>Location</label><div class="val">${escapeHtml(w.asset ? w.asset.name : '—')}</div></div>
+    <div class="field"><label>Description</label><div class="val">${escapeHtml(w.description)}</div></div>
+    <div class="field"><label>Requester</label><div class="val">${escapeHtml(w.requester_name)}${w.requester_phone ? ' · ' + escapeHtml(w.requester_phone) : ''}${w.requester_email ? ' · ' + escapeHtml(w.requester_email) : ''}</div></div>
+    ${!w.poc_is_requester && w.poc_name ? `<div class="field"><label>Point of contact</label><div class="val">${escapeHtml(w.poc_name)}${w.poc_phone ? ' · ' + escapeHtml(w.poc_phone) : ''}</div></div>` : ''}
+    <div class="field"><label>Assigned team</label><div class="val">${w.assigned_team ? escapeHtml(w.assigned_team.name) : '— unassigned —'}</div></div>
+    <div class="field"><label>Submitted</label><div class="val">${new Date(w.created_at).toLocaleString()}</div></div>
+    ${w.closed_at ? `<div class="field"><label>Closed</label><div class="val">${new Date(w.closed_at).toLocaleString()}</div></div>` : ''}
+    ${w.note_to_requester ? `<div class="field"><label>Note to requester</label><div class="val">${escapeHtml(w.note_to_requester)}</div></div>` : ''}
+    ${attachmentsHtml}
+    ${pinHtml}
+
+    <hr class="divider">
+    <div class="field"><label>Notes</label></div>
+    ${notesHtml}
+    <div class="field" style="margin-top:14px;"><label>Status history</label></div>
+    ${histHtml}
+  `;
+
+  document.getElementById('detailModal').classList.add('open');
+  document.getElementById('detailBackdrop').classList.add('open');
+
+  if (hasPin) {
+    if (detailPinMap) { detailPinMap.remove(); detailPinMap = null; }
+    detailPinMap = L.map('detailPinMap', {zoomControl: false}).setView([w.latitude, w.longitude], 16);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '&copy; OpenStreetMap contributors',
+    }).addTo(detailPinMap);
+    L.marker([w.latitude, w.longitude]).addTo(detailPinMap);
+  }
+}
+
+function closeDetail(){
+  document.getElementById('detailModal').classList.remove('open');
+  document.getElementById('detailBackdrop').classList.remove('open');
+  if (detailPinMap) { detailPinMap.remove(); detailPinMap = null; }
 }
 
 if (TOKEN) boot();
