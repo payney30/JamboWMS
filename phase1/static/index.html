@@ -353,18 +353,24 @@ function logout(){ localStorage.removeItem('loc_token'); TOKEN=''; location.relo
 // filename in the "Save as PDF" print destination.
 //
 // Bug fix (end-to-end testing 8/10/26): reported as "Print / Save as
-// PDF does nothing" on the LOC triage detail screen. Couldn't reproduce
-// against a real browser here to pin down the exact cause, but the
-// print button, its onclick wiring, and the @media print CSS all check
-// out on inspection — window.print() itself was called completely
-// unguarded, so the most likely explanation is a TypeError happening
-// silently: some embedded/kiosk webviews and older mobile browsers
-// don't implement window.print at all, which throws on the call and
-// (from an inline onclick handler) fails with nothing visible on
-// screen — exactly this symptom. Feature-detecting first and wrapping
-// the call so any failure surfaces as a toast instead of silence turns
-// "nothing happens" into something diagnosable either way.
+// PDF does nothing." First pass added a feature-detect + try/catch
+// around window.print() on the theory it was throwing silently — that
+// didn't surface anything either, which rules out "window.print is
+// missing/throws" and points to one of two other causes: (a) the click
+// isn't reaching this function at all (a DOM/overlay/z-index issue), or
+// (b) window.print() IS being called and succeeding without error, but
+// something outside this code is silently suppressing the dialog
+// itself — most plausibly a managed-browser/enterprise policy
+// disabling printing outright (common on locked-down organizational
+// laptops/Chromebooks), which is invisible to JS entirely; there's no
+// exception, no event, nothing to catch. The toast below fires
+// unconditionally the instant this function runs, before anything else
+// — if it's never seen on click, the problem is upstream of this
+// function (event wiring); if it IS seen but no dialog follows, the
+// browser itself is blocking printing and this app has no way to
+// override that.
 function printDrawer(woNumber){
+  showToast('Opening print dialog\u2026', 'ok');
   if (typeof window.print !== 'function') {
     showToast('Printing isn\u2019t supported in this browser — try opening this page in Chrome, Safari, or Edge.', 'err');
     return;
