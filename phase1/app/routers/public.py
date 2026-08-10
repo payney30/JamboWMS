@@ -67,6 +67,22 @@ ALLOWED_CONTENT_TYPES = {
 }
 
 
+def _require_valid_phone(raw: str, field_label: str) -> None:
+    """Bug fix (end-to-end testing 8/10/26): submission previously only
+    checked that requester_phone/poc_phone were non-empty — "123" passed
+    straight through and was stored as-is, which both defeats the phone-
+    anchored status lookup (PRD §13#4) and is exactly the shape of value
+    that fails Twilio's E.164 validation at send time (see PRD backlog,
+    the pending SMS delivery issue). Uses the same minimum-7-digit bar
+    as the existing lookup_public_work_orders check below, rather than a
+    stricter 10-digit rule, to stay consistent with the digits-only
+    matching crud._digits_only already does elsewhere (dashes/parens/
+    spaces/leading "1" are all just formatting, not part of the number)."""
+    digits = crud._digits_only(raw)
+    if len(digits) < 7:
+        raise HTTPException(400, f"enter a valid {field_label} phone number")
+
+
 @router.get("/assets", response_model=list[schemas.PublicAssetOut])
 def list_public_assets(db: Session = Depends(get_db)):
     """Powers the location typeahead on the public form. No auth, and
@@ -151,6 +167,7 @@ async def submit_public_work_order(
         raise HTTPException(400, "email is required")
     if not requester_phone:
         raise HTTPException(400, "phone is required")
+    _require_valid_phone(requester_phone, "contact")
     # Accept the literal strings a plain HTML form submits ('true'/'false');
     # anything else defaults to True (requester is the POC) rather than
     # rejecting the submission over a malformed flag.
@@ -159,6 +176,8 @@ async def submit_public_work_order(
     poc_phone = (poc_phone or "").strip() or None
     if not poc_is_requester_bool and (not poc_name or not poc_phone):
         raise HTTPException(400, "poc_name and poc_phone are required when the requester is not the point of contact")
+    if not poc_is_requester_bool:
+        _require_valid_phone(poc_phone, "point of contact")
     if priority not in schemas.PRIORITIES:
         raise HTTPException(400, f"invalid priority: {priority}")
     crud._validate_work_type(db, work_type)  # request_types table (PRD 4.5c), not the old hardcoded tuple
