@@ -111,6 +111,7 @@ input[type=file]{font-size:13px;}
       <label>Requester Email <span class="required-mark">*</span></label>
       <input type="email" id="rEmail" required autocomplete="email" placeholder="so we can send a confirmation">
       <div class="hint">You'll need this to check your request's status later.</div>
+      <div class="field-err" id="emailSuggest" style="display:none;color:var(--ink-soft);"></div>
 
       <!-- Enhancement backlog Phase 3 (PRD §13#8): auto-format as typed —
            formatPhoneAsTyped() strips non-digits and re-inserts dashes,
@@ -513,6 +514,96 @@ function formatPhoneAsTyped(e){
   e.target.value = out;
 }
 
+// Bug fix (end-to-end testing 8/10/26): "notanemail" is already blocked
+// by the native type=email constraint, but "scott.zwick@gmail.como" and
+// "...@gmail.emails" are syntactically valid — no format check can catch
+// those, they're typos of a real domain. Decision (see options discussed
+// with Graeme): a lightweight, non-blocking "did you mean" suggestion
+// against common providers, same approach as Mailcheck.js — never blocks
+// submission, never false-flags a legitimate-but-uncommon domain (a work
+// email, a small ISP), and has no external/DNS dependency. Deliberately
+// NOT doing MX-record lookups (backend complexity + network dependency +
+// latency on a form the PRD wants submittable in under a minute) or
+// verification emails (conflicts with no-login/no-wait submission goal;
+// phone, not email, is the anchor for lookup/SMS per prior decisions).
+const COMMON_EMAIL_DOMAINS = [
+  'gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com',
+  'aol.com', 'live.com', 'msn.com', 'me.com', 'comcast.net',
+  'verizon.net', 'att.net', 'protonmail.com',
+];
+
+function levenshtein(a, b){
+  const m = a.length, n = b.length;
+  const d = Array.from({length: m + 1}, (_, i) => [i, ...Array(n).fill(0)]);
+  for (let j = 0; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      d[i][j] = a[i-1] === b[j-1]
+        ? d[i-1][j-1]
+        : 1 + Math.min(d[i-1][j], d[i][j-1], d[i-1][j-1]);
+    }
+  }
+  return d[m][n];
+}
+
+// Returns a suggested full email string, or null if the domain looks
+// fine (exact match, or too far from any known provider to guess).
+function suggestEmailCorrection(email){
+  const at = email.lastIndexOf('@');
+  if (at < 1 || at === email.length - 1) return null;
+  const domain = email.slice(at + 1).toLowerCase().trim();
+  if (!domain || COMMON_EMAIL_DOMAINS.includes(domain)) return null;
+
+  // Pass 1: whole-domain edit distance — catches single-character slips
+  // anywhere in the domain (e.g. "gmial.com", "gmail.con").
+  let best = null, bestDist = Infinity;
+  for (const candidate of COMMON_EMAIL_DOMAINS) {
+    const dist = levenshtein(domain, candidate);
+    if (dist < bestDist) { bestDist = dist; best = candidate; }
+  }
+  // Small edit distance relative to a real domain name = likely typo
+  // ("gmail.como" -> "gmail.com" is distance 1). Distance 0 already
+  // returned above; cap at 2 so we don't "correct" an unrelated domain.
+  if (best && bestDist > 0 && bestDist <= 2) {
+    return email.slice(0, at + 1) + best;
+  }
+
+  // Pass 2: exact provider name, wrong/extra-long ending — catches
+  // things whole-domain edit distance is too conservative for, e.g.
+  // "gmail.emails" (distance 5 from "gmail.com", pass 1 won't touch
+  // it) where the person clearly typed the right provider name. Only
+  // fires when the part before the first dot matches a known provider
+  // exactly, so it won't touch an unrelated domain.
+  const firstDot = domain.indexOf('.');
+  if (firstDot > 0) {
+    const base = domain.slice(0, firstDot);
+    const match = COMMON_EMAIL_DOMAINS.find(d => d.slice(0, d.indexOf('.')) === base);
+    if (match && domain !== match) {
+      return email.slice(0, at + 1) + match;
+    }
+  }
+  return null;
+}
+
+function checkEmailSuggestion(){
+  const input = document.getElementById('rEmail');
+  const box = document.getElementById('emailSuggest');
+  const suggestion = suggestEmailCorrection(input.value.trim());
+  if (!suggestion) {
+    box.style.display = 'none';
+    box.innerHTML = '';
+    return;
+  }
+  box.style.display = 'block';
+  box.innerHTML = `Did you mean <strong>${escapeHtml(suggestion)}</strong>? `
+    + `<button type="button" class="btn-ghost" style="padding:2px 8px;font-size:12px;" `
+    + `onclick="document.getElementById('rEmail').value='${suggestion.replace(/'/g, "\\'")}'; `
+    + `document.getElementById('emailSuggest').style.display='none';">Use this</button>`;
+}
+
+document.getElementById('rEmail').addEventListener('blur', checkEmailSuggestion);
+
+
 // Bug fix (end-to-end testing 8/10/26): formatPhoneAsTyped only masks
 // what's typed — it never stopped a short/incomplete entry like "123"
 // from being submitted, and neither the frontend nor the backend
@@ -648,6 +739,8 @@ function resetForm(){
   selectedFiles = [];
   fileErr.textContent = '';
   renderFileList();
+  document.getElementById('emailSuggest').style.display = 'none';
+  document.getElementById('emailSuggest').innerHTML = '';
   if (locationPicker) locationPicker.setValue(null);
   clearPin();
   document.getElementById('formCard').style.display = 'block';
