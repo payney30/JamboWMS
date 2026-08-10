@@ -193,8 +193,56 @@ def test_public_submission_skips_disallowed_file_types_silently(client, asset, d
         files={"files": ("doc.docx", fake_doc, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
     )
     assert resp.status_code == 201  # submission still succeeds
+    assert resp.json()["skipped_files"] == ["doc.docx"]  # but visibly reported, not silent
     wo = db.query(models.WorkOrder).filter(models.WorkOrder.wo_number == resp.json()["wo_number"]).first()
-    assert len(wo.attachments) == 0  # but the disallowed file wasn't kept
+    assert len(wo.attachments) == 0  # and the disallowed file wasn't kept
+
+
+def test_public_submission_accepted_file_reports_no_skipped_files(client, asset):
+    fake_image = io.BytesIO(b"\xff\xd8\xff\xe0not a real jpeg but has a jpeg content-type")
+    resp = client.post(
+        "/public/work-orders",
+        data=_base_form(asset),
+        files={"files": ("photo.jpg", fake_image, "image/jpeg")},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["skipped_files"] == []
+
+
+def test_public_submission_rejects_ico_despite_browser_reported_image_content_type(client, asset, db):
+    """End-to-end testing 8/10/26: a .ico was accepted despite the
+    photo/PDF-only limit. Root cause: content_type is whatever the
+    browser's OS-level MIME lookup claims — client-controlled, not a
+    check of actual bytes — and some browsers/OSes map an icon's
+    extension to an "image/..." type, which both satisfies the
+    <input accept="image/*"> picker filter and slipped past the old
+    content_type-only backend check. This simulates that exact
+    mismatch: a real allowed content_type paired with a disallowed
+    extension — the new extension check (ALLOWED_EXTENSIONS) is what
+    catches it now, independent of what content_type claims."""
+    fake_ico = io.BytesIO(b"\x00\x00\x01\x00not a real ico")
+    resp = client.post(
+        "/public/work-orders",
+        data=_base_form(asset),
+        files={"files": ("favicon.ico", fake_ico, "image/png")},  # spoofed/mismapped content_type
+    )
+    assert resp.status_code == 201
+    assert resp.json()["skipped_files"] == ["favicon.ico"]
+    wo = db.query(models.WorkOrder).filter(models.WorkOrder.wo_number == resp.json()["wo_number"]).first()
+    assert len(wo.attachments) == 0
+
+
+def test_public_submission_rejects_font_file(client, asset, db):
+    fake_font = io.BytesIO(b"\x00\x01\x00\x00not a real ttf")
+    resp = client.post(
+        "/public/work-orders",
+        data=_base_form(asset),
+        files={"files": ("icon.ttf", fake_font, "font/ttf")},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["skipped_files"] == ["icon.ttf"]
+    wo = db.query(models.WorkOrder).filter(models.WorkOrder.wo_number == resp.json()["wo_number"]).first()
+    assert len(wo.attachments) == 0
 
 
 def test_public_submission_rejects_more_than_five_files(client, asset, db):
