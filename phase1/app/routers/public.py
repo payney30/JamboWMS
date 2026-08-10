@@ -66,6 +66,20 @@ ALLOWED_CONTENT_TYPES = {
     "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif",
     "application/pdf",
 }
+# Bug fix (end-to-end testing 8/10/26): a .ico and a .tff (font) were
+# both accepted despite the photo/PDF-only limit. Root cause: the
+# `content_type` on an uploaded file is whatever the browser's OS-level
+# MIME lookup claims it is, not a check of the actual bytes — it's
+# client-controlled and inconsistent across browsers/OSes. An .ico
+# extension commonly maps to an "image/..." content-type in that lookup
+# (icons are images), which the browser's own <input accept="image/*">
+# picker filter then treats as satisfying "image/*" and lets the person
+# select it in the first place, even though it isn't one of the specific
+# image formats this system actually supports. Checking the extension
+# too, in addition to content_type, closes that gap without a heavier
+# fix (e.g. inspecting file magic bytes), which isn't warranted for the
+# reasonable amount of resilience this needs.
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".pdf"}
 
 
 def _require_valid_phone(raw: str, field_label: str) -> None:
@@ -236,22 +250,25 @@ async def submit_public_work_order(
         ),
     )
 
+    skipped_files: list[str] = []
     for f in files:
         if not f.filename:
             continue
-        if f.content_type not in ALLOWED_CONTENT_TYPES:
-            continue  # skip anything that isn't a photo rather than fail the whole submission
+        ext = os.path.splitext(f.filename)[1].lower()
+        if f.content_type not in ALLOWED_CONTENT_TYPES or ext not in ALLOWED_EXTENSIONS:
+            skipped_files.append(f.filename)
+            continue  # skip anything that isn't a photo/PDF rather than fail the whole submission
         contents = await f.read()
         if len(contents) > MAX_FILE_BYTES:
+            skipped_files.append(f.filename)
             continue
-        ext = os.path.splitext(f.filename)[1][:10]
-        safe_name = f"{wo.wo_number}-{uuid.uuid4().hex}{ext}"
+        safe_name = f"{wo.wo_number}-{uuid.uuid4().hex}{ext[:10]}"
         with open(os.path.join(UPLOAD_DIR, safe_name), "wb") as out:
             out.write(contents)
         crud.add_attachment(db, wo, f"/uploads/{safe_name}")
 
     rate_limit.record_public_submission(client_ip)
-    return schemas.PublicWorkOrderConfirmation(wo_number=wo.wo_number)
+    return schemas.PublicWorkOrderConfirmation(wo_number=wo.wo_number, skipped_files=skipped_files)
 
 
 @router.get("/work-orders/lookup", response_model=List[schemas.PublicWorkOrderStatus])
