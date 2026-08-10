@@ -1018,7 +1018,7 @@ function renderWODrawer(w, lockBanner){
         ? `<button class="btn" id="saveDrawerBtn" onclick="saveDrawer()">Save changes</button>
            <button class="btn btn-ghost" onclick="closeDrawer()">Cancel</button>`
         : `<button class="btn btn-ghost" onclick="closeDrawer()">Close</button>`}
-      <button class="btn btn-ghost" onclick="printDrawer(${JSON.stringify(w.wo_number)})">Print / Save as PDF</button>
+      <button class="btn btn-ghost" onclick="printDrawer('${escapeHtml(w.wo_number)}')">Print / Save as PDF</button>
     </div>
 
     <!-- Enhancement backlog Phase 11 (PRD §14#27): visual separation
