@@ -57,6 +57,11 @@ textarea{min-height:110px;resize:vertical;}
 
 .file-row{display:flex;align-items:center;gap:10px;}
 input[type=file]{font-size:13px;}
+.file-chip{display:flex;align-items:center;justify-content:space-between;background:#fff;
+  border:1px solid var(--khaki-line);border-radius:6px;padding:6px 10px;font-size:13px;margin-top:6px;}
+.file-chip .file-meta{color:var(--ink-soft);}
+.file-chip button{background:none;border:none;color:var(--hivis);font-weight:700;font-size:16px;
+  line-height:1;padding:0 0 0 12px;cursor:pointer;}
 
 .btn{background:var(--pine);color:#fff;border:none;border-radius:8px;padding:14px 18px;font-size:15px;font-weight:600;
   cursor:pointer;width:100%;font-family:var(--font-body);}
@@ -172,6 +177,8 @@ input[type=file]{font-size:13px;}
       <label>Photos or documents (optional)</label>
       <div class="file-row"><input type="file" id="rFiles" accept="image/*,application/pdf" multiple></div>
       <div class="hint">Up to 5 files, 10&nbsp;MB each (photos or PDFs) — helps the team see what they're walking into.</div>
+      <div id="rFileList"></div>
+      <div class="field-err" id="fileErr"></div>
 
       <!-- Honeypot: real people never see this field or fill it in. -->
       <div class="hp-field" aria-hidden="true">
@@ -352,6 +359,59 @@ function escapeHtml(s){
   return d.innerHTML;
 }
 
+// Bug fix (end-to-end testing 8/10/26): native <input type=file multiple>
+// has no way to remove a single file after selection, and reopening the
+// picker replaces the whole FileList rather than adding to it — so a
+// second selection silently wiped out the first. We keep our own
+// `selectedFiles` array as the source of truth, merge each new picker
+// selection into it (capped at MAX_FILES, deduped by name+size+mtime),
+// render removable chips, and always clear the native input's value so
+// the next `change` event fires even if the same filename is picked again.
+const MAX_FILES = 5;
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+let selectedFiles = [];
+const rFilesInput = document.getElementById('rFiles');
+const rFileList = document.getElementById('rFileList');
+const fileErr = document.getElementById('fileErr');
+
+function renderFileList(){
+  rFileList.innerHTML = selectedFiles.map((f, idx) => {
+    const kb = (f.size / 1024).toFixed(0);
+    return `<div class="file-chip">
+      <span>${escapeHtml(f.name)} <span class="file-meta">(${kb}&nbsp;KB)</span></span>
+      <button type="button" aria-label="Remove ${escapeHtml(f.name)}" onclick="removeSelectedFile(${idx})">&times;</button>
+    </div>`;
+  }).join('');
+}
+
+function removeSelectedFile(idx){
+  selectedFiles.splice(idx, 1);
+  fileErr.textContent = '';
+  renderFileList();
+}
+
+rFilesInput.addEventListener('change', () => {
+  const incoming = Array.from(rFilesInput.files);
+  let msg = '';
+  for (const f of incoming) {
+    if (selectedFiles.length >= MAX_FILES) {
+      msg = `You can attach up to ${MAX_FILES} files — remove one to add another.`;
+      break;
+    }
+    if (f.size > MAX_FILE_SIZE) {
+      msg = `"${f.name}" is over 10 MB and wasn't added.`;
+      continue;
+    }
+    const isDup = selectedFiles.some(sf =>
+      sf.name === f.name && sf.size === f.size && sf.lastModified === f.lastModified);
+    if (isDup) continue;
+    selectedFiles.push(f);
+  }
+  fileErr.textContent = msg;
+  rFilesInput.value = ''; // let the same file be re-picked later; our array is the source of truth
+  renderFileList();
+});
+
 // Enhancement backlog Phase 3 (PRD §13#8): reformats a phone input to
 // xxx-xxx-xxxx as the person types, regardless of whether they type the
 // dashes themselves (or paste a bare 10-digit number). Simple left-to-
@@ -531,8 +591,7 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
     formData.set('latitude', pin.lat);
     formData.set('longitude', pin.lng);
   }
-  const files = document.getElementById('rFiles').files;
-  for (let i = 0; i < files.length; i++) formData.append('files', files[i]);
+  for (const f of selectedFiles) formData.append('files', f);
 
   try {
     const res = await fetch('/public/work-orders', {method: 'POST', body: formData});
@@ -564,6 +623,9 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
 
 function resetForm(){
   document.getElementById('woForm').reset();
+  selectedFiles = [];
+  fileErr.textContent = '';
+  renderFileList();
   if (locationPicker) locationPicker.setValue(null);
   clearPin();
   document.getElementById('formCard').style.display = 'block';
