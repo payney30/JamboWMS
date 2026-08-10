@@ -1085,6 +1085,26 @@ async function saveDrawer(){
     new_note_type: 'internal',
   };
 
+  // Enhancement backlog (LOC triage 8/10/26): assigning a team while
+  // leaving status as "Requested" is almost always an oversight — the
+  // natural next step after picking a team is moving status forward
+  // (typically to "Assigned"), and it's easy to save without touching
+  // the status dropdown right below it. Warn rather than silently
+  // saving that combination, but don't block it outright — some real
+  // workflows do want to pre-assign a team while keeping the WO in the
+  // queue a little longer, so confirming still saves it as entered.
+  if (payload.team_id && payload.status === 'Requested') {
+    const proceed = confirm(
+      'A team is assigned but the status is still "Requested." Did you mean to update the status too (e.g. to "Assigned")?\n\n' +
+      'Click Cancel to go back and change it, or OK to save it as-is.'
+    );
+    if (!proceed) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save changes'; }
+      document.getElementById('dStatus').focus();
+      return false;
+    }
+  }
+
   try {
     await api(`/work-orders/${id}/save`, {method:'POST', body:payload});
     showToast('Work order saved.', 'ok');
