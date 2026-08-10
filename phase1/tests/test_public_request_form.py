@@ -74,6 +74,26 @@ def test_public_submission_requires_phone(client, asset):
     assert resp2.status_code == 400
 
 
+def test_public_submission_rejects_obviously_invalid_phone(client, asset, db):
+    """End-to-end testing 8/10/26: "123" was previously accepted outright
+    — requester_phone only had a non-empty check, no format/length
+    validation. Same minimum-7-digit bar as the existing phone-lookup
+    endpoint (crud._digits_only + the len(digits) < 7 check below)."""
+    before = db.query(models.WorkOrder).count()
+    resp = client.post("/public/work-orders", data=_base_form(asset, requester_phone="123"))
+    assert resp.status_code == 400
+    after = db.query(models.WorkOrder).count()
+    assert after == before  # rejected before any WO was created
+
+
+def test_public_submission_accepts_seven_digit_phone(client, asset):
+    """Matches the fixture convention used throughout this test module
+    ("555-0100" etc, 7 digits) and the lookup endpoint's own bar — not a
+    stricter 10-digit rule."""
+    resp = client.post("/public/work-orders", data=_base_form(asset, requester_phone="555-0100"))
+    assert resp.status_code == 201
+
+
 def test_public_submission_rejects_invalid_priority(client, asset):
     resp = client.post("/public/work-orders", data=_base_form(asset, priority="Whenever"))
     assert resp.status_code == 400
@@ -475,6 +495,19 @@ def test_poc_not_requester_requires_name_and_phone(client, asset):
         data=_base_form(asset, poc_is_requester="false", poc_name="Area Lead"),
     )
     assert resp2.status_code == 400  # phone still missing
+
+
+def test_poc_not_requester_rejects_invalid_phone(client, asset, db):
+    """End-to-end testing 8/10/26 follow-up: poc_phone had the same gap
+    as requester_phone — only checked non-empty, not format."""
+    before = db.query(models.WorkOrder).count()
+    resp = client.post(
+        "/public/work-orders",
+        data=_base_form(asset, poc_is_requester="false", poc_name="Area Lead", poc_phone="123"),
+    )
+    assert resp.status_code == 400
+    after = db.query(models.WorkOrder).count()
+    assert after == before
 
 
 def test_poc_not_requester_persists_name_and_phone(client, asset, db):
