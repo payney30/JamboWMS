@@ -9,6 +9,7 @@
   --pine:#1C3829; --pine-deep:#122A1D; --canvas:#EFEADC; --canvas-panel:#FBF8F0;
   --khaki-line:#D8CFB6; --ink:#241F14; --ink-soft:#5B5340; --hivis:#E8620C; --hivis-soft:#F4A25E;
   --amber:#C9962B; --olive:#5C7A4A; --moss:#3E6B4F; --slate:#5A7385; --closed:#7A8471;
+  --danger-bg:#FBE4D6;
   --font-display: 'Oswald', 'Arial Narrow', 'Helvetica Neue', sans-serif;
   --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'SF Mono', 'Consolas', 'Menlo', monospace;
@@ -51,7 +52,14 @@ table{width:100%;border-collapse:collapse;font-size:12px;}
 th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--khaki-line);}
 th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:var(--ink-soft);}
 .chip{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;}
-.chip-Immediate,.chip-Same-Day{background:#FBE4D6;color:var(--hivis);}
+/* Bug fix (end-to-end testing 8/10/26): only Immediate/Same Day had a
+   color token — Next Day/2 Days/3 Days fell back to no color rule at
+   all (default chip styling). These now match the exact tokens/hex
+   values used throughout the rest of the system (index.html,
+   technician.html) rather than inventing a separate palette here. */
+.chip-Immediate,.chip-Same-Day{background:var(--danger-bg);color:var(--hivis);}
+.chip-Next-Day{background:#FBF0D6;color:var(--amber);}
+.chip-2-Days,.chip-3-Days{background:#E7E4DC;color:var(--ink-soft);}
 .empty-note{color:var(--ink-soft);font-size:12px;padding:8px 0;}
 
 #toastStack{position:fixed;bottom:16px;left:16px;right:16px;z-index:50;display:flex;flex-direction:column;gap:8px;align-items:center;}
@@ -157,7 +165,7 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
         <th class="sortable" onclick="setSort('priority')" style="cursor:pointer;">Priority <span id="sortIcon-priority"></span></th>
         <th class="sortable" onclick="setSort('status')" style="cursor:pointer;">Status <span id="sortIcon-status"></span></th>
         <th>Description</th>
-        <th>Location</th>
+        <th class="sortable" onclick="setSort('location')" style="cursor:pointer;">Location <span id="sortIcon-location"></span></th>
         <th class="sortable" onclick="setSort('created_at')" style="cursor:pointer;">Submitted <span id="sortIcon-created_at"></span></th>
       </tr></thead>
       <tbody id="inboxBody"></tbody>
@@ -318,40 +326,12 @@ function clearFilters(){
 
 // Enhancement backlog Phase 19 (PRD §17#14): clicking a KPI tile sets
 // this, same pattern as LOC triage — Total clears it, Requested sets a
-// plain status filter, Active/Closed map to exclude_closed/closed_only
-// (booleans currentFilterParams below translates into request params).
+// plain status filter, Active/Closed map to status_in/closed_only
+// (currentFilterState below translates into request params).
 function applyQuickView(key){
   activeQuickView = key;
   document.getElementById('fStatus').value = '';
   load();
-}
-
-function currentFilterParams(){
-  const params = new URLSearchParams();
-  params.set('scope', currentScope);
-  const status = document.getElementById('fStatus').value;
-  const priority = document.getElementById('fPriority').value;
-  const workType = document.getElementById('fWorkType').value;
-  const team = document.getElementById('fTeam').value;
-  const search = document.getElementById('fSearch').value;
-  if (activeQuickView === 'Requested') {
-    params.set('status', 'Requested');
-  } else if (activeQuickView === 'Active') {
-    params.set('exclude_closed', 'true');
-  } else if (activeQuickView === 'Closed') {
-    params.set('closed_only', 'true');
-  } else if (status) {
-    params.set('status', status);
-  }
-  if (priority) params.set('priority', priority);
-  if (workType) params.set('work_type', workType);
-  if (team) params.set('team_id', team);
-  if (locationFilterAssetId) params.set('asset_id', locationFilterAssetId);
-  if (search) params.set('search', search);
-  const activeCount = [activeQuickView, priority, workType, team, locationFilterAssetId, search]
-    .filter(Boolean).length + (status && !activeQuickView ? 1 : 0);
-  document.getElementById('filterCount').textContent = activeCount ? `(${activeCount} active)` : '';
-  return params;
 }
 
 let debounceTimer;
@@ -367,7 +347,14 @@ function currentFilterState(){
   const status = document.getElementById('fStatus').value;
   return {
     status: activeQuickView === 'Requested' ? 'Requested' : (activeQuickView ? '' : status),
-    excludeClosed: activeQuickView === 'Active',
+    // Bug fix (end-to-end testing 8/10/26): "Active" was exclude_closed
+    // (plain "not closed"), which silently included Requested — which
+    // has its own separate tile right next to this one. Per the same
+    // explicit spec LOC triage's Open/Active tile already follows
+    // (index.html): Active means specifically Assigned, On Hold, or
+    // Work In Progress. See app/routers/dashboard.py's status_in param
+    // (newly exposed there — crud._apply_filters already supported it).
+    statusIn: activeQuickView === 'Active' ? 'Assigned,On Hold,Work In Progress' : '',
     closedOnly: activeQuickView === 'Closed',
     priority: document.getElementById('fPriority').value,
     workType: document.getElementById('fWorkType').value,
@@ -382,7 +369,7 @@ function currentFilterParams(){
   const params = new URLSearchParams();
   params.set('scope', currentScope);
   if (s.status) params.set('status', s.status);
-  if (s.excludeClosed) params.set('exclude_closed', 'true');
+  if (s.statusIn) params.set('status_in', s.statusIn);
   if (s.closedOnly) params.set('closed_only', 'true');
   if (s.priority) params.set('priority', s.priority);
   if (s.workType) params.set('work_type', s.workType);
@@ -412,7 +399,7 @@ function inboxFilterParams(){
   // "null".
   if (SCOPE_LOCATION_GROUP) params.set('location_group', SCOPE_LOCATION_GROUP);
   if (s.status) params.set('status', s.status);
-  if (s.excludeClosed) params.set('exclude_closed', 'true');
+  if (s.statusIn) params.set('status_in', s.statusIn);
   if (s.closedOnly) params.set('closed_only', 'true');
   if (s.priority) params.set('priority', s.priority);
   if (s.workType) params.set('work_type', s.workType);
@@ -555,7 +542,7 @@ function setSort(key){
   } else {
     currentSort = {key, dir: 'asc'};
   }
-  ['wo_number','priority','status','created_at'].forEach(k => {
+  ['wo_number','priority','status','location','created_at'].forEach(k => {
     document.getElementById('sortIcon-' + k).textContent = '';
   });
   document.getElementById('sortIcon-' + key).textContent = currentSort.dir === 'asc' ? '▲' : '▼';
@@ -571,6 +558,12 @@ function sortInboxWos(wos){
     if (key === 'wo_number') { av = parseInt(a.wo_number, 10) || 0; bv = parseInt(b.wo_number, 10) || 0; }
     else if (key === 'priority') { av = PRIORITY_ORDER[a.priority] ?? 99; bv = PRIORITY_ORDER[b.priority] ?? 99; }
     else if (key === 'created_at') { av = new Date(a.created_at).getTime(); bv = new Date(b.created_at).getTime(); }
+    // Bug fix (end-to-end testing 8/10/26): Location wasn't sortable at
+    // all — no header wiring and no case here. The displayed value
+    // (renderInbox below) is a.asset.name, not a direct field on the WO
+    // row, so this needs its own case rather than falling through to
+    // the generic a[key] branch.
+    else if (key === 'location') { av = (a.asset ? a.asset.name : '') || ''; bv = (b.asset ? b.asset.name : '') || ''; }
     else { av = a[key] || ''; bv = b[key] || ''; }
     if (av < bv) return -1 * dir;
     if (av > bv) return 1 * dir;
