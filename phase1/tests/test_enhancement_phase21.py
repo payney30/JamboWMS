@@ -73,6 +73,113 @@ def test_deactivated_worker_stays_hidden_from_default_list(client, tech_user, db
     assert worker_id not in [w["id"] for w in resp.json()]
 
 
+# ---- Assignable team members (end-to-end testing 8/10/26) ----
+# GET /my-team/assignable backs both the technician queue's worker
+# filter and the drawer's "Task to worker" dropdown — see
+# crud.list_assignable_team_members. Distinct from /my-team/workers
+# above: includes 'tech' (Dispatcher) accounts too, not just
+# task_workers, matching what crud.assign_work_order actually allows.
+
+def test_assignable_includes_task_workers_and_dispatchers_on_own_team(
+    client, tech_user, db, team, tech_auth_headers
+):
+    crud.create_task_worker(db, team.id, schemas.TaskWorkerCreate(name="Jordan"))
+    other_dispatcher = models.User(
+        name="Other Dispatcher", email="other-dispatcher@test.local",
+        password_hash="x", role="tech", team_id=team.id,
+    )
+    db.add(other_dispatcher)
+    db.commit()
+
+    resp = client.get("/my-team/assignable", headers=tech_auth_headers)
+    assert resp.status_code == 200
+    names = {p["name"] for p in resp.json()}
+    assert "Jordan" in names  # task_worker
+    assert "Other Dispatcher" in names  # tech
+    assert tech_user.name in names  # the caller's own tech account, too
+
+
+def test_assignable_excludes_other_teams(client, tech_user, db, team, tech_auth_headers):
+    other_team = models.Team(name="Other Team 3", is_active=True)
+    db.add(other_team)
+    db.commit()
+    db.refresh(other_team)
+    crud.create_task_worker(db, other_team.id, schemas.TaskWorkerCreate(name="NotMyWorker"))
+    other_team_tech = models.User(
+        name="Not My Dispatcher", email="not-my-dispatcher@test.local",
+        password_hash="x", role="tech", team_id=other_team.id,
+    )
+    db.add(other_team_tech)
+    db.commit()
+
+    resp = client.get("/my-team/assignable", headers=tech_auth_headers)
+    names = {p["name"] for p in resp.json()}
+    assert "NotMyWorker" not in names
+    assert "Not My Dispatcher" not in names
+
+
+def test_assignable_excludes_other_roles(client, tech_user, db, team, tech_auth_headers):
+    """loc/leadership accounts on the same team_id (if that ever happens)
+    still shouldn't show up here — only tech and task_worker are valid
+    assignment targets per crud.assign_work_order's usage."""
+    leadership_user = models.User(
+        name="Leadership Viewer", email="leadership@test.local",
+        password_hash="x", role="leadership", team_id=team.id,
+    )
+    db.add(leadership_user)
+    db.commit()
+
+    resp = client.get("/my-team/assignable", headers=tech_auth_headers)
+    names = {p["name"] for p in resp.json()}
+    assert "Leadership Viewer" not in names
+
+
+def test_assignable_excludes_deactivated(client, tech_user, db, team, tech_auth_headers):
+    worker, _ = crud.create_task_worker(db, team.id, schemas.TaskWorkerCreate(name="Deactivated"))
+    crud.deactivate_task_worker(db, worker)
+
+    resp = client.get("/my-team/assignable", headers=tech_auth_headers)
+    names = {p["name"] for p in resp.json()}
+    assert "Deactivated" not in names
+
+
+def test_assignable_includes_role_field(client, tech_user, db, team, tech_auth_headers):
+    crud.create_task_worker(db, team.id, schemas.TaskWorkerCreate(name="Casey"))
+    resp = client.get("/my-team/assignable", headers=tech_auth_headers)
+    by_name = {p["name"]: p["role"] for p in resp.json()}
+    assert by_name["Casey"] == "task_worker"
+    assert by_name[tech_user.name] == "tech"
+
+
+def test_loc_cannot_call_assignable_endpoint(client, auth_headers):
+    resp = client.get("/my-team/assignable", headers=auth_headers)
+    assert resp.status_code == 403
+
+
+def test_assign_work_order_to_fellow_dispatcher(client, auth_headers, wo_payload, team, tech_user, db):
+    """The scenario the endpoint above exists to support: assigning a WO
+    to a 'tech' account, not just a task_worker — was already accepted
+    by crud.assign_work_order (role-agnostic team_id check), just never
+    reachable from the frontend without this list."""
+    other_dispatcher = models.User(
+        name="Fellow Dispatcher", email="fellow-dispatcher@test.local",
+        password_hash="x", role="tech", team_id=team.id,
+    )
+    db.add(other_dispatcher)
+    db.commit()
+    db.refresh(other_dispatcher)
+
+    create = client.post("/work-orders", json=wo_payload, headers=auth_headers)
+    wo_id = create.json()["id"]
+    resp = client.post(
+        f"/work-orders/{wo_id}/assign",
+        json={"team_id": team.id, "person_id": other_dispatcher.id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["assigned_person"]["id"] == other_dispatcher.id
+
+
 # ---- PIN login flow ----
 
 def test_worker_login_teams_no_auth_required(client, team):
