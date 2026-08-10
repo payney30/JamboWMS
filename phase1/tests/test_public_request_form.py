@@ -150,6 +150,36 @@ def test_public_submission_skips_disallowed_file_types_silently(client, asset, d
     assert len(wo.attachments) == 0  # but the disallowed file wasn't kept
 
 
+def test_public_submission_rejects_more_than_five_files(client, asset, db):
+    """End-to-end testing 8/10/26: request.html now caps attachments at 5
+    client-side, but the server-side cap (public.py MAX_FILES_PER_SUBMISSION)
+    is the real guarantee — a client that bypasses/ignores the UI limit
+    must still be rejected, and cleanly, with no partial work order left
+    behind."""
+    before = db.query(models.WorkOrder).count()
+    files = [
+        ("files", (f"photo{i}.jpg", io.BytesIO(b"\xff\xd8\xff\xe0fake jpeg"), "image/jpeg"))
+        for i in range(6)
+    ]
+    resp = client.post("/public/work-orders", data=_base_form(asset), files=files)
+    assert resp.status_code == 400
+    assert "5" in resp.json()["detail"]
+    after = db.query(models.WorkOrder).count()
+    assert after == before  # rejected before any WO or attachment was created
+
+
+def test_public_submission_accepts_exactly_five_files(client, asset, db):
+    """The cap is <= 5, not < 5 — five files should still succeed."""
+    files = [
+        ("files", (f"photo{i}.jpg", io.BytesIO(b"\xff\xd8\xff\xe0fake jpeg"), "image/jpeg"))
+        for i in range(5)
+    ]
+    resp = client.post("/public/work-orders", data=_base_form(asset), files=files)
+    assert resp.status_code == 201
+    wo = db.query(models.WorkOrder).filter(models.WorkOrder.wo_number == resp.json()["wo_number"]).first()
+    assert len(wo.attachments) == 5
+
+
 def test_public_lookup_returns_status_by_phone(client, asset):
     create = client.post("/public/work-orders", data=_base_form(asset, requester_phone="555-0100"))
     wo_number = create.json()["wo_number"]
