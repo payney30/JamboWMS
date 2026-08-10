@@ -66,6 +66,33 @@ def test_public_submission_requires_email(client, asset):
     assert resp2.status_code == 400
 
 
+def test_public_submission_rejects_malformed_email(client, asset, db):
+    """End-to-end testing 8/10/26: "notanemail" was already blocked by
+    the frontend's native type=email constraint, but the backend itself
+    had zero format check — only non-empty — so anything bypassing the
+    browser (a bot, a direct POST) sailed through. This basic
+    local@domain.tld shape check is the ceiling of what format
+    validation alone can do: it does NOT and should not try to catch a
+    real-but-mistyped domain like "gmail.como" (see
+    test_public_submission_accepts_typo_domain_email below) — that's a
+    frontend "did you mean" suggestion's job, not a hard reject."""
+    before = db.query(models.WorkOrder).count()
+    resp = client.post("/public/work-orders", data=_base_form(asset, requester_email="notanemail"))
+    assert resp.status_code == 400
+    after = db.query(models.WorkOrder).count()
+    assert after == before
+
+
+def test_public_submission_accepts_typo_domain_email(client, asset):
+    """A syntactically-valid-but-mistyped domain (a real TLD/label typo,
+    not malformed syntax) is not something server-side format validation
+    can or should reject — it's indistinguishable from a legitimate,
+    uncommon domain without an external DNS lookup, which was explicitly
+    decided against (see request.html comments on suggestEmailCorrection)."""
+    resp = client.post("/public/work-orders", data=_base_form(asset, requester_email="scott.zwick@gmail.como"))
+    assert resp.status_code == 201
+
+
 def test_public_submission_requires_phone(client, asset):
     resp = client.post("/public/work-orders", data=_base_form(asset, requester_phone=""))
     assert resp.status_code == 400
