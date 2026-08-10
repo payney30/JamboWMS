@@ -351,10 +351,33 @@ function logout(){ localStorage.removeItem('loc_token'); TOKEN=''; location.relo
 // Bug fix (found in Dispatcher Console testing, 8/1/26 — applied here
 // too for consistency): browsers suggest document.title as the default
 // filename in the "Save as PDF" print destination.
+//
+// Bug fix (end-to-end testing 8/10/26): reported as "Print / Save as
+// PDF does nothing" on the LOC triage detail screen. Couldn't reproduce
+// against a real browser here to pin down the exact cause, but the
+// print button, its onclick wiring, and the @media print CSS all check
+// out on inspection — window.print() itself was called completely
+// unguarded, so the most likely explanation is a TypeError happening
+// silently: some embedded/kiosk webviews and older mobile browsers
+// don't implement window.print at all, which throws on the call and
+// (from an inline onclick handler) fails with nothing visible on
+// screen — exactly this symptom. Feature-detecting first and wrapping
+// the call so any failure surfaces as a toast instead of silence turns
+// "nothing happens" into something diagnosable either way.
 function printDrawer(woNumber){
+  if (typeof window.print !== 'function') {
+    showToast('Printing isn\u2019t supported in this browser — try opening this page in Chrome, Safari, or Edge.', 'err');
+    return;
+  }
   const originalTitle = document.title;
   document.title = `NJ LOC - Detailed WO#${woNumber}`;
-  window.print();
+  try {
+    window.print();
+  } catch (e) {
+    document.title = originalTitle;
+    showToast('Could not open the print dialog: ' + e.message, 'err');
+    return;
+  }
   const restore = () => { document.title = originalTitle; window.removeEventListener('afterprint', restore); };
   window.addEventListener('afterprint', restore);
 }
@@ -1101,6 +1124,26 @@ async function saveDrawer(){
     if (!proceed) {
       if (btn) { btn.disabled = false; btn.textContent = 'Save changes'; }
       document.getElementById('dStatus').focus();
+      return false;
+    }
+  }
+
+  // Enhancement backlog (LOC triage 8/10/26): the mirror image of the
+  // check above — status moved to "Assigned" without picking a team.
+  // Deliberately scoped to "Assigned" only, not every non-Requested
+  // status: closing a WO with no team (duplicate, unworkable, etc.) is
+  // an established, legitimate pattern elsewhere in this app (see the
+  // dashboards' "Inactionable" bucket), so warning on every close-
+  // without-a-team would just be noise for a normal workflow. "Assigned"
+  // with no team is the one combination that's unambiguously incomplete.
+  if (!payload.team_id && payload.status === 'Assigned') {
+    const proceed = confirm(
+      'Status is set to "Assigned," but no team is selected. Did you mean to assign one?\n\n' +
+      'Click Cancel to go back and pick a team, or OK to save it as-is.'
+    );
+    if (!proceed) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save changes'; }
+      document.getElementById('dTeam').focus();
       return false;
     }
   }
