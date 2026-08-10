@@ -272,6 +272,36 @@ def test_dashboard_router_accepts_exclude_closed_and_asset_id(client, auth_heade
     assert resp.status_code == 200
 
 
+def test_dashboard_router_status_in_matches_active_tile_semantics(client, auth_headers, db, asset):
+    """End-to-end testing 8/10/26: the dashboards' "Active" quick-view
+    used exclude_closed (plain "not closed"), which incorrectly included
+    Requested — Requested has its own separate tile. crud._apply_filters
+    already supported status_in for exactly this ("Open/Active means
+    specifically Assigned, On Hold, or Work In Progress" — see its own
+    comment), but this router never exposed status_in as a query param.
+    Confirms it's now wired through and produces the narrower count."""
+    requested_wo = _make_wo(db, asset)
+    assigned_wo = _make_wo(db, asset)
+    # Set status directly via crud rather than /assign, to avoid that
+    # endpoint's separate team-assignment requirements — this test only
+    # cares about status_in filtering, not the assignment flow itself.
+    assigned_wo.status = "Assigned"
+    db.add(assigned_wo)
+    db.commit()
+
+    resp_exclude_closed = client.get(
+        "/dashboard/kpis", params={"scope": "main", "exclude_closed": "true"}, headers=auth_headers
+    )
+    assert resp_exclude_closed.json()["total"] == 2  # includes Requested — the old, wrong behavior for "Active"
+
+    resp_status_in = client.get(
+        "/dashboard/kpis",
+        params={"scope": "main", "status_in": "Assigned,On Hold,Work In Progress"},
+        headers=auth_headers,
+    )
+    assert resp_status_in.json()["total"] == 1  # excludes Requested — correct "Active" semantics
+
+
 def test_inbox_via_work_orders_scoped_by_location_group_matches_dashboard_scope(
     client, auth_headers, db
 ):
