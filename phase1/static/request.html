@@ -198,6 +198,7 @@ input[type=file]{font-size:13px;}
       <p style="color:var(--moss);font-weight:600;text-transform:uppercase;font-size:12px;letter-spacing:.08em;">Request received</p>
       <div class="wo-number" id="confirmNumber"></div>
       <p>Save this number, or just remember the phone number you used — you can check status below with either.</p>
+      <div class="field-err" id="confirmSkipped" style="display:none;"></div>
       <button class="btn btn-ghost" onclick="resetForm()" style="margin-top:10px;">Submit another request</button>
     </div>
   </div>
@@ -370,6 +371,24 @@ function escapeHtml(s){
 // the next `change` event fires even if the same filename is picked again.
 const MAX_FILES = 5;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+// Bug fix (end-to-end testing 8/10/26): a .ico and a .tff (font) were
+// both accepted despite the "photos or PDFs only" limit. The <input
+// accept="image/*,application/pdf"> attribute only filters what the OS
+// file picker *displays* — it's not enforcement, and some OSes map an
+// icon file's extension to an "image/..." type, which satisfies
+// "image/*" and lets it through the picker even though it isn't a
+// format this system actually supports. Re-checking the extension
+// ourselves after selection, and mirroring the same allowlist the
+// backend now also enforces server-side (see public.py
+// ALLOWED_EXTENSIONS), closes that gap and gives immediate feedback
+// instead of the file silently vanishing on submit.
+const ALLOWED_FILE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.pdf'];
+function hasAllowedExtension(filename){
+  const dot = filename.lastIndexOf('.');
+  if (dot < 0) return false;
+  return ALLOWED_FILE_EXTENSIONS.includes(filename.slice(dot).toLowerCase());
+}
+
 let selectedFiles = [];
 const rFilesInput = document.getElementById('rFiles');
 const rFileList = document.getElementById('rFileList');
@@ -398,6 +417,10 @@ rFilesInput.addEventListener('change', () => {
     if (selectedFiles.length >= MAX_FILES) {
       msg = `You can attach up to ${MAX_FILES} files — remove one to add another.`;
       break;
+    }
+    if (!hasAllowedExtension(f.name)) {
+      msg = `"${f.name}" isn't a supported file type — only photos and PDFs can be attached.`;
+      continue;
     }
     if (f.size > MAX_FILE_SIZE) {
       msg = `"${f.name}" is over 10 MB and wasn't added.`;
@@ -723,6 +746,22 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
     }
     const data = await res.json();
     document.getElementById('confirmNumber').textContent = data.wo_number;
+    // Bug fix (end-to-end testing 8/10/26): the backend has always
+    // silently dropped disallowed/oversized attachments rather than
+    // failing the whole WO — reasonable, so a bad file never costs
+    // someone an urgent request — but that gave zero feedback that
+    // anything was dropped. Now that public.py returns which filenames
+    // it skipped, show that here instead of a quiet, misleading success.
+    const skippedEl = document.getElementById('confirmSkipped');
+    if (data.skipped_files && data.skipped_files.length) {
+      const list = data.skipped_files.map(escapeHtml).join(', ');
+      const plural = data.skipped_files.length > 1 ? 's' : '';
+      skippedEl.textContent = `Note: ${list} — this file${plural} couldn't be attached (photos and PDFs only, 10 MB max) but the rest of your request went through.`;
+      skippedEl.style.display = 'block';
+    } else {
+      skippedEl.style.display = 'none';
+      skippedEl.textContent = '';
+    }
     document.getElementById('formCard').style.display = 'none';
     document.getElementById('confirmCard').style.display = 'block';
     window.scrollTo({top: 0, behavior: 'smooth'});
@@ -741,6 +780,8 @@ function resetForm(){
   renderFileList();
   document.getElementById('emailSuggest').style.display = 'none';
   document.getElementById('emailSuggest').innerHTML = '';
+  document.getElementById('confirmSkipped').style.display = 'none';
+  document.getElementById('confirmSkipped').textContent = '';
   if (locationPicker) locationPicker.setValue(null);
   clearPin();
   document.getElementById('formCard').style.display = 'block';
