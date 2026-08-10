@@ -27,6 +27,7 @@ only (not for a selection of notification channels). See the PRD's
 preference selector here without checking that decision first.
 """
 import os
+import re
 import uuid
 from typing import List, Optional
 
@@ -81,6 +82,19 @@ def _require_valid_phone(raw: str, field_label: str) -> None:
     digits = crud._digits_only(raw)
     if len(digits) < 7:
         raise HTTPException(400, f"enter a valid {field_label} phone number")
+
+
+# Bug fix (end-to-end testing 8/10/26): requester_email had zero format
+# validation server-side — only a non-empty check — relying entirely on
+# the frontend's <input type=email>, which a bot or anyone posting
+# directly to this endpoint bypasses outright. This is a basic
+# local@domain.tld shape check, same ceiling as HTML5's own type=email
+# constraint: it catches "notanemail" but can't and won't try to catch
+# "gmail.como" vs "gmail.com" — that's a real-but-mistyped domain, not a
+# malformed one, and belongs to the frontend's non-blocking "did you
+# mean" suggestion (see request.html suggestEmailCorrection), not a hard
+# server-side reject.
+EMAIL_FORMAT_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 @router.get("/assets", response_model=list[schemas.PublicAssetOut])
@@ -165,6 +179,8 @@ async def submit_public_work_order(
         raise HTTPException(400, "description is required")
     if not requester_email:
         raise HTTPException(400, "email is required")
+    if not EMAIL_FORMAT_RE.match(requester_email):
+        raise HTTPException(400, "enter a valid email address")
     if not requester_phone:
         raise HTTPException(400, "phone is required")
     _require_valid_phone(requester_phone, "contact")
