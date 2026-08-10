@@ -405,8 +405,15 @@ async function boot() {
     // filter is a triage-staff tool, not something a tech's own queue
     // view needs. Fail soft: an empty dropdown just means the filter
     // isn't offered, not a broken page.
+    //
+    // Bug fix (end-to-end testing 8/10/26): was fetching every user of
+    // every role (tech, leadership, viewers, etc.) — the backend's
+    // GET /users already supports a role filter (see app/routers/users.py),
+    // just wasn't being passed. "Handled by" is specifically about who
+    // did LOC triage work on a WO (status changes/notes), so it should
+    // only offer LOC staff, not techs or read-only dashboard roles.
     if (CURRENT_USER.role === 'loc' || CURRENT_USER.role === 'admin') {
-      try { USERS = await api('/users'); } catch (e) { USERS = []; }
+      try { USERS = await api('/users?role=loc'); } catch (e) { USERS = []; }
     }
   } catch (e) {
     showToast('Could not load reference data: ' + e.message, 'err');
