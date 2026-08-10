@@ -350,6 +350,16 @@ class PublicAssetOut(BaseModel):
 
 class PublicWorkOrderConfirmation(BaseModel):
     wo_number: str
+    # Bug fix (end-to-end testing 8/10/26): the submit endpoint has always
+    # silently dropped disallowed attachments (photo/PDF only) rather than
+    # failing the whole WO — reasonable so an unrelated file mistake never
+    # costs someone an urgent request, but it gave the requester zero
+    # feedback that anything was dropped, which read as the system
+    # "accepting" a .exe/.ico/.ttf file it actually never stored.
+    # Surfacing what got skipped (and why) closes that gap without
+    # changing the underlying "never fail the WO over an attachment"
+    # decision.
+    skipped_files: List[str] = []
 
 
 class PublicWorkOrderStatus(BaseModel):
