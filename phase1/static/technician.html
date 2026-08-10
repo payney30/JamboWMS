@@ -385,6 +385,16 @@ function exportQueueCsv(){
 // server-side to the caller's own team — there's no team_id to pass.
 let MY_WORKERS = [];
 
+// Bug fix (end-to-end testing 8/10/26): separate from MY_WORKERS above
+// on purpose. MY_WORKERS is task_worker-only, backing the My Workers
+// management panel (add/reset PIN/remove — actions that only make
+// sense for a task_worker account). The queue's worker filter and the
+// drawer's "Task to worker" assignment dropdown need a different list:
+// crud.assign_work_order will accept either a 'tech' (Dispatcher) or a
+// 'task_worker' on the same team, so those two UI spots need both
+// roles, via GET /my-team/assignable.
+let MY_ASSIGNABLE = [];
+
 function toggleWorkersPanel(){
   const panel = document.getElementById('workersPanel');
   const icon = document.getElementById('workersToggleIcon');
@@ -414,15 +424,30 @@ async function loadWorkers(){
         </div>
       `).join('')
     : '<div class="empty-state" style="padding:6px 0;">No workers yet — add one below.</div>';
+}
 
-  // Enhancement backlog Phase 24 (found in Dispatcher Console testing,
-  // 8/1/26): filter-by-worker dropdown, populated alongside the My
-  // Workers panel since it's the same underlying data.
+// Bug fix (end-to-end testing 8/10/26): was populated from MY_WORKERS
+// (task_worker only) inside loadWorkers() above, so a Dispatcher (role
+// 'tech') on the team never showed up as a filter/assignment option —
+// even though a WO can legitimately be assigned to one. Split out into
+// its own loader against GET /my-team/assignable (tech + task_worker,
+// team-scoped), called separately from boot() below.
+async function loadAssignablePeople(){
+  try {
+    MY_ASSIGNABLE = await api('/my-team/assignable');
+  } catch (e) {
+    showToast('Could not load team members: ' + e.message, 'err');
+    MY_ASSIGNABLE = [];
+  }
   const workerSel = document.getElementById('fWorker');
   if (workerSel) {
     const currentVal = workerSel.value;
-    workerSel.innerHTML = '<option value="">All workers</option><option value="unassigned">Unassigned</option>' +
-      MY_WORKERS.map(w => `<option value="${w.id}">${escapeHtml(w.name)}</option>`).join('');
+    const dispatchers = MY_ASSIGNABLE.filter(p => p.role === 'tech');
+    const workers = MY_ASSIGNABLE.filter(p => p.role === 'task_worker');
+    const optsFor = list => list.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+    workerSel.innerHTML = '<option value="">All workers</option><option value="unassigned">Unassigned</option>'
+      + (dispatchers.length ? `<optgroup label="Dispatchers">${optsFor(dispatchers)}</optgroup>` : '')
+      + (workers.length ? `<optgroup label="Task Workers">${optsFor(workers)}</optgroup>` : '');
     workerSel.value = currentVal;
   }
 }
@@ -519,6 +544,7 @@ async function boot() {
     // Dispatcher (tech) concept specifically — loc/admin viewers don't
     // have a "my team" to manage workers for.
     loadWorkers();
+    loadAssignablePeople();
   } else {
     document.getElementById('teamLabel').textContent = 'LOC/admin view · ' + ME.name;
     document.getElementById('teamSelectWrap').style.display = 'block';
@@ -752,6 +778,26 @@ function renderCards(wos){
 let drawerState = {woId: null, dirty: false};
 function markDirty(){ drawerState.dirty = true; }
 
+// Bug fix (end-to-end testing 8/10/26): reassigning to a new team while
+// a worker was still selected in "Task to worker" used to fail on save
+// with "person must belong to the team they're being assigned into" —
+// crud.assign_work_order requires the assigned person's team_id to
+// match the team_id being saved, and dWorker only ever lists the
+// current Dispatcher's OWN team's people (there's no live list for
+// whatever team gets picked here instead). Auto-clearing the worker
+// selection the moment a team is picked means there's nothing stale
+// left to conflict — the destination team can assign someone once it's
+// in their queue. saveDrawer() below also enforces this at save time
+// regardless of what's in the DOM, as a second layer.
+function onTeamReassignChange(){
+  markDirty();
+  const teamVal = document.getElementById('dTeam').value;
+  const workerEl = document.getElementById('dWorker');
+  if (workerEl && teamVal) {
+    workerEl.value = '';
+  }
+}
+
 function openDrawer(html){
   document.getElementById('drawer').innerHTML = html;
   document.getElementById('drawer').classList.add('open');
@@ -808,16 +854,22 @@ async function openDetail(id){
 
   // Enhancement backlog Phase 21 (PRD §17#10): assign this WO to a
   // specific worker on my team — tech (Dispatcher) role only, and only
-  // once MY_WORKERS has loaded (boot() loads it for tech role). Saved
+  // once MY_ASSIGNABLE has loaded (boot() loads it for tech role). Saved
   // as part of the combined save below; crud.save_work_order already
   // accepted person_id, it just had no frontend control to set it from.
+  //
+  // Bug fix (end-to-end testing 8/10/26): was MY_WORKERS (task_worker
+  // only) — switched to MY_ASSIGNABLE (tech + task_worker, see
+  // loadAssignablePeople) since a fellow Dispatcher on the team is a
+  // valid assignment target too, per crud.assign_work_order's actual
+  // (role-agnostic) validation.
   currentWoTeamId = w.assigned_team ? w.assigned_team.id : null;
-  const workerAssignHtml = (ME.role === 'tech' && MY_WORKERS.length) ? `
+  const workerAssignHtml = (ME.role === 'tech' && MY_ASSIGNABLE.length) ? `
     <div class="drawer-group">
       <label>Task to worker</label>
       <select id="dWorker" onchange="markDirty()">
         <option value="">— Unassigned —</option>
-        ${MY_WORKERS.map(worker => `<option value="${worker.id}" ${w.assigned_person && w.assigned_person.id === worker.id ? 'selected' : ''}>${escapeHtml(worker.name)}</option>`).join('')}
+        ${MY_ASSIGNABLE.map(p => `<option value="${p.id}" ${w.assigned_person && w.assigned_person.id === p.id ? 'selected' : ''}>${escapeHtml(p.name)}${p.role === 'tech' ? ' (Dispatcher)' : ''}</option>`).join('')}
       </select>
     </div>` : '';
 
@@ -927,7 +979,7 @@ async function openDetail(id){
 
     <div class="drawer-group">
       <label>Reassign — wrong team? Send it to the right one</label>
-      <select id="dTeam" onchange="markDirty()"><option value="">Choose a team…</option>${teamOpts}</select>
+      <select id="dTeam" onchange="onTeamReassignChange()"><option value="">Choose a team…</option>${teamOpts}</select>
       <label>Reason (required if reassigning)</label>
       <textarea id="dAssignNote" placeholder="Why is this moving teams…" oninput="markDirty()"></textarea>
       <div class="field-err" id="dAssignErr"></div>
@@ -1016,12 +1068,19 @@ async function saveDrawer(){
     // requires it — so this resends the WO's current team unchanged.
     payload.team_id = currentWoTeamId;
   }
-  if (workerVal) {
+  if (workerVal && !teamVal) {
     payload.person_id = parseInt(workerVal, 10);
-  } else if (workerEl && !workerVal && teamVal) {
-    // Explicitly unassigning the worker (blank selected) while also
-    // reassigning teams — person_id=null clears it rather than leaving
-    // a stale assignment pointing at a worker on the old team.
+  } else if (workerEl && teamVal) {
+    // Bug fix (end-to-end testing 8/10/26): previously only cleared
+    // person_id here if dWorker was ALREADY blank — if a worker was
+    // still selected (the exact scenario onTeamReassignChange above now
+    // prevents at the UI level), this branch was skipped entirely and
+    // the stale worker id got sent alongside the new team_id, which
+    // crud.assign_work_order rejects (person.team_id != payload.team_id).
+    // Now unconditional whenever a team is being reassigned: the
+    // destination team's own people aren't knowable from here (a
+    // Dispatcher only ever sees their own team's assignable list), so
+    // there's nothing valid to preserve regardless of what's in the DOM.
     payload.person_id = null;
   }
 
