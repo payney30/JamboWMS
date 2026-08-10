@@ -1096,6 +1096,31 @@ def list_task_workers(db: Session, team_id: int, include_inactive: bool = False)
     return q.order_by(models.User.name).all()
 
 
+# Bug fix (end-to-end testing 8/10/26): the technician queue's worker
+# filter and "Task to worker" assignment dropdown were both built from
+# list_task_workers() above — task_worker role only. But
+# crud.assign_work_order's actual validation is role-agnostic (it only
+# checks person.team_id == payload.team_id, see AssignRequest handling),
+# so a WO can legitimately be assigned to a fellow Dispatcher (role
+# 'tech') on the same team too, not just a task_worker. Deliberately a
+# separate function/endpoint from list_task_workers rather than widening
+# it in place — that one backs the Task Worker management panel
+# (add/reset PIN/remove), which only makes sense for task_worker
+# accounts; broadening it there would let a Dispatcher "remove" a
+# fellow Dispatcher's account through the wrong screen.
+def list_assignable_team_members(db: Session, team_id: int) -> list[models.User]:
+    return (
+        db.query(models.User)
+        .filter(
+            models.User.team_id == team_id,
+            models.User.role.in_(["tech", "task_worker"]),
+            models.User.is_active == True,  # noqa: E712
+        )
+        .order_by(models.User.role, models.User.name)
+        .all()
+    )
+
+
 def deactivate_task_worker(db: Session, worker: models.User) -> models.User:
     """Soft-delete, matching how every other role's deactivation works
     in this app — history/notes/completed-WO attribution stays intact,

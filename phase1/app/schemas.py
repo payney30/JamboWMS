@@ -201,6 +201,18 @@ class TaskWorkerCreated(BaseModel):
     pin: str
 
 
+# Bug fix (end-to-end testing 8/10/26): a WO can be assigned to either a
+# 'tech' (Dispatcher) or a 'task_worker' on the team — see
+# crud.list_assignable_team_members. Includes role so the frontend can
+# label/group Dispatchers vs. Task Workers rather than showing an
+# undifferentiated name list.
+class AssignablePersonOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    role: str
+
+
 class WorkerLoginRequest(BaseModel):
     worker_id: int
     pin: str

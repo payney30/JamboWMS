@@ -60,6 +60,7 @@ app.include_router(public.router)
 app.include_router(users.router)
 app.include_router(admin.router)
 app.include_router(task_workers.router)
+app.include_router(task_workers.assignable_router)
 
 # Uploaded photos from the public requester form (see app/routers/public.py)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
