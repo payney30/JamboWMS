@@ -513,6 +513,17 @@ function formatPhoneAsTyped(e){
   e.target.value = out;
 }
 
+// Bug fix (end-to-end testing 8/10/26): formatPhoneAsTyped only masks
+// what's typed — it never stopped a short/incomplete entry like "123"
+// from being submitted, and neither the frontend nor the backend
+// checked digit count before this. Mirrors the backend's
+// _require_valid_phone in app/routers/public.py (same 7-digit minimum
+// the status-lookup endpoint already uses).
+function isValidPhone(value){
+  const digits = (value || '').replace(/\D/g, '');
+  return digits.length >= 7;
+}
+
 document.getElementById('woForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const errBanner = document.getElementById('formErr');
@@ -538,6 +549,12 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
     errBanner.style.display = 'block';
     return;
   }
+  if (!isValidPhone(phone)) {
+    errBanner.textContent = 'Enter a valid contact phone number.';
+    errBanner.style.display = 'block';
+    document.getElementById('rPhone').focus();
+    return;
+  }
 
   // Enhancement backlog Phase 3 (PRD §13#3): work type is now required —
   // the placeholder option's value is "" and is `disabled`, so a real
@@ -559,6 +576,11 @@ document.getElementById('woForm').addEventListener('submit', async (e) => {
   const pocPhone = document.getElementById('pocPhone').value.trim();
   if (!pocIsRequester && (!pocName || !pocPhone)) {
     pocErr.textContent = 'Add the point of contact\u2019s name and phone number.';
+    return;
+  }
+  if (!pocIsRequester && !isValidPhone(pocPhone)) {
+    pocErr.textContent = 'Enter a valid phone number for the point of contact.';
+    document.getElementById('pocPhone').focus();
     return;
   }
 
@@ -653,6 +675,16 @@ async function checkStatus(){
     resultEl.innerHTML = '<div class="field-err">Enter the phone number you used when submitting.</div>';
     return;
   }
+  // Bug fix (end-to-end testing 8/10/26): the backend already rejects an
+  // implausibly short number (e.g. "123") with a 400, but until now that
+  // was shown to the person as the same generic "couldn't find any work
+  // orders" message as a real not-found — a valid-looking number that
+  // just has no WOs. Checking digit count client-side first, and telling
+  // 400s apart from 404s below, gives an honest message either way.
+  if (phone.replace(/\D/g, '').length < 7) {
+    resultEl.innerHTML = '<div class="field-err">Enter a valid phone number.</div>';
+    return;
+  }
   btn.disabled = true;
   btn.textContent = 'Checking…';
   try {
@@ -661,6 +693,10 @@ async function checkStatus(){
     const res = await fetch('/public/work-orders/lookup?' + params.toString());
     if (res.status === 429) {
       resultEl.innerHTML = '<div class="field-err">Too many lookups — please wait a few minutes and try again.</div>';
+      return;
+    }
+    if (res.status === 400) {
+      resultEl.innerHTML = '<div class="field-err">Enter a valid phone number.</div>';
       return;
     }
     if (!res.ok) {
