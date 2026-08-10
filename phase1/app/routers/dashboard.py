@@ -36,11 +36,21 @@ def _filter_params(
     search: Optional[str] = None,
     exclude_closed: bool = False,  # PRD §17#14: clickable KPI tiles
     closed_only: bool = False,
+    # Bug fix (end-to-end testing 8/10/26): _apply_filters (see crud.py)
+    # already supports status_in specifically so "Active" can mean
+    # Assigned/On Hold/Work In Progress without also matching Requested
+    # (which has its own separate tile) — same convention LOC triage's
+    # Open/Active tile already uses (index.html, comma-separated). This
+    # router just never exposed it as a query param, so these dashboards
+    # had no way to ask for it and fell back to exclude_closed (plain
+    # "not closed," which incorrectly included Requested).
+    status_in: Optional[str] = None,  # comma-separated, e.g. "Assigned,On Hold,Work In Progress"
 ) -> dict:
     return {
         "status": status, "priority": priority, "work_type": work_type,
         "team_id": team_id, "location_group": location_group, "asset_id": asset_id,
         "search": search, "exclude_closed": exclude_closed, "closed_only": closed_only,
+        "status_in": [s.strip() for s in status_in.split(",")] if status_in else None,
     }
 
 
