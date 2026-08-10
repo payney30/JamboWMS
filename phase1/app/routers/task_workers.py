@@ -20,6 +20,14 @@ from ..auth import require_roles
 
 router = APIRouter(prefix="/my-team/workers", tags=["task-workers"])
 
+# Bug fix (end-to-end testing 8/10/26): separate router (different
+# prefix) for the "who can this WO be assigned to" endpoint below —
+# list_assignable_team_members includes both 'tech' and 'task_worker'
+# roles, which is a different concept from "my managed task workers"
+# above (task_worker-only CRUD), so it doesn't belong under
+# /my-team/workers itself.
+assignable_router = APIRouter(prefix="/my-team", tags=["task-workers"])
+
 tech_only = require_roles("tech")
 
 
@@ -72,3 +80,15 @@ def deactivate_my_worker(worker_id: int, db: Session = Depends(get_db),
                           user: models.User = Depends(tech_only)):
     worker = _get_worker_or_404(db, worker_id, user.team_id)
     return crud.deactivate_task_worker(db, worker)
+
+
+@assignable_router.get("/assignable", response_model=list[schemas.AssignablePersonOut])
+def list_assignable_team_members(db: Session = Depends(get_db), user: models.User = Depends(tech_only)):
+    """Bug fix (end-to-end testing 8/10/26): the queue's worker filter and
+    the drawer's "Task to worker" dropdown were both built from the
+    task_worker-only list above, but crud.assign_work_order's actual
+    validation is role-agnostic — a WO can be assigned to a fellow
+    Dispatcher (role 'tech') on the same team, not just a task_worker.
+    This returns both roles, team-scoped the same way as everything
+    else in this router."""
+    return crud.list_assignable_team_members(db, user.team_id)
