@@ -71,6 +71,14 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
 .filters input{flex:1;min-width:180px;}
 .filters .reset-btn{background:transparent;color:var(--ink-soft);border:1px solid var(--khaki-line);border-radius:6px;padding:8px 14px;font-size:12px;cursor:pointer;}
 .filters .reset-btn:hover{border-color:var(--pine);color:var(--pine);}
+/* Bug fix/enhancement (end-to-end testing 8/10/26): Active/Cumulative
+   chart-scope toggle — governs the Trend and Breakdown charts only,
+   independent of the Filter row above (see chartFilterParams()). */
+.mode-toggle{display:inline-flex;border:1px solid var(--khaki-line);border-radius:6px;overflow:hidden;}
+.mode-toggle button{background:var(--canvas-panel);color:var(--ink-soft);border:none;padding:6px 14px;
+  font-size:12px;font-family:var(--font-body);cursor:pointer;}
+.mode-toggle button:not(:last-child){border-right:1px solid var(--khaki-line);}
+.mode-toggle button.active{background:var(--pine);color:#fff;}
 
 /* Enhancement backlog Phase 19 follow-up (7/31/26): read-only WO detail
    view — clicking an inbox row shows this. Never has a Save button or
@@ -137,18 +145,36 @@ th{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:va
 
   <div class="stats" id="statRow"></div>
 
-  <div class="section-title">Trend — last 14 days</div>
+  <!-- Enhancement (end-to-end testing 8/10/26): Active/Cumulative toggle
+       for the Trend + Breakdown charts below — separate from the Filter
+       row above. Active = Assigned/On Hold/Work In Progress only.
+       Cumulative = Active plus Closed, Completed / Closed, Incomplete.
+       Requested is deliberately excluded from both — these charts are
+       about work that's been triaged, not the untriaged intake queue.
+       See chartFilterParams()/chartModeStatusIn(). -->
+  <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+    <span>Trend — last 14 days</span>
+    <div class="mode-toggle" id="chartModeToggle">
+      <button type="button" data-mode="active" onclick="setChartMode('active')">Active</button>
+      <button type="button" data-mode="cumulative" class="active" onclick="setChartMode('cumulative')">Cumulative</button>
+    </div>
+  </div>
   <div class="card">
     <div id="trendChart"></div>
   </div>
 
-  <div class="section-title">Breakdown</div>
+  <!-- Bug fix (end-to-end testing 8/10/26): Location / area removed on
+       this scoped dashboard — every WO here is already within one
+       reporting group, so a location breakdown is close to redundant;
+       kept only on the Main LOC dashboard, which spans every group.
+       Assigned team now takes this grid slot instead of sitting
+       full-width below, since the slot would otherwise go unused. -->
+  <div class="section-title">Breakdown <span class="refresh-note" style="color:var(--ink-soft);">(same Active/Cumulative scope as Trend above)</span></div>
   <div class="grid-2">
     <div class="card"><h3>Status</h3><div id="byStatus"></div></div>
     <div class="card"><h3>Priority</h3><div id="byPriority"></div></div>
     <div class="card"><h3>Work type</h3><div id="byWorkType"></div></div>
-    <div class="card"><h3>Location / area</h3><div id="byLocation"></div></div>
-    <div class="card" style="grid-column:1 / -1;"><h3>Assigned team — total vs closed</h3><div id="byTeam"></div></div>
+    <div class="card"><h3>Assigned team — total vs closed</h3><div id="byTeam"></div></div>
   </div>
 
   <!-- Enhancement backlog Phase 19 (PRD §17#14): full sortable read-only
@@ -190,6 +216,13 @@ const SCOPE_LOCATION_GROUP = 'Program Areas';
 let refreshTimer = null;
 let TEAMS = [], ASSETS = [];
 const STATUSES = ["Requested","Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
+// Enhancement (end-to-end testing 8/10/26): Trend + Breakdown charts'
+// own status scope, independent of the Filter row / KPI quick-views —
+// see chartFilterParams(). Defaults to 'cumulative' (everything except
+// untriaged Requested WOs) rather than fully unfiltered, since showing
+// Requested alongside actually-worked statuses in these particular
+// charts was never really the intent.
+let chartMode = 'cumulative';
 const PRIORITIES = ["Immediate","Same Day","Next Day","2 Days","3 Days"];
 const PRIORITY_ORDER = {"Immediate":0,"Same Day":1,"Next Day":2,"2 Days":3,"3 Days":4};
 function priorityClass(p){ return (p || "").replace(/\s+/g, "-"); }
@@ -363,26 +396,59 @@ function currentFilterState(){
   };
 }
 
-function currentFilterParams(){
-  const s = currentFilterState();
+// Enhancement (end-to-end testing 8/10/26): Active/Cumulative status
+// scope specifically for the Trend + Breakdown charts — see the
+// section-title toggle above the Trend chart in the HTML. Deliberately
+// independent from the Filter row / KPI quick-view tiles above: those
+// still fully control the Inbox table (unchanged), but the charts now
+// always use this toggle for their status dimension rather than
+// inheriting whatever status/quick-view happens to be active, which
+// previously left them either fully unfiltered (including untriaged
+// Requested WOs) or accidentally scoped by an unrelated inbox filter.
+function chartModeStatusIn(){
+  const active = ['Assigned', 'On Hold', 'Work In Progress'];
+  return chartMode === 'active' ? active : [...active, 'Closed, Completed', 'Closed, Incomplete'];
+}
+
+function setChartMode(mode){
+  chartMode = mode;
+  document.querySelectorAll('#chartModeToggle button').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+  load();
+}
+
+// Priority/work-type/team/location/search still narrow the charts the
+// same way they narrow everything else — only the status dimension is
+// sourced from chartModeStatusIn() instead of the Filter row's status/
+// quick-view state. Repeated status_in params, not a comma-joined
+// string — see app/routers/dashboard.py's _filter_params for why
+// ("Closed, Completed" contains a literal comma).
+function chartFilterParams(){
   const params = new URLSearchParams();
   params.set('scope', currentScope);
-  if (s.status) params.set('status', s.status);
-  if (s.statusIn) params.set('status_in', s.statusIn);
-  if (s.closedOnly) params.set('closed_only', 'true');
-  if (s.priority) params.set('priority', s.priority);
-  if (s.workType) params.set('work_type', s.workType);
-  if (s.team) params.set('team_id', s.team);
-  if (s.assetId) params.set('asset_id', s.assetId);
-  if (s.search) params.set('search', s.search);
-  const activeCount = [activeQuickView, s.priority, s.workType, s.team, s.assetId, s.search]
-    .filter(Boolean).length + (s.status && !activeQuickView ? 1 : 0);
-  document.getElementById('filterCount').textContent = activeCount ? `(${activeCount} active)` : '';
+  chartModeStatusIn().forEach(v => params.append('status_in', v));
+  const priority = document.getElementById('fPriority').value;
+  const workType = document.getElementById('fWorkType').value;
+  const team = document.getElementById('fTeam').value;
+  const search = document.getElementById('fSearch').value;
+  if (priority) params.set('priority', priority);
+  if (workType) params.set('work_type', workType);
+  if (team) params.set('team_id', team);
+  if (locationFilterAssetId) params.set('asset_id', locationFilterAssetId);
+  if (search) params.set('search', search);
   return params;
 }
 
 function inboxFilterParams(){
   const s = currentFilterState();
+  // The Filter row's own active-filter count — moved here from the old
+  // currentFilterParams() (now replaced by chartFilterParams() above,
+  // which has nothing to do with the Filter row) since the Inbox table
+  // is the only remaining consumer of the full filter-bar state.
+  const activeCount = [activeQuickView, s.priority, s.workType, s.team, s.assetId, s.search]
+    .filter(Boolean).length + (s.status && !activeQuickView ? 1 : 0);
+  document.getElementById('filterCount').textContent = activeCount ? `(${activeCount} active)` : '';
   const params = new URLSearchParams();
   // Enhancement backlog Phase 19 (PRD §17#14): GET /work-orders has no
   // `scope` concept of its own — location_group is the exact same
@@ -410,28 +476,28 @@ function inboxFilterParams(){
 }
 
 async function load(){
-  const params = currentFilterParams();
   // Enhancement backlog Phase 19 follow-up (7/31/26): the 4 KPI tiles
   // must always report the true totals for the whole reporting group —
   // scope only, nothing else — not shift every time a filter or a
-  // quick-view tile is applied. Previously this used the same
-  // currentFilterParams() as breakdowns/trend/inbox, so e.g. picking a
-  // priority in the filter bar made "Total" silently mean "total
-  // matching that priority" instead of the true reporting-group total.
-  // Kept as a fully separate request/param set on purpose, rather than
-  // trying to reuse currentFilterParams() with pieces stripped out — the
-  // two have fundamentally different jobs now (fixed overview vs.
-  // filterable drill-down) and conflating them again is exactly how
-  // this bug happened the first time.
+  // quick-view tile is applied. Kept as a fully separate request/param
+  // set on purpose, rather than trying to reuse another params builder
+  // with pieces stripped out — the two have fundamentally different
+  // jobs (fixed overview vs. filterable drill-down) and conflating them
+  // again is exactly how a past bug happened.
   const scopeOnlyParams = new URLSearchParams();
   scopeOnlyParams.set('scope', currentScope);
+  // Enhancement (end-to-end testing 8/10/26): Trend + Breakdown charts
+  // use their own Active/Cumulative-scoped params (chartFilterParams),
+  // separate from the Filter row's inboxFilterParams() below — see the
+  // comment on chartFilterParams() for why.
+  const chartParams = chartFilterParams();
 
   let kpis, breakdowns, trend, inboxWos;
   try {
     [kpis, breakdowns, trend, inboxWos] = await Promise.all([
       api(`/dashboard/kpis?${scopeOnlyParams.toString()}`),
-      api(`/dashboard/breakdowns?${params.toString()}`),
-      api(`/dashboard/trend?${params.toString()}&days=14`),
+      api(`/dashboard/breakdowns?${chartParams.toString()}`),
+      api(`/dashboard/trend?${chartParams.toString()}&days=14`),
       api(`/work-orders?${inboxFilterParams().toString()}`),
     ]);
   } catch (e) {
@@ -439,7 +505,14 @@ async function load(){
     return;
   }
   renderStats(kpis);
-  renderBars('byStatus', breakdowns.by_status);
+  // Bug fix (end-to-end testing 8/10/26): no `order` meant only
+  // statuses with at least one matching WO ever rendered a bar — On
+  // Hold/Closed, Completed/Closed, Incomplete silently vanished
+  // whenever their count was 0 (or, before the chart-mode toggle
+  // existed, whenever a filter happened to exclude them). Passing the
+  // full STATUSES list, same pattern byPriority already uses, means
+  // every status always gets a row, 0-count or not.
+  renderBars('byStatus', breakdowns.by_status, STATUSES);
   // Enhancement backlog Phase 14 (PRD §13#15): urgency-tier rename —
   // renderBars' `order` param strictly filters which keys can appear
   // at all (see its implementation below), so omitting the new names
@@ -449,7 +522,6 @@ async function load(){
   // listed indefinitely.
   renderBars('byPriority', breakdowns.by_priority, ['Immediate','Same Day','Next Day','2 Days','3 Days']);
   renderBars('byWorkType', breakdowns.by_work_type);
-  renderBars('byLocation', breakdowns.by_location);
   renderTeamTable(breakdowns.by_team, breakdowns.by_status);
   renderTrend(trend);
   LAST_INBOX_WOS = inboxWos;
@@ -477,16 +549,23 @@ function renderBars(elId, dataObj, order){
   const el = document.getElementById(elId);
   let entries = Object.entries(dataObj || {});
   if (order) {
-    entries = order.filter(k => dataObj[k]).map(k => [k, dataObj[k]]);
+    // Bug fix (end-to-end testing 8/10/26): dataObj[k] is falsy for a
+    // 0-count key (0 itself, or undefined if the backend's groupby
+    // never returned that status at all) — the old `.filter(k =>
+    // dataObj[k])` dropped BOTH cases, so On Hold/Closed, Completed/
+    // Closed, Incomplete silently vanished whenever their count was 0,
+    // instead of showing as an empty bar. Always include every key in
+    // `order`, defaulting a missing one to 0, rather than filtering.
+    entries = order.map(k => [k, dataObj[k] || 0]);
   } else {
     entries.sort((a,b) => b[1]-a[1]);
   }
   if (!entries.length) { el.innerHTML = '<div class="empty-note">No data yet.</div>'; return; }
-  const max = Math.max(...entries.map(e => e[1]));
+  const max = Math.max(1, ...entries.map(e => e[1])); // guards div-by-zero when every count is 0
   el.innerHTML = entries.map(([label, count]) => `
     <div class="bar-row">
       <div class="bar-label">${escapeHtml(label)}</div>
-      <div class="bar-track"><div class="bar-fill" style="width:${max?Math.round(count/max*100):0}%"></div></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.round(count/max*100)}%"></div></div>
       <div class="bar-count">${count}</div>
     </div>
   `).join('');
@@ -500,7 +579,7 @@ function renderTeamTable(byTeam, byStatus){
   // (Full per-team closed breakdown would need a dedicated query — noted for a future pass.)
   el.innerHTML = entries.map(([team, count]) => `
     <div class="bar-row">
-      <div class="bar-label" style="width:260px;">${escapeHtml(team)}</div>
+      <div class="bar-label" title="${escapeHtml(team)}">${escapeHtml(team)}</div>
       <div class="bar-track"><div class="bar-fill" style="width:${Math.round(count/entries[0][1]*100)}%"></div></div>
       <div class="bar-count">${count}</div>
     </div>
@@ -509,18 +588,30 @@ function renderTeamTable(byTeam, byStatus){
 
 function renderTrend(trend){
   const el = document.getElementById('trendChart');
-  const w = 900, h = 180, pad = 30;
+  // Bug fix (end-to-end testing 8/10/26): no scale of any kind — just
+  // two unlabeled lines against a bare baseline, so there was no way to
+  // tell what a given point's actual value was. Taller canvas (was 180)
+  // to leave room for a value label above/below every point without
+  // clipping, plus small dot markers so each point reads clearly.
+  const w = 900, h = 220, padX = 30, padTop = 26, padBottom = 34;
   const max = Math.max(1, ...trend.map(d => Math.max(d.opened, d.closed)));
-  const stepX = (w - pad*2) / (trend.length - 1 || 1);
-  const y = v => h - pad - (v / max) * (h - pad*2);
-  const line = (key) => trend.map((d,i) => `${i===0?'M':'L'} ${pad+i*stepX} ${y(d[key])}`).join(' ');
+  const stepX = (w - padX*2) / (trend.length - 1 || 1);
+  const y = v => h - padBottom - (v / max) * (h - padTop - padBottom);
+  const line = (key) => trend.map((d,i) => `${i===0?'M':'L'} ${padX+i*stepX} ${y(d[key])}`).join(' ');
+  const points = (key, color, dy) => trend.map((d,i) => {
+    const cx = padX + i * stepX, cy = y(d[key]);
+    return `<circle cx="${cx}" cy="${cy}" r="2.5" fill="${color}" />` +
+      `<text x="${cx}" y="${cy + dy}" font-size="9" fill="${color}" text-anchor="middle">${d[key]}</text>`;
+  }).join('');
   const labels = trend.map((d,i) => i % Math.ceil(trend.length/7) === 0
-    ? `<text x="${pad+i*stepX}" y="${h-8}" font-size="9" fill="var(--ink-soft)" text-anchor="middle">${d.date.slice(5)}</text>` : '').join('');
+    ? `<text x="${padX+i*stepX}" y="${h-10}" font-size="9" fill="var(--ink-soft)" text-anchor="middle">${d.date.slice(5)}</text>` : '').join('');
   el.innerHTML = `
     <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;font-family:var(--font-mono);">
-      <line x1="${pad}" y1="${h-pad}" x2="${w-pad}" y2="${h-pad}" stroke="var(--khaki-line)" />
+      <line x1="${padX}" y1="${h-padBottom}" x2="${w-padX}" y2="${h-padBottom}" stroke="var(--khaki-line)" />
       <path d="${line('opened')}" fill="none" stroke="var(--hivis)" stroke-width="2" />
       <path d="${line('closed')}" fill="none" stroke="var(--moss)" stroke-width="2" />
+      ${points('opened', 'var(--hivis)', -8)}
+      ${points('closed', 'var(--moss)', 14)}
       ${labels}
     </svg>
     <div style="display:flex;gap:16px;font-size:11px;color:var(--ink-soft);margin-top:6px;">
