@@ -216,6 +216,13 @@ const SCOPE_LOCATION_GROUP = 'Base Camps';
 let refreshTimer = null;
 let TEAMS = [], ASSETS = [];
 const STATUSES = ["Requested","Assigned","Work In Progress","On Hold","Closed, Completed","Closed, Incomplete"];
+// Bug fix (end-to-end testing 8/10/26): the Status breakdown chart is
+// scoped by the Active/Cumulative toggle (chartModeStatusIn), and
+// Requested is deliberately excluded from BOTH modes — it's always 0
+// on this chart, which just reads as clutter rather than information.
+// STATUSES itself stays as-is (still used for the Filter row's fStatus
+// dropdown, where Requested is a perfectly valid manual filter).
+const CHART_STATUSES = STATUSES.filter(s => s !== "Requested");
 // Enhancement (end-to-end testing 8/10/26): Trend + Breakdown charts'
 // own status scope, independent of the Filter row / KPI quick-views —
 // see chartFilterParams(). Defaults to 'cumulative' (everything except
@@ -512,7 +519,7 @@ async function load(){
   // existed, whenever a filter happened to exclude them). Passing the
   // full STATUSES list, same pattern byPriority already uses, means
   // every status always gets a row, 0-count or not.
-  renderBars('byStatus', breakdowns.by_status, STATUSES);
+  renderBars('byStatus', breakdowns.by_status, CHART_STATUSES);
   // Enhancement backlog Phase 14 (PRD §13#15): urgency-tier rename —
   // renderBars' `order` param strictly filters which keys can appear
   // at all (see its implementation below), so omitting the new names
