@@ -296,10 +296,36 @@ def test_dashboard_router_status_in_matches_active_tile_semantics(client, auth_h
 
     resp_status_in = client.get(
         "/dashboard/kpis",
-        params={"scope": "main", "status_in": "Assigned,On Hold,Work In Progress"},
+        params=[("scope", "main"), ("status_in", "Assigned"), ("status_in", "On Hold"), ("status_in", "Work In Progress")],
         headers=auth_headers,
     )
     assert resp_status_in.json()["total"] == 1  # excludes Requested — correct "Active" semantics
+
+
+def test_dashboard_router_status_in_handles_commas_in_status_values(client, auth_headers, db, asset):
+    """The new Active/Cumulative chart toggle (end-to-end testing
+    8/10/26) needs "Closed, Completed" and "Closed, Incomplete" in
+    status_in — both contain a literal comma in the status value
+    itself. Repeated query params (not a comma-joined string) are what
+    make this safe; this is the scenario that convention exists for."""
+    completed_wo = _make_wo(db, asset)
+    completed_wo.status = "Closed, Completed"
+    incomplete_wo = _make_wo(db, asset)
+    incomplete_wo.status = "Closed, Incomplete"
+    requested_wo = _make_wo(db, asset)  # should NOT be matched
+    db.add_all([completed_wo, incomplete_wo, requested_wo])
+    db.commit()
+
+    resp = client.get(
+        "/dashboard/kpis",
+        params=[
+            ("scope", "main"),
+            ("status_in", "Closed, Completed"),
+            ("status_in", "Closed, Incomplete"),
+        ],
+        headers=auth_headers,
+    )
+    assert resp.json()["total"] == 2
 
 
 def test_inbox_via_work_orders_scoped_by_location_group_matches_dashboard_scope(
