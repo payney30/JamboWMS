@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from .. import crud, schemas, models
 from ..database import get_db
@@ -39,18 +39,24 @@ def _filter_params(
     # Bug fix (end-to-end testing 8/10/26): _apply_filters (see crud.py)
     # already supports status_in specifically so "Active" can mean
     # Assigned/On Hold/Work In Progress without also matching Requested
-    # (which has its own separate tile) — same convention LOC triage's
-    # Open/Active tile already uses (index.html, comma-separated). This
-    # router just never exposed it as a query param, so these dashboards
-    # had no way to ask for it and fell back to exclude_closed (plain
-    # "not closed," which incorrectly included Requested).
-    status_in: Optional[str] = None,  # comma-separated, e.g. "Assigned,On Hold,Work In Progress"
+    # (which has its own separate tile). Originally exposed here as a
+    # comma-separated string (matching LOC triage's Open/Active tile
+    # convention in work_orders.py), but the new Active/Cumulative chart
+    # toggle needs "Closed, Completed" and "Closed, Incomplete" in this
+    # same list — both contain a literal comma in the status value
+    # itself, which corrupts a naive comma-split. Repeated query params
+    # (?status_in=Assigned&status_in=Closed%2C+Completed&...) sidestep
+    # that entirely — FastAPI collects them into a clean list with no
+    # manual parsing needed. This only changes this router's own
+    # endpoints; work_orders.py's separate status_in (comma-string) is
+    # untouched since none of its callers need comma-containing values.
+    status_in: Optional[List[str]] = Query(None),
 ) -> dict:
     return {
         "status": status, "priority": priority, "work_type": work_type,
         "team_id": team_id, "location_group": location_group, "asset_id": asset_id,
         "search": search, "exclude_closed": exclude_closed, "closed_only": closed_only,
-        "status_in": [s.strip() for s in status_in.split(",")] if status_in else None,
+        "status_in": status_in,
     }
 
 
