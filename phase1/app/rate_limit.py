@@ -44,7 +44,17 @@ IP_WINDOW_SECONDS = 5 * 60
 # own counter rather than sharing the login IP bucket above. Sized to let
 # one legitimate person submit a handful of requests without friction
 # while still stopping a flood.
-PUBLIC_WO_MAX_SUBMISSIONS = 8
+#
+# Bug fix (end-to-end testing 8/10/26): 8 per 10 minutes was too tight
+# for real use, not just demo rehearsal — this limit is per-IP, and at
+# an event like this, "one IP" often means an entire camp area sharing
+# one Wi-Fi access point or hotspot. A handful of genuinely unrelated
+# people submitting real work orders from the same shared connection
+# could exhaust this bucket collectively, blocking legitimate
+# submissions that have nothing to do with each other. Raised well past
+# what a single person filling out the form by hand would ever hit,
+# while staying far below what an automated flood would aim for.
+PUBLIC_WO_MAX_SUBMISSIONS = 30
 PUBLIC_WO_WINDOW_SECONDS = 10 * 60
 
 # Enhancement backlog Phase 1 (PRD §13#4): the phone-anchored status
