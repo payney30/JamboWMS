@@ -260,6 +260,18 @@ let LAST_WOS = [];
 // unsaved changes so closing/navigating away can prompt instead of
 // silently discarding.
 let CURRENT_USER = null;
+// Bug fix (end-to-end testing 8/10/26): this page had no client-side
+// role gate at all — unlike the three dashboard files, which already
+// use this exact ALLOWED_ROLES pattern. The backend does correctly
+// scope data server-side (a tech role can never see or edit another
+// team's work orders, confirmed in work_orders.py's _enforce_team_scope
+// and list_work_orders), so this was never an actual data leak — but
+// without this gate, a tech (or any other role) could still log into
+// the full LOC Triage screen and get a confusing, partially-broken
+// experience: their own team's already-assigned WOs displayed as if
+// this were the complete LOC inbox, with most triage actions silently
+// 403ing. This routes each role to the page it's actually meant for.
+const ALLOWED_ROLES = ['loc', 'admin'];
 let drawerState = {woId: null, editable: false, dirty: false};
 // Enhancement backlog Phase 18 (PRD §13#15 follow-up, 7/30/26): back to
 // single entries — this briefly paired each new name with its old
@@ -389,10 +401,26 @@ function printDrawer(woNumber){
 }
 
 async function boot() {
+  try {
+    CURRENT_USER = await api('/users/me');
+  } catch (e) {
+    return; // api() already handled the session-expired redirect
+  }
+  // Bug fix (end-to-end testing 8/10/26): moved the role check ahead of
+  // revealing #app — previously #app was shown unconditionally before
+  // CURRENT_USER even loaded, so a disallowed role would briefly see
+  // the real triage screen flash before anything blocked them.
+  if (!ALLOWED_ROLES.includes(CURRENT_USER.role)) {
+    localStorage.removeItem('loc_token');
+    TOKEN = '';
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('loginBox').style.display = 'block';
+    document.getElementById('loginErr').textContent = "This account doesn't have access to LOC Triage.";
+    return;
+  }
   document.getElementById('loginBox').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   try {
-    CURRENT_USER = await api('/users/me');
     TEAMS = await api('/teams');
     ASSETS = await api('/assets');
     // Enhancement backlog Phase 13 (PRD §14#37): canonical, correctly-

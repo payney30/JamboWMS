@@ -474,7 +474,11 @@ function inboxFilterParams(){
   if (s.team) params.set('team_id', s.team);
   if (s.assetId) params.set('asset_id', s.assetId);
   if (s.search) params.set('search', s.search);
-  params.set('limit', '500');
+  // Bug fix (end-to-end testing 8/10/26): 500 could silently cut off
+  // newer/lower-priority WOs once total volume grew past it, same root
+  // cause already fixed in index.html's LOC triage inbox — this table
+  // never got the same fix. Matches the backend's actual cap (le=2000).
+  params.set('limit', '2000');
   return params;
 }
 
