@@ -1,0 +1,20 @@
+diff --git a/phase1/alembic/versions/d5e8a2c4f7b1_add_inventory_lookup.py b/phase1/alembic/versions/d5e8a2c4f7b1_add_inventory_lookup.py
+index d1f48f3..7507fb4 100644
+--- a/phase1/alembic/versions/d5e8a2c4f7b1_add_inventory_lookup.py
++++ b/phase1/alembic/versions/d5e8a2c4f7b1_add_inventory_lookup.py
+@@ -70,8 +70,14 @@ def upgrade() -> None:
+     # Default the widget on for the existing 'NJ Items/Parts' row (if
+     # present — a fresh install seeds it via seed.py, which also sets
+     # this going forward; this covers an already-seeded database).
++    # Bug fix (Render deploy, 8/17/26): '1' is a valid boolean literal on
++    # SQLite (booleans are just integers there) but Postgres has a real
++    # boolean type and rejects an integer literal for it outright
++    # ("column is of type boolean but expression is of type integer").
++    # TRUE/FALSE are standard SQL boolean literals both dialects accept
++    # (SQLite has treated them as aliases for 1/0 since 3.23).
+     op.execute(
+-        "UPDATE request_types SET show_inventory_lookup = 1 "
++        "UPDATE request_types SET show_inventory_lookup = TRUE "
+         "WHERE name = 'NJ Items/Parts'"
+     )
+ 

@@ -101,13 +101,23 @@ def _seed_request_types(SessionLocalTest):
     them needing its own request_types fixture. Autouse + depends on
     SessionLocalTest (not `db`) so this seeds before either the `db` or
     `client` fixture is used, regardless of which the test declares.
+
+    PRD §4.5e: show_inventory_lookup defaults True for 'NJ Items/Parts'
+    here too, matching seed.py's real production seeding — otherwise
+    every test relying on the widget-visibility flag would need its own
+    one-off setup, and a test asserting "the widget shows for Items/Parts
+    by default" would actually be testing this fixture's gap, not the
+    app's real default.
     """
     session = SessionLocalTest()
     try:
         for i, name in enumerate(
             ["NJ IT", "NJ Items/Parts", "NJ Maintenance", "NJ Transportation"]
         ):
-            session.add(models.RequestType(name=name, sort_order=i))
+            session.add(models.RequestType(
+                name=name, sort_order=i,
+                show_inventory_lookup=(name == "NJ Items/Parts"),
+            ))
         session.commit()
     finally:
         session.close()

@@ -10,7 +10,7 @@ import io
 
 import pytest
 
-from app import crud, models
+from app import crud, models, schemas
 
 
 def _login(client, email, password="test-password"):
@@ -314,4 +314,110 @@ def test_authenticated_request_types_endpoint_available_to_loc(client, loc_user)
     assert resp.status_code == 200
     names = {t["name"] for t in resp.json()}
     assert "NJ Items/Parts" in names
+
+
+# ---- Full user journey (E2E-style): import → triage attach → tech view →
+# task-worker view → remove. Each piece already has its own focused test
+# above; this one exercises them together in the order a real triager,
+# dispatcher, and field worker would actually hit them, against the same
+# GET /work-orders/{id} response every one of those screens reads from —
+# catching any gap where one persona's view stops reflecting reality
+# (e.g. a future change that scopes suggested_supplies to a role and
+# silently breaks technician.html/worker.html, which only surfaced as a
+# real bug once during this feature's build).
+
+def test_full_supply_lookup_journey_admin_to_field_worker(client, auth_headers, asset, team, db):
+    # 1. Admin refreshes the warehouse catalog (as they would before the
+    #    Jamboree, or any time the export changes).
+    files = {"file": ("inventory.csv", io.BytesIO(BROOM_CSV), "text/csv")}
+    apply_resp = client.post("/admin/inventory/apply", files=files, headers=auth_headers)
+    assert apply_resp.status_code == 200, apply_resp.text
+
+    # 2. Confirm the request type triagers rely on is flagged for the
+    #    widget — this is what tells the triage drawer to show the
+    #    inventory search box at all.
+    types = {t["name"]: t for t in client.get("/request-types", headers=auth_headers).json()}
+    assert types["NJ Items/Parts"]["show_inventory_lookup"] is True
+
+    # 3. LOC creates and triages a supply-request WO.
+    wo = client.post(
+        "/work-orders",
+        json={
+            "requester_name": "Scout Leader", "requester_email": "leader@example.com",
+            "asset_id": asset.id, "work_type": "NJ Items/Parts",
+            "description": "Need cleaning supplies for the shower house", "priority": "Next Day",
+        },
+        headers=auth_headers,
+    ).json()
+
+    # 4. Triager searches the catalog the way the widget would (default:
+    #    in-stock only), finds the broom, and attaches it plus a second
+    #    item with a specific quantity.
+    search = client.get("/inventory/search?q=broom", headers=auth_headers).json()
+    assert [r["sku"] for r in search] == ["999000048"]  # Whisk excluded — 0 on hand
+
+    attach = client.post(
+        f"/work-orders/{wo['id']}/suggested-supplies",
+        json={"items": [
+            {"sku": "999000048", "description": "Broom Sweep Straw", "qty_requested": 2},
+            {"sku": "1002041", "description": "Aspirin Ec Tab 325mg", "qty_requested": 1},
+        ]},
+        headers=auth_headers,
+    )
+    assert attach.status_code == 201, attach.text
+
+    # 5. LOC assigns the WO to a team and tasks it to an individual field
+    #    worker on that team, so both the Dispatcher and worker personas
+    #    below have a legitimate reason to view it.
+    client.post(f"/work-orders/{wo['id']}/assign", json={"team_id": team.id}, headers=auth_headers)
+
+    tech = models.User(
+        name="Dispatcher Dana", email="dana@test.local", role="tech", team_id=team.id,
+        password_hash=crud.hash_password("test-password"),
+    )
+    db.add(tech)
+    db.commit()
+    db.refresh(tech)
+    worker, pin = crud.create_task_worker(db, team.id, schemas.TaskWorkerCreate(name="Field Worker Wes"))
+
+    tech_headers = _login(client, tech.email)
+    worker_headers = client.post(
+        "/public/worker-login", json={"worker_id": worker.id, "pin": pin}
+    ).json()
+    worker_auth = {"Authorization": f"Bearer {worker_headers['access_token']}"}
+
+    client.post(
+        f"/work-orders/{wo['id']}/assign",
+        json={"team_id": team.id, "person_id": worker.id},
+        headers=tech_headers,
+    )
+
+    # 6. Both the Dispatcher (technician.html) and the Field Worker
+    #    (worker.html) read the exact same endpoint the LOC drawer does —
+    #    confirm the supply list each of them would render is present and
+    #    correct, not just for the LOC/admin caller who attached it.
+    for caller_headers in (tech_headers, worker_auth):
+        detail = client.get(f"/work-orders/{wo['id']}", headers=caller_headers).json()
+        supplies = {s["sku"]: s["qty_requested"] for s in detail["suggested_supplies"]}
+        assert supplies == {"999000048": 2, "1002041": 1}
+        supply_note = next(n for n in detail["notes"] if n["note_type"] == "supply_request")
+        assert "999000048 — Broom Sweep Straw x 2" in supply_note["note_text"]
+        assert "1002041 — Aspirin Ec Tab 325mg x 1" in supply_note["note_text"]
+
+    # 7. LOC corrects a mis-added item — confirm the removal is reflected
+    #    back through to the field worker's view too, not just LOC's own.
+    to_remove = next(
+        s["id"] for s in
+        client.get(f"/work-orders/{wo['id']}", headers=auth_headers).json()["suggested_supplies"]
+        if s["sku"] == "1002041"
+    )
+    del_resp = client.delete(f"/work-orders/{wo['id']}/suggested-supplies/{to_remove}", headers=auth_headers)
+    assert del_resp.status_code == 204
+
+    worker_view = client.get(f"/work-orders/{wo['id']}", headers=worker_auth).json()
+    assert [s["sku"] for s in worker_view["suggested_supplies"]] == ["999000048"]
+    # The note is a point-in-time record of what was suggested, not live
+    # state — it stays even after the item is removed from the structured
+    # list (see crud.remove_suggested_supply's docstring).
+    assert any(n["note_type"] == "supply_request" for n in worker_view["notes"])
 
