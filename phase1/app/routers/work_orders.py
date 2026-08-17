@@ -239,6 +239,28 @@ def add_note(wo_id: int, payload: schemas.NoteCreate,
     return crud.add_note(db, wo, payload, author_id=user.id)
 
 
+@router.post("/{wo_id}/suggested-supplies", response_model=list[schemas.SuggestedSupplyOut], status_code=201)
+def add_suggested_supplies(wo_id: int, payload: schemas.SuggestedSuppliesAddRequest,
+                            db: Session = Depends(get_db),
+                            user: models.User = Depends(loc_or_admin)):
+    """PRD §4.5e — attaches items selected in the triage drawer's
+    inventory search widget. LOC/admin only, same as instruction notes:
+    this is a triage action, not something a technician's queue view
+    initiates."""
+    wo = _get_wo_or_404(db, wo_id)
+    _enforce_not_locked(wo, user)
+    return crud.add_suggested_supplies(db, wo, payload.items, added_by=user.id)
+
+
+@router.delete("/{wo_id}/suggested-supplies/{supply_id}", status_code=204)
+def remove_suggested_supply(wo_id: int, supply_id: int, db: Session = Depends(get_db),
+                             user: models.User = Depends(loc_or_admin)):
+    wo = _get_wo_or_404(db, wo_id)
+    _enforce_not_locked(wo, user)
+    crud.remove_suggested_supply(db, wo, supply_id)
+    return None
+
+
 @router.post("/{wo_id}/lock", response_model=schemas.LockOut)
 def lock_work_order(wo_id: int, db: Session = Depends(get_db),
                      user: models.User = Depends(tech_or_loc_or_admin)):

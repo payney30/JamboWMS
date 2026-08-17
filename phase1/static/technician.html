@@ -873,6 +873,19 @@ async function openDetail(id){
       </select>
     </div>` : '';
 
+  // PRD §4.5e: read-only display of supply items the LOC triager
+  // attached via the inventory search widget — the whole point of that
+  // feature is so the dispatcher sees ready-to-pick SKUs here without
+  // having to parse them back out of note text. Shown whenever the WO
+  // has any (regardless of work type — a WO can carry supplies even if
+  // its type doesn't normally offer the widget), not editable from this
+  // view; only LOC triage attaches/removes.
+  const suggestedSuppliesHtml = (w.suggested_supplies || []).length ? `
+    <div class="readonly-block" style="margin-top:8px;">
+      <strong>Suggested supplies</strong>
+      ${w.suggested_supplies.map(s => `<div>${escapeHtml(s.sku)} — ${escapeHtml(s.description)} × ${s.qty_requested}</div>`).join('')}
+    </div>` : '';
+
   // Enhancement backlog Phase 12 (PRD §16#3): label who a note is from
   // — specifically flag LOC/admin-authored notes so it's clear which
   // ones are LOC guidance vs. another tech's own update. Notes were
@@ -950,6 +963,7 @@ async function openDetail(id){
            assigned worker wasn't shown anywhere in the print output. -->
       <p><strong>Assigned worker:</strong> ${escapeHtml(w.assigned_person ? w.assigned_person.name : '—')}</p>
       <p><strong>Description:</strong><br>${escapeHtml(w.description)}</p>
+      ${(w.suggested_supplies || []).length ? `<p><strong>Suggested supplies:</strong><br>${w.suggested_supplies.map(s => `${escapeHtml(s.sku)} — ${escapeHtml(s.description)} × ${s.qty_requested}`).join('<br>')}</p>` : ''}
       <!-- Bug fix (found in print-consistency testing, 8/1/26): only
            LOC triage's print output showed this. -->
       ${w.note_to_requester ? `<p><strong>Note to requestor:</strong><br>${escapeHtml(w.note_to_requester)}</p>` : ''}
@@ -965,6 +979,7 @@ async function openDetail(id){
     ${pocHtml}
 
     <div class="readonly-block"><strong>${escapeHtml(w.asset ? w.asset.name : 'No location')}</strong><br>${escapeHtml(w.description)}</div>
+    ${suggestedSuppliesHtml}
     ${attachmentsHtml}
     ${pinLinksHtml}
     ${printOnlyHtml}

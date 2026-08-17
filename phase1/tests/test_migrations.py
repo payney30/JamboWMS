@@ -22,6 +22,8 @@ EXPECTED_TABLES = {
     "wo_status_history",
     "wo_attachments",
     "response_templates",
+    "inventory_items",
+    "wo_suggested_supplies",
     "alembic_version",
 }
 

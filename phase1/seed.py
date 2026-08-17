@@ -142,12 +142,19 @@ def seed_request_types(db):
     """PRD 4.5c — replaces the old hardcoded WORK_TYPES tuple; new/renamed
     types are managed via the admin screen from here on, this just gives
     a fresh install the same starting set the tuple used to provide."""
-    existing = {t.name for t in db.query(models.RequestType.name).all()}
+    existing = {t.name: t for t in db.query(models.RequestType).all()}
     added = 0
     for i, name in enumerate(STARTER_REQUEST_TYPES):
         if name in existing:
             continue
-        db.add(models.RequestType(name=name, sort_order=i))
+        db.add(models.RequestType(
+            name=name, sort_order=i,
+            # PRD §4.5e: the inventory search widget defaults on for
+            # Items/Parts (the type it's actually useful for) so go-live
+            # doesn't require a manual admin click first — every other
+            # type stays off, admin-toggleable from here.
+            show_inventory_lookup=(name == "NJ Items/Parts"),
+        ))
         added += 1
     db.commit()
     print(f"request types: added {added}")

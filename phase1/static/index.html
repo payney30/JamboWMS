@@ -77,15 +77,24 @@ tr:hover td{background:#F5F1E4;cursor:pointer;}
 .empty-row td{color:var(--ink-soft);text-align:center;padding:22px 12px;}
 .loading-row td{color:var(--ink-soft);text-align:center;padding:22px 12px;font-family:var(--font-mono);font-size:12px;}
 
-#drawer{position:fixed;top:0;right:-460px;width:440px;height:100%;background:var(--canvas-panel);
+#drawer{position:fixed;top:0;right:-580px;width:560px;max-width:92vw;height:100%;background:var(--canvas-panel);
   border-left:1px solid var(--khaki-line);box-shadow:-6px 0 20px rgba(0,0,0,.15);transition:right .2s;overflow-y:auto;padding:24px;z-index:10;}
 #drawer.open{right:0;}
 #drawerBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.25);display:none;z-index:9;}
 #drawerBackdrop.open{display:block;}
 #drawer h2{font-family:var(--font-display);font-size:18px;margin:0 0 4px;}
 #drawer label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin:14px 0 4px;}
+/* PRD §4.5e: checkbox rows (e.g. "Show 0/unknown stock items") shouldn't
+   inherit the block/uppercase field-label styling above. */
+#drawer label.check{display:flex;align-items:center;gap:6px;text-transform:none;font-size:12px;font-weight:400;margin:6px 0;}
 #drawer select,#drawer textarea,#drawer input{width:100%;padding:8px;border:1px solid var(--khaki-line);border-radius:6px;font-size:13px;font-family:var(--font-body);}
 #drawer textarea{min-height:60px;}
+/* PRD §4.5e: the generic #drawer input rule above sets width:100% for
+   every input, including checkboxes — without this override, a checkbox
+   stretches to fill the row and pushes its label text onto its own line
+   (found in a screenshot: "Show 0/unknown stock items" wrapping away
+   from its checkbox). Reset to the browser's natural checkbox sizing. */
+#drawer input[type="checkbox"]{width:auto;flex:0 0 auto;padding:0;}
 .close-btn{position:absolute;top:18px;right:18px;background:none;border:none;font-size:20px;cursor:pointer;color:var(--ink-soft);}
 .note{background:#F1EDDF;border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px;}
 .note .meta{color:var(--ink-soft);font-size:10px;margin-top:3px;}
@@ -247,6 +256,17 @@ function fmtTime(iso){
 let USERS = [];
 // Enhancement backlog Phase 13 (PRD §14#37).
 let REPORTING_GROUPS = [];
+// PRD §4.5e: request types incl. show_inventory_lookup, fetched at boot
+// — drives whether the "Suggested supplies" widget shows in the drawer
+// for a given WO's work type. See requestTypeShowsInventory() below.
+let REQUEST_TYPES = [];
+// PRD §4.5e: in-progress state for the triage drawer's inventory search
+// widget — reset per-WO in openWO(). SUPPLY_SELECTED is the "tray" of
+// items chosen but not yet committed via commitSuggestedSupplies().
+let SUPPLY_SEARCH_RESULTS = [];
+let SUPPLY_SELECTED = [];
+let SUPPLY_INCLUDE_ZERO = false;
+let supplySearchTimer;
 // Enhancement backlog Phase 13 (PRD §14#38).
 let drawerFilterLocationPicker = null, locationFilterAssetId = null;
 let drawerLocationPicker = null;
@@ -429,6 +449,11 @@ async function boot() {
     // present on loaded ASSETS (which could miss groups with no assets
     // currently assigned, and had no defined sort order).
     REPORTING_GROUPS = await api('/reporting-groups');
+    // PRD §4.5e: request types, including show_inventory_lookup — the
+    // triage drawer uses this to decide whether to show the "Suggested
+    // supplies" widget for a given WO's work type. Read-only endpoint,
+    // any authenticated role (unlike the admin-only CRUD version).
+    try { REQUEST_TYPES = await api('/request-types'); } catch (e) { REQUEST_TYPES = []; }
     // loc/admin only — techs can't reach GET /users, and the "handled by"
     // filter is a triage-staff tool, not something a tech's own queue
     // view needs. Fail soft: an empty dropdown just means the filter
@@ -786,6 +811,170 @@ function openDrawer(html){
 // field change. Called from oninput/onchange on every editable field.
 function markDirty(){ drawerState.dirty = true; }
 
+// PRD §4.5e — work-type change toggles the Suggested supplies widget's
+// visibility live, without re-rendering the whole drawer (which would
+// lose in-progress search/selection state).
+function onDrawerWorkTypeChange(){
+  markDirty();
+  const val = document.getElementById('dWorkType').value;
+  const group = document.getElementById('suggestedSuppliesGroup');
+  if (group) group.style.display = requestTypeShowsInventory(val) ? '' : 'none';
+}
+
+function requestTypeShowsInventory(workType){
+  const rt = REQUEST_TYPES.find(t => t.name === workType);
+  return !!(rt && rt.show_inventory_lookup);
+}
+
+function renderExistingSupplies(list, editable){
+  if (!list.length) return '<p style="font-size:12px;color:var(--ink-soft);">No supplies suggested yet.</p>';
+  return list.map(s => `<div class="note" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+      <span><strong>${escapeHtml(s.sku)}</strong> — ${escapeHtml(s.description)} × ${s.qty_requested}</span>
+      ${editable ? `<button class="btn btn-ghost btn-sm" onclick="removeSuggestedSupply(${drawerState.woId}, ${s.id})">Remove</button>` : ''}
+    </div>`).join('');
+}
+
+function debouncedSupplySearch(){ clearTimeout(supplySearchTimer); supplySearchTimer = setTimeout(runSupplySearch, 300); }
+
+function onSupplyIncludeZeroChange(checked){
+  SUPPLY_INCLUDE_ZERO = checked;
+  runSupplySearch();
+}
+
+async function runSupplySearch(){
+  const input = document.getElementById('supplySearchInput');
+  const resultsEl = document.getElementById('supplySearchResults');
+  if (!input || !resultsEl) return;
+  const q = input.value.trim();
+  if (!q) { resultsEl.innerHTML = ''; SUPPLY_SEARCH_RESULTS = []; return; }
+  try {
+    const params = new URLSearchParams({q, include_zero: SUPPLY_INCLUDE_ZERO ? 'true' : 'false', limit: '20'});
+    const results = await api('/inventory/search?' + params.toString());
+    SUPPLY_SEARCH_RESULTS = results;
+    renderSupplySearchResults(results);
+  } catch (e) {
+    if (e.message !== 'session expired') {
+      resultsEl.innerHTML = `<p style="font-size:12px;color:var(--ink-soft);">Search failed: ${escapeHtml(e.message)}</p>`;
+    }
+  }
+}
+
+function renderSupplySearchResults(results){
+  const resultsEl = document.getElementById('supplySearchResults');
+  if (!resultsEl) return;
+  if (!results.length) {
+    resultsEl.innerHTML = '<p style="font-size:12px;color:var(--ink-soft);">No matches.</p>';
+    return;
+  }
+  // Index-based lookups into SUPPLY_SEARCH_RESULTS (not string literals
+  // interpolated into the onchange attribute) — a SKU/description with a
+  // quote in it would otherwise break the HTML parser, same class of bug
+  // as the print/JSON.stringify fix elsewhere in this file.
+  resultsEl.innerHTML = results.map((r, i) => {
+    let stockNote;
+    if (r.qty_on_hand === null || r.qty_on_hand === undefined) {
+      stockNote = ` <span style="color:#b5651d;">(stock unknown)</span>`;
+    } else if (r.qty_on_hand === 0) {
+      stockNote = ` <span style="color:#b5651d;">(0 on hand)</span>`;
+    } else {
+      stockNote = ` <span style="color:var(--ink-soft);">(${r.qty_on_hand} on hand)</span>`;
+    }
+    const checked = SUPPLY_SELECTED.some(s => s.sku === r.sku) ? 'checked' : '';
+    return `<label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:13px;padding:2px 0;">
+        <input type="checkbox" ${checked} onchange="toggleSupplySelectionByIndex(${i}, this.checked)">
+        <span><strong>${escapeHtml(r.sku)}</strong> — ${escapeHtml(r.description)}${stockNote}</span>
+      </label>`;
+  }).join('');
+}
+
+function toggleSupplySelectionByIndex(idx, checked){
+  const item = SUPPLY_SEARCH_RESULTS[idx];
+  if (!item) return;
+  if (checked) {
+    if (!SUPPLY_SELECTED.some(s => s.sku === item.sku)) {
+      SUPPLY_SELECTED.push({sku: item.sku, description: item.description, qty_requested: 1});
+    }
+  } else {
+    SUPPLY_SELECTED = SUPPLY_SELECTED.filter(s => s.sku !== item.sku);
+  }
+  renderSupplySelectedTray();
+}
+
+function renderSupplySelectedTray(){
+  const tray = document.getElementById('supplySelectedTray');
+  const btn = document.getElementById('supplyAddBtn');
+  if (!tray) return;
+  if (!SUPPLY_SELECTED.length) {
+    tray.innerHTML = '';
+    if (btn) btn.style.display = 'none';
+    return;
+  }
+  tray.innerHTML = '<div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin-bottom:4px;">Selected</div>' +
+    SUPPLY_SELECTED.map((s, i) => `<div style="display:flex;align-items:center;gap:6px;font-size:13px;padding:2px 0;">
+        <span style="flex:1;"><strong>${escapeHtml(s.sku)}</strong> — ${escapeHtml(s.description)}</span>
+        <input type="number" min="1" value="${s.qty_requested}" style="width:56px;padding:2px 4px;" onchange="updateSupplySelectedQty(${i}, this.value)">
+        <button class="btn btn-ghost btn-sm" onclick="removeSupplySelection(${i})">✕</button>
+      </div>`).join('');
+  if (btn) btn.style.display = '';
+}
+
+function updateSupplySelectedQty(i, val){
+  const n = parseInt(val, 10);
+  if (SUPPLY_SELECTED[i]) SUPPLY_SELECTED[i].qty_requested = (Number.isFinite(n) && n > 0) ? n : 1;
+}
+
+function removeSupplySelection(i){
+  SUPPLY_SELECTED.splice(i, 1);
+  renderSupplySelectedTray();
+  // Re-render results so any still-visible checkbox for the removed
+  // item reflects the unchecked state without a network round-trip.
+  if (SUPPLY_SEARCH_RESULTS.length) renderSupplySearchResults(SUPPLY_SEARCH_RESULTS);
+}
+
+async function commitSuggestedSupplies(woId){
+  if (!SUPPLY_SELECTED.length) return;
+  const btn = document.getElementById('supplyAddBtn');
+  if (btn) btn.disabled = true;
+  try {
+    await api(`/work-orders/${woId}/suggested-supplies`, {
+      method: 'POST',
+      body: {items: SUPPLY_SELECTED.map(s => ({sku: s.sku, description: s.description, qty_requested: s.qty_requested}))},
+    });
+    SUPPLY_SELECTED = [];
+    SUPPLY_SEARCH_RESULTS = [];
+    const input = document.getElementById('supplySearchInput');
+    if (input) input.value = '';
+    const resultsEl = document.getElementById('supplySearchResults');
+    if (resultsEl) resultsEl.innerHTML = '';
+    showToast('Supplies added to work order.', 'ok');
+    await refreshDrawerAfterSupplyChange(woId);
+  } catch (e) {
+    if (e.message !== 'session expired') showToast('Could not add supplies: ' + e.message, 'err');
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function removeSuggestedSupply(woId, supplyId){
+  try {
+    await api(`/work-orders/${woId}/suggested-supplies/${supplyId}`, {method: 'DELETE'});
+    showToast('Removed.', 'ok');
+    await refreshDrawerAfterSupplyChange(woId);
+  } catch (e) {
+    if (e.message !== 'session expired') showToast('Could not remove: ' + e.message, 'err');
+  }
+}
+
+// Re-fetches and re-renders the drawer in place after a supply add/
+// remove. Not a save — the WO's other fields are untouched, and we
+// still hold the edit lock (these actions are only reachable when
+// editable), so this always re-renders with an empty lock banner.
+async function refreshDrawerAfterSupplyChange(woId){
+  try {
+    const w = await api('/work-orders/' + woId);
+    renderWODrawer(w, '');
+  } catch (e) { /* best effort — drawer just keeps showing stale data */ }
+}
+
 async function releaseCurrentLock(){
   if (drawerState.editable && drawerState.woId) {
     try { await api(`/work-orders/${drawerState.woId}/unlock`, {method:'POST'}); }
@@ -843,6 +1032,11 @@ async function openWO(id){
   }
 
   drawerState = {woId: id, editable: false, dirty: false};
+  // PRD §4.5e: fresh supply-search state per WO — no leakage from
+  // whatever was selected/searched on a previously open WO.
+  SUPPLY_SELECTED = [];
+  SUPPLY_SEARCH_RESULTS = [];
+  SUPPLY_INCLUDE_ZERO = false;
   let lockBanner = '';
 
   // Enhancement backlog Phase 1 (PRD §14#1): try to claim the edit lock.
@@ -946,6 +1140,12 @@ function renderWODrawer(w, lockBanner){
     ? `<p style="font-size:12px;color:var(--ink-soft);margin:2px 0 0;"><strong>POC:</strong> ${escapeHtml(w.poc_name||'')} ${escapeHtml(w.poc_phone||'')}</p>`
     : '';
 
+  // PRD §4.5e: visible only for request types the admin has flagged via
+  // requestTypeShowsInventory() — re-evaluated live if the triager
+  // changes the Work type dropdown, via onDrawerWorkTypeChange().
+  const showInventoryWidget = requestTypeShowsInventory(w.work_type);
+  const suggestedSuppliesHtml = renderExistingSupplies(w.suggested_supplies || [], editable);
+
   // Enhancement backlog Phase 3 (PRD §14#12): plain-text summary shown
   // only when printing (see the .print-only / @media print CSS) — the
   // editable form controls above get hidden on print instead, since a
@@ -1009,7 +1209,7 @@ function renderWODrawer(w, lockBanner){
       <label>Location / asset</label>
       ${editable ? `<div id="dLocationPicker"></div>` : `<p style="margin:4px 0;">${escapeHtml(w.asset ? w.asset.name : '—')}</p>`}
       <label>Work type</label>
-      <select id="dWorkType" onchange="markDirty()" ${dis}>${workTypeOpts}</select>
+      <select id="dWorkType" onchange="onDrawerWorkTypeChange()" ${dis}>${workTypeOpts}</select>
       <label>Priority</label>
       <select id="dPriority" onchange="markDirty()" ${dis}>${priorityOpts}</select>
     </div>
@@ -1038,6 +1238,23 @@ function renderWODrawer(w, lockBanner){
     <div class="drawer-group">
       <label>Add an internal note</label>
       <textarea id="dNote" placeholder="Add a note…" oninput="markDirty()" ${dis}></textarea>
+    </div>
+
+    <!-- PRD §4.5e: only shown for request types the admin has flagged
+         (Request Types tab in admin.html) — defaults to just Items/Parts.
+         Visibility toggles live as dWorkType changes, via
+         onDrawerWorkTypeChange() above, without needing a re-render. -->
+    <div class="drawer-group" id="suggestedSuppliesGroup" style="${showInventoryWidget ? '' : 'display:none;'}">
+      <label>Suggested supplies <span style="font-weight:400;color:var(--ink-soft);">(adds product numbers so the supply dispatcher can pick &amp; pack without looking them up)</span></label>
+      <div id="supplyExistingList">${suggestedSuppliesHtml}</div>
+      ${editable ? `
+      <div style="margin-top:10px;">
+        <input id="supplySearchInput" placeholder="Search item name or SKU… e.g. &quot;broom&quot;" oninput="debouncedSupplySearch()" autocomplete="off">
+        <label class="check" style="margin-top:6px;font-weight:400;"><input type="checkbox" id="supplyIncludeZero" onchange="onSupplyIncludeZeroChange(this.checked)"> Show 0/unknown stock items</label>
+        <div id="supplySearchResults" style="margin-top:6px;max-height:260px;overflow-y:auto;"></div>
+        <div id="supplySelectedTray" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
+        <button class="btn btn-ghost btn-sm" id="supplyAddBtn" style="margin-top:6px;display:none;" onclick="commitSuggestedSupplies(${w.id})">Add selected to work order</button>
+      </div>` : ''}
     </div>
 
     <!-- Enhancement backlog Phase 13 (PRD §14#39): visual separation

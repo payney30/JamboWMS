@@ -1,0 +1,15 @@
+--- a/phase1/static/index.html
++++ b/phase1/static/index.html
+@@ -89,6 +89,12 @@
+ #drawer label.check{display:flex;align-items:center;gap:6px;text-transform:none;font-size:12px;font-weight:400;margin:6px 0;}
+ #drawer select,#drawer textarea,#drawer input{width:100%;padding:8px;border:1px solid var(--khaki-line);border-radius:6px;font-size:13px;font-family:var(--font-body);}
+ #drawer textarea{min-height:60px;}
++/* PRD §4.5e: the generic #drawer input rule above sets width:100% for
++   every input, including checkboxes — without this override, a checkbox
++   stretches to fill the row and pushes its label text onto its own line
++   (found in a screenshot: "Show 0/unknown stock items" wrapping away
++   from its checkbox). Reset to the browser's natural checkbox sizing. */
++#drawer input[type="checkbox"]{width:auto;flex:0 0 auto;padding:0;}
+ .close-btn{position:absolute;top:18px;right:18px;background:none;border:none;font-size:20px;cursor:pointer;color:var(--ink-soft);}
+ .note{background:#F1EDDF;border-radius:6px;padding:8px 10px;margin:6px 0;font-size:12px;}
+ .note .meta{color:var(--ink-soft);font-size:10px;margin-top:3px;}

@@ -39,6 +39,17 @@ def list_reporting_groups(db: Session = Depends(get_db), user: models.User = Dep
     return crud.list_reporting_groups(db, include_inactive=False)
 
 
+@router.get("/request-types", response_model=list[schemas.RequestTypeOut])
+def list_request_types(db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """PRD §4.5e: read-only request-type list (including
+    show_inventory_lookup) for any authenticated role — the LOC triage
+    drawer needs this to know which request types should show the
+    inventory search widget, unlike the full CRUD admin endpoint at
+    /admin/request-types (admin-only). Same pattern as
+    list_reporting_groups above."""
+    return crud.list_request_types(db, include_inactive=False)
+
+
 @auth_router.get("/me", response_model=schemas.UserOut)
 def me(user: models.User = Depends(get_current_user)):
     """Lets a page restore role/team from a stored token on reload without

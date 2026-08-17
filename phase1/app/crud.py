@@ -9,6 +9,8 @@ mutation later, ask "does this need a history row?" before wiring it up.
 import datetime as dt
 import secrets
 import uuid
+import csv
+import io
 from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case, or_ as sql_or
@@ -1435,7 +1437,10 @@ def list_request_types(db: Session, include_inactive: bool = True) -> list[model
 def create_request_type(db: Session, payload: schemas.RequestTypeCreate) -> models.RequestType:
     if db.query(models.RequestType).filter(models.RequestType.name == payload.name).first():
         raise HTTPException(400, "a request type with this name already exists")
-    rt = models.RequestType(name=payload.name, sort_order=payload.sort_order)
+    rt = models.RequestType(
+        name=payload.name, sort_order=payload.sort_order,
+        show_inventory_lookup=payload.show_inventory_lookup,
+    )
     db.add(rt)
     db.commit()
     db.refresh(rt)
@@ -1461,6 +1466,183 @@ def update_request_type(db: Session, rt: models.RequestType,
     db.commit()
     db.refresh(rt)
     return rt
+
+
+# ---- 4.5e: Inventory / supply lookup ----
+
+_INVENTORY_CSV_FIELDS = ("ProductName", "Description", "ProductCustom3", "ProductCustom4", "Qty On Hand")
+
+
+def parse_inventory_csv(file_bytes: bytes) -> list[dict]:
+    """Parses the warehouse export (PRD §4.5e) into normalized rows keyed
+    by SKU. Source columns: ProductName (SKU), Description, ProductCustom3
+    (category), ProductCustom4 (subcategory), Qty On Hand. Handles the
+    UTF-8 BOM the source file ships with, strips thousands-separator
+    commas from Qty On Hand (e.g. "7,910"), and treats a blank/non-
+    numeric quantity as unknown (None) rather than zero — blank in this
+    export isn't confirmed-zero. Rows with no SKU are skipped."""
+    try:
+        text = file_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(400, "could not read file as UTF-8 CSV")
+    reader = csv.DictReader(io.StringIO(text))
+    if reader.fieldnames is None or "ProductName" not in reader.fieldnames:
+        raise HTTPException(
+            400,
+            "unrecognized CSV format — expected columns: " + ", ".join(_INVENTORY_CSV_FIELDS),
+        )
+    rows = []
+    seen = set()
+    for r in reader:
+        sku = (r.get("ProductName") or "").strip()
+        if not sku or sku in seen:
+            continue
+        seen.add(sku)
+        qty_raw = (r.get("Qty On Hand") or "").strip().replace(",", "")
+        qty = int(qty_raw) if qty_raw.lstrip("-").isdigit() else None
+        rows.append({
+            "sku": sku,
+            "description": (r.get("Description") or "").strip(),
+            "category": (r.get("ProductCustom3") or "").strip() or None,
+            "subcategory": (r.get("ProductCustom4") or "").strip() or None,
+            "qty_on_hand": qty,
+        })
+    return rows
+
+
+def diff_inventory_import(db: Session, rows: list[dict]) -> dict:
+    """Read-only diff of `rows` (already-parsed CSV, see parse_inventory_csv)
+    against the current inventory_items table, keyed on SKU — powers the
+    admin "review before apply" preview screen. Reactivating a
+    previously-removed SKU (present again in a new import) counts as a
+    change even if none of its fields moved, so the preview surfaces it."""
+    existing = {i.sku: i for i in db.query(models.InventoryItem).all()}
+    seen_skus = set()
+    added, changed, removed = [], [], []
+    for row in rows:
+        sku = row["sku"]
+        seen_skus.add(sku)
+        cur = existing.get(sku)
+        if cur is None:
+            added.append({"sku": sku, "description": row["description"]})
+        else:
+            diffs = {}
+            for field in ("description", "category", "subcategory", "qty_on_hand"):
+                if getattr(cur, field) != row[field]:
+                    diffs[field] = {"old": getattr(cur, field), "new": row[field]}
+            reactivated = not cur.active
+            if diffs or reactivated:
+                changed.append({
+                    "sku": sku, "description": row["description"],
+                    "diffs": diffs, "reactivated": reactivated,
+                })
+    for sku, item in existing.items():
+        if sku not in seen_skus and item.active:
+            removed.append({"sku": sku, "description": item.description})
+    return {
+        "added": added, "changed": changed, "removed": removed,
+        "added_count": len(added), "changed_count": len(changed), "removed_count": len(removed),
+    }
+
+
+def apply_inventory_import(db: Session, rows: list[dict]) -> dict:
+    """Applies `rows` to inventory_items: inserts new SKUs, updates
+    changed fields on existing ones (and reactivates if previously
+    soft-deleted), and soft-deletes (active=False) any active SKU not
+    present in `rows` — never a hard delete, since a WO may already
+    reference it via wo_suggested_supplies."""
+    diff = diff_inventory_import(db, rows)
+    existing = {i.sku: i for i in db.query(models.InventoryItem).all()}
+    seen_skus = set()
+    for row in rows:
+        seen_skus.add(row["sku"])
+        cur = existing.get(row["sku"])
+        if cur is None:
+            db.add(models.InventoryItem(active=True, **row))
+        else:
+            for field in ("description", "category", "subcategory", "qty_on_hand"):
+                setattr(cur, field, row[field])
+            cur.active = True
+    for sku, item in existing.items():
+        if sku not in seen_skus and item.active:
+            item.active = False
+    db.commit()
+    active_total = db.query(models.InventoryItem).filter(
+        models.InventoryItem.active == True  # noqa: E712
+    ).count()
+    return {
+        "added_count": diff["added_count"], "changed_count": diff["changed_count"],
+        "removed_count": diff["removed_count"], "active_total": active_total,
+    }
+
+
+def search_inventory(db: Session, q: str | None, category: str | None = None,
+                      include_zero: bool = False, limit: int = 25) -> list[models.InventoryItem]:
+    """Backs the LOC triage inventory search widget (PRD §4.5e). A plain
+    substring ILIKE match against description/SKU is plenty fast at
+    ~7k active rows — no need for a search engine. include_zero=False
+    (the default) excludes 0/unknown-quantity items so the common case
+    (finding something that's actually available) isn't cluttered; the
+    widget's "Show 0/unknown stock" toggle flips this to True."""
+    query = db.query(models.InventoryItem).filter(models.InventoryItem.active == True)  # noqa: E712
+    if q and q.strip():
+        like = f"%{q.strip()}%"
+        query = query.filter(sql_or(
+            models.InventoryItem.description.ilike(like),
+            models.InventoryItem.sku.ilike(like),
+        ))
+    if category:
+        query = query.filter(models.InventoryItem.category == category)
+    if not include_zero:
+        query = query.filter(models.InventoryItem.qty_on_hand > 0)
+    return query.order_by(models.InventoryItem.description).limit(limit).all()
+
+
+def add_suggested_supplies(db: Session, wo: models.WorkOrder, items: list[schemas.SuggestedSupplyItem],
+                            added_by: int | None) -> list[models.WOSuggestedSupply]:
+    """Attaches the triager's selected inventory items to a WO as
+    structured wo_suggested_supplies rows, and writes one aggregated
+    'supply_request'-type note mirroring them into the note timeline
+    (PRD §4.5e) — so the dispatcher sees the SKU list wherever they
+    already read notes, with no new UI to learn. Both happen in the
+    same commit."""
+    if not items:
+        raise HTTPException(400, "no items provided")
+    created = []
+    lines = []
+    for item in items:
+        qty = item.qty_requested or 1
+        row = models.WOSuggestedSupply(
+            work_order_id=wo.id, sku=item.sku, description=item.description,
+            qty_requested=qty, added_by_id=added_by,
+        )
+        db.add(row)
+        created.append(row)
+        lines.append(f"{item.sku} — {item.description} x {qty}")
+    note = models.WONote(
+        work_order_id=wo.id, author_id=added_by,
+        note_text="Suggested supplies:\n" + "\n".join(lines),
+        note_type="supply_request",
+    )
+    db.add(note)
+    db.commit()
+    for row in created:
+        db.refresh(row)
+    return created
+
+
+def remove_suggested_supply(db: Session, wo: models.WorkOrder, supply_id: int) -> None:
+    """Removes a single erroneously-added item — deliberately just
+    deletes the structured row, not the note (the note is a point-in-
+    time record of what was suggested; editing/removing history isn't
+    the goal here, correcting the still-live supply list is)."""
+    row = db.query(models.WOSuggestedSupply).filter(
+        models.WOSuggestedSupply.id == supply_id, models.WOSuggestedSupply.work_order_id == wo.id,
+    ).first()
+    if not row:
+        raise HTTPException(404, "suggested supply item not found")
+    db.delete(row)
+    db.commit()
 
 
 def list_teams_admin(db: Session, include_inactive: bool = True) -> list[models.Team]:

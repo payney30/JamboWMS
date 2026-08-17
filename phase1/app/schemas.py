@@ -325,6 +325,16 @@ class AttachmentOut(BaseModel):
     stage: str = "submission"
 
 
+class SuggestedSupplyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    sku: str
+    description: str
+    qty_requested: int
+    added_by: Optional[UserOut] = None
+    added_at: UTCDateTime
+
+
 class WorkOrderDetail(WorkOrderListItem):
     requester_email: Optional[str]
     notify_preference: Optional[str] = None
@@ -349,6 +359,60 @@ class WorkOrderDetail(WorkOrderListItem):
     notes: List[NoteOut] = []
     history: List[HistoryOut] = []
     attachments: List[AttachmentOut] = []
+    # PRD §4.5e
+    suggested_supplies: List[SuggestedSupplyOut] = []
+
+
+class SuggestedSupplyItem(BaseModel):
+    """One line of a suggested-supplies add request (PRD §4.5e) — sku/
+    description are copied from the inventory search result at attach
+    time, not re-looked-up server-side, so what the triager saw is
+    exactly what lands on the WO."""
+    sku: str
+    description: str
+    qty_requested: int = 1
+
+
+class SuggestedSuppliesAddRequest(BaseModel):
+    items: List[SuggestedSupplyItem]
+
+
+class InventoryItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    sku: str
+    description: str
+    category: Optional[str] = None
+    subcategory: Optional[str] = None
+    qty_on_hand: Optional[int] = None
+
+
+class InventoryDiffRow(BaseModel):
+    sku: str
+    description: str
+
+
+class InventoryDiffChangedRow(BaseModel):
+    sku: str
+    description: str
+    diffs: dict
+    reactivated: bool = False
+
+
+class InventoryImportPreview(BaseModel):
+    added: List[InventoryDiffRow]
+    changed: List[InventoryDiffChangedRow]
+    removed: List[InventoryDiffRow]
+    added_count: int
+    changed_count: int
+    removed_count: int
+
+
+class InventoryImportResult(BaseModel):
+    added_count: int
+    changed_count: int
+    removed_count: int
+    active_total: int
 
 
 class PublicAssetOut(BaseModel):
@@ -493,17 +557,22 @@ class RequestTypeOut(BaseModel):
     name: str
     sort_order: int
     is_active: bool
+    # PRD §4.5e: whether the LOC triage inventory search widget shows for
+    # WOs of this type.
+    show_inventory_lookup: bool = False
 
 
 class RequestTypeCreate(BaseModel):
     name: str
     sort_order: int = 0
+    show_inventory_lookup: bool = False
 
 
 class RequestTypeUpdate(BaseModel):
     name: Optional[str] = None
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
+    show_inventory_lookup: Optional[bool] = None
 
 
 class TeamAdminOut(BaseModel):

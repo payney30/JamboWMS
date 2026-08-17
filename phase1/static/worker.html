@@ -118,6 +118,11 @@ html,body{margin:0;padding:0;background:var(--canvas);color:var(--ink);font-fami
 
       <div class="field"><label>Location</label><div class="val" id="dLocation"></div></div>
       <div class="field"><label>Description</label><div class="val" id="dDescription"></div></div>
+      <!-- PRD §4.5e: read-only SKU list a LOC triager attached via the
+           inventory search widget — the point is the field worker (or
+           whoever picks/packs) has the product number in hand without
+           digging it out of note text. -->
+      <div class="field" id="dSuppliesWrap" style="display:none;"><label>Suggested supplies</label><div class="val" id="dSupplies"></div></div>
       <!-- Enhancement backlog Phase 22 (PRD §17#10 follow-up): contact
            info — a worker on-site may need to reach the requester or
            POC directly (confirm access, ask a clarifying question,
@@ -367,6 +372,18 @@ async function openDetail(id){
   document.getElementById('dSub').innerHTML = `${escapeHtml(w.work_type || 'No work type')} &middot; <span class="chip chip-${priorityClass(w.priority)}">${w.priority}</span>`;
   document.getElementById('dLocation').textContent = w.asset ? w.asset.name : '—';
   document.getElementById('dDescription').textContent = w.description;
+
+  // PRD §4.5e
+  const suppliesWrap = document.getElementById('dSuppliesWrap');
+  const supplies = w.suggested_supplies || [];
+  if (supplies.length) {
+    suppliesWrap.style.display = 'block';
+    document.getElementById('dSupplies').innerHTML = supplies
+      .map(s => `<div>${escapeHtml(s.sku)} — ${escapeHtml(s.description)} × ${s.qty_requested}</div>`)
+      .join('');
+  } else {
+    suppliesWrap.style.display = 'none';
+  }
 
   // Enhancement backlog Phase 22 (PRD §17#10 follow-up): contact info.
   document.getElementById('dRequester').textContent =

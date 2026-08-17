@@ -131,6 +131,8 @@ tr.inactive td{opacity:.5;}
     <button class="tab-btn" data-tab="reportinggroups" onclick="switchTab('reportinggroups')">Reporting Groups</button>
     <button class="tab-btn" data-tab="requesttypes" onclick="switchTab('requesttypes')">Request Types</button>
     <button class="tab-btn" data-tab="teams" onclick="switchTab('teams')">Teams</button>
+    <!-- PRD §4.5e -->
+    <button class="tab-btn" data-tab="inventory" onclick="switchTab('inventory')">Inventory</button>
     <!-- Enhancement backlog Phase 4 (PRD §15#1) -->
     <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">Settings</button>
   </div>
@@ -180,8 +182,8 @@ tr.inactive td{opacity:.5;}
     <div class="section-title"><span>Request Types</span></div>
     <div class="hint" style="margin-bottom:10px;">Shown as work-type options on the requester form and LOC triage. Deactivating hides a type from new selections without touching existing work orders.</div>
     <table>
-      <thead><tr><th>Name</th><th>Sort</th><th>Status</th><th>Actions</th></tr></thead>
-      <tbody id="rtTableBody"><tr class="empty-row"><td colspan="4">Loading…</td></tr></tbody>
+      <thead><tr><th>Name</th><th>Sort</th><th>Inventory lookup</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="rtTableBody"><tr class="empty-row"><td colspan="5">Loading…</td></tr></tbody>
     </table>
   </div>
 
@@ -191,6 +193,33 @@ tr.inactive td{opacity:.5;}
       <thead><tr><th>Name</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody id="teamTableBody"><tr class="empty-row"><td colspan="3">Loading…</td></tr></tbody>
     </table>
+  </div>
+
+  <!-- PRD §4.5e -->
+  <div class="tab-panel" id="panel-inventory">
+    <div class="section-title"><span>Inventory</span></div>
+    <div class="hint" style="margin-bottom:14px;">
+      Warehouse SKU catalog for the LOC triage "Suggested supplies" widget — lets a triager search by item name
+      (e.g. "broom") and attach the right product number to a work order, so the supply dispatcher never has to
+      look one up. Refresh this any time the warehouse export changes, e.g. right before the Jamboree. Uploading
+      never overwrites blind: review the diff below, then apply it. SKUs removed from a re-upload are deactivated
+      (not deleted) — any work order that already references one keeps it.
+    </div>
+    <div id="invSummary" style="font-size:13px;color:var(--ink-soft);margin-bottom:14px;">Loading current catalog…</div>
+    <div style="max-width:460px;">
+      <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin-bottom:4px;">Upload warehouse export (CSV)</label>
+      <input type="file" id="invFileInput" accept=".csv" onchange="onInventoryFileChosen()">
+      <div class="field-err" id="invErr"></div>
+    </div>
+    <div id="invPreviewSection" style="display:none;margin-top:18px;">
+      <div class="section-title"><span>Review changes</span></div>
+      <div id="invDiffSummary" style="font-size:13px;margin-bottom:10px;"></div>
+      <div id="invDiffDetail" style="max-height:320px;overflow-y:auto;border:1px solid var(--khaki-line);border-radius:8px;padding:10px 14px;font-size:12px;"></div>
+      <div class="drawer-actions" style="margin-top:14px;">
+        <button class="btn" id="invApplyBtn" onclick="applyInventoryImport()">Apply changes</button>
+        <button class="btn btn-ghost" onclick="cancelInventoryPreview()">Cancel</button>
+      </div>
+    </div>
   </div>
 
   <!-- Enhancement backlog Phase 4 (PRD §15#1) -->
@@ -263,7 +292,10 @@ function showToast(msg, kind){
 
 async function api(path, opts={}) {
   opts.headers = Object.assign({}, opts.headers, TOKEN ? {Authorization: 'Bearer ' + TOKEN} : {});
-  if (opts.body && !(opts.body instanceof URLSearchParams)) {
+  // FormData (used by the Inventory CSV upload) sets its own multipart
+  // Content-Type boundary — must NOT be overridden with 'application/json'
+  // the way a plain object body is below.
+  if (opts.body && !(opts.body instanceof URLSearchParams) && !(opts.body instanceof FormData)) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(opts.body);
   }
@@ -360,8 +392,9 @@ function switchTab(tab) {
   };
   // Enhancement backlog Phase 4 (PRD §15#1): Settings is a single form,
   // not a list — no "+ New X" concept, so hide that button entirely
-  // rather than giving it a meaningless label.
-  if (tab === 'settings') {
+  // rather than giving it a meaningless label. Inventory (PRD §4.5e) is
+  // the same shape: upload-and-review, not a create-a-row screen.
+  if (tab === 'settings' || tab === 'inventory') {
     newBtn.style.display = 'none';
   } else {
     newBtn.style.display = '';
@@ -375,6 +408,7 @@ function switchTab(tab) {
   if (tab === 'requesttypes' && !REQUEST_TYPES.length) loadRequestTypes();
   if (tab === 'teams' && !ADMIN_TEAMS.length) loadAdminTeams();
   if (tab === 'settings') loadSettings();
+  if (tab === 'inventory') loadInventorySummary();
 }
 
 // Enhancement backlog Phase 4 (PRD §15#1). The dropdown above is a
@@ -935,13 +969,14 @@ async function loadRequestTypes() {
 function renderRequestTypes() {
   const tbody = document.getElementById('rtTableBody');
   if (!REQUEST_TYPES.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No request types yet.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No request types yet.</td></tr>';
     return;
   }
   tbody.innerHTML = REQUEST_TYPES.map(t => `
     <tr class="${t.is_active ? '' : 'inactive'}">
       <td>${escapeHtml(t.name)}</td>
       <td>${t.sort_order}</td>
+      <td>${t.show_inventory_lookup ? 'On' : '—'}</td>
       <td>${t.is_active ? 'Active' : 'Deactivated'}</td>
       <td class="row-actions">
         <button class="btn btn-ghost btn-sm" onclick="openEditRequestType(${t.id})">Edit</button>
@@ -959,6 +994,7 @@ function openNewRequestType() {
     <h2>New request type</h2>
     <label>Name</label><input id="rtName" placeholder="e.g. NJ Security">
     <label>Sort order</label><input id="rtSort" type="number" value="0">
+    <label class="check" style="margin-top:14px;"><input type="checkbox" id="rtInvLookup"> Show inventory search widget in LOC triage for this type</label>
     <div class="field-err" id="rtErr"></div>
     <div class="drawer-actions"><button class="btn" onclick="createRequestType()">Create</button></div>
   `);
@@ -974,6 +1010,7 @@ async function createRequestType() {
   try {
     await api('/admin/request-types', {method:'POST', body:{
       name, sort_order: parseInt(document.getElementById('rtSort').value) || 0,
+      show_inventory_lookup: document.getElementById('rtInvLookup').checked,
     }});
     showToast('Request type created.', 'ok');
     closeDrawer(); loadRequestTypes();
@@ -991,6 +1028,7 @@ function openEditRequestType(id) {
     <h2>${escapeHtml(t.name)}</h2>
     <label>Name</label><input id="eRtName" value="${escapeHtml(t.name)}">
     <label>Sort order</label><input id="eRtSort" type="number" value="${t.sort_order}">
+    <label class="check" style="margin-top:14px;"><input type="checkbox" id="eRtInvLookup" ${t.show_inventory_lookup ? 'checked' : ''}> Show inventory search widget in LOC triage for this type</label>
     <div class="hint">Renaming doesn't change the work_type stored on existing work orders — only what's offered going forward. For a real reclassification, deactivate this and add a new type instead.</div>
     <div class="field-err" id="eRtErr"></div>
     <div class="drawer-actions"><button class="btn" onclick="saveEditRequestType(${t.id})">Save changes</button></div>
@@ -1006,6 +1044,7 @@ async function saveEditRequestType(id) {
     await api(`/admin/request-types/${id}`, {method:'PATCH', body:{
       name: document.getElementById('eRtName').value.trim(),
       sort_order: parseInt(document.getElementById('eRtSort').value) || 0,
+      show_inventory_lookup: document.getElementById('eRtInvLookup').checked,
     }});
     showToast('Saved.', 'ok');
     closeDrawer(); loadRequestTypes();
@@ -1023,6 +1062,107 @@ async function toggleRequestType(id, makeActive) {
   } catch (e) {
     showToast('Could not update: ' + e.message, 'err');
   }
+}
+
+// ============================================================
+// Inventory (PRD 4.5e) — CSV upload + diff review + apply
+// ============================================================
+
+let INVENTORY_PENDING_FILE = null;
+
+async function loadInventorySummary() {
+  const el = document.getElementById('invSummary');
+  try {
+    // Lightweight probe (1 row, any query) just to tell whether a catalog
+    // has ever been loaded — full browsing of the ~7k-row catalog isn't a
+    // goal of this tab, the upload/diff/apply flow below is the point.
+    const probe = await api('/inventory/search?limit=1&include_zero=true');
+    el.textContent = probe.length
+      ? 'A warehouse catalog is currently loaded. Upload a new export below to refresh it.'
+      : 'No warehouse catalog loaded yet — upload the export below to get started.';
+  } catch (e) {
+    el.textContent = '';
+  }
+}
+
+function onInventoryFileChosen() {
+  const input = document.getElementById('invFileInput');
+  const errEl = document.getElementById('invErr');
+  errEl.textContent = '';
+  if (!input.files || !input.files[0]) return;
+  INVENTORY_PENDING_FILE = input.files[0];
+  previewInventoryImport();
+}
+
+async function previewInventoryImport() {
+  const errEl = document.getElementById('invErr');
+  errEl.textContent = '';
+  if (!INVENTORY_PENDING_FILE) return;
+  const formData = new FormData();
+  formData.set('file', INVENTORY_PENDING_FILE);
+  document.getElementById('invSummary').textContent = 'Reading file and comparing against the current catalog…';
+  try {
+    const diff = await api('/admin/inventory/preview', {method: 'POST', body: formData});
+    renderInventoryDiff(diff);
+  } catch (e) {
+    errEl.textContent = e.message;
+    loadInventorySummary();
+  }
+}
+
+function renderInventoryDiff(diff) {
+  document.getElementById('invPreviewSection').style.display = 'block';
+  document.getElementById('invDiffSummary').textContent =
+    `${diff.added_count} new · ${diff.changed_count} changed · ${diff.removed_count} removed (deactivated, not deleted)`;
+
+  const fmtVal = v => (v === null || v === undefined || v === '') ? '—' : escapeHtml(String(v));
+  const addedHtml = diff.added.slice(0, 200).map(r =>
+    `<div>+ <strong>${escapeHtml(r.sku)}</strong> — ${escapeHtml(r.description)}</div>`).join('');
+  const changedHtml = diff.changed.slice(0, 200).map(r => {
+    const fieldDiffs = Object.entries(r.diffs || {}).map(([field, d]) =>
+      `${field}: ${fmtVal(d.old)} → ${fmtVal(d.new)}`).join(', ');
+    const reactivatedNote = r.reactivated ? (fieldDiffs ? ' · reactivated' : 'reactivated') : '';
+    return `<div>~ <strong>${escapeHtml(r.sku)}</strong> — ${escapeHtml(r.description)}${fieldDiffs ? ' — ' + fieldDiffs : ''}${reactivatedNote}</div>`;
+  }).join('');
+  const removedHtml = diff.removed.slice(0, 200).map(r =>
+    `<div>− <strong>${escapeHtml(r.sku)}</strong> — ${escapeHtml(r.description)} <span style="color:var(--ink-soft);">(will be deactivated)</span></div>`).join('');
+
+  const truncNote = (list, label) => list.length > 200
+    ? `<div style="color:var(--ink-soft);margin-top:4px;">…and ${list.length - 200} more ${label}.</div>` : '';
+
+  document.getElementById('invDiffDetail').innerHTML =
+    (addedHtml || changedHtml || removedHtml)
+      ? addedHtml + truncNote(diff.added, 'added') + changedHtml + truncNote(diff.changed, 'changed')
+        + removedHtml + truncNote(diff.removed, 'removed')
+      : '<div style="color:var(--ink-soft);">No differences from the current catalog.</div>';
+
+  document.getElementById('invSummary').textContent = 'Review the changes below, then apply.';
+}
+
+async function applyInventoryImport() {
+  const btn = document.getElementById('invApplyBtn');
+  const errEl = document.getElementById('invErr');
+  errEl.textContent = '';
+  if (!INVENTORY_PENDING_FILE) return;
+  btn.disabled = true;
+  const formData = new FormData();
+  formData.set('file', INVENTORY_PENDING_FILE);
+  try {
+    const result = await api('/admin/inventory/apply', {method: 'POST', body: formData});
+    showToast(`Inventory updated: ${result.added_count} added, ${result.changed_count} changed, ${result.removed_count} deactivated.`, 'ok');
+    cancelInventoryPreview();
+    loadInventorySummary();
+  } catch (e) {
+    errEl.textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
+function cancelInventoryPreview() {
+  INVENTORY_PENDING_FILE = null;
+  document.getElementById('invFileInput').value = '';
+  document.getElementById('invPreviewSection').style.display = 'none';
+  document.getElementById('invDiffDetail').innerHTML = '';
 }
 
 // ============================================================

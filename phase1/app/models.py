@@ -159,6 +159,12 @@ class RequestType(Base):
     name = Column(String, nullable=False, unique=True)
     sort_order = Column(Integer, nullable=False, default=0)
     is_active = Column(Boolean, nullable=False, default=True)
+    # PRD §4.5e: whether the LOC triage drawer's inventory search widget
+    # appears for WOs of this request type. Admin-toggleable here rather
+    # than hardcoded against a type name/string in the frontend, so a
+    # rename or a future type (e.g. if Maintenance also starts
+    # picking/packing) doesn't need a code change — just this checkbox.
+    show_inventory_lookup = Column(Boolean, nullable=False, default=False)
 
 
 class AssetChangeLog(Base):
@@ -247,6 +253,12 @@ class WorkOrder(Base):
     notes = relationship("WONote", back_populates="work_order", cascade="all, delete-orphan")
     history = relationship("WOStatusHistory", back_populates="work_order", cascade="all, delete-orphan")
     attachments = relationship("WOAttachment", cascade="all, delete-orphan", order_by="WOAttachment.uploaded_at")
+    # PRD §4.5e: structured supply items a triager attached via the
+    # inventory search widget — see WOSuggestedSupply's docstring.
+    suggested_supplies = relationship(
+        "WOSuggestedSupply", back_populates="work_order",
+        cascade="all, delete-orphan", order_by="WOSuggestedSupply.added_at",
+    )
     # Named distinctly from locked_by_id so the `locked_by` property below
     # (what everything else should actually read) doesn't collide with it.
     _locked_by_rel = relationship("User", foreign_keys=[locked_by_id])
@@ -327,7 +339,13 @@ class WONote(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "note_type IN ('internal','instruction','work_note')", name="ck_note_type"
+            # 'supply_request' (PRD §4.5e): auto-generated whenever a
+            # triager attaches inventory items via the search widget, so
+            # the dispatcher sees the SKU list in the same note timeline
+            # they already read — the structured data itself lives in
+            # WOSuggestedSupply, this is just the note-timeline mirror.
+            "note_type IN ('internal','instruction','work_note','supply_request')",
+            name="ck_note_type",
         ),
     )
 
@@ -393,6 +411,57 @@ class WOAttachment(Base):
     __table_args__ = (
         CheckConstraint("stage IN ('submission','completion')", name="ck_attachment_stage"),
     )
+
+
+class InventoryItem(Base):
+    """Warehouse SKU catalog for the LOC triage inventory/supply-lookup
+    widget (PRD §4.5e) — imported/refreshed from a CSV export via the
+    admin Inventory tab (crud.diff_inventory_import / apply_inventory_import),
+    never edited by hand. sku is the source file's ProductName column
+    (confirmed unique in the source data). Soft-delete only: a SKU that
+    disappears from a refreshed import is deactivated, never hard-deleted
+    — a WorkOrder's wo_suggested_supplies rows may already reference it,
+    and hard-deleting would break that WO's history. qty_on_hand is
+    nullable — NULL means "unknown" (blank in the source export), not
+    zero."""
+    __tablename__ = "inventory_items"
+    id = Column(Integer, primary_key=True)
+    sku = Column(String, nullable=False, unique=True)
+    description = Column(String, nullable=False)
+    category = Column(String, nullable=True)
+    subcategory = Column(String, nullable=True)
+    qty_on_hand = Column(Integer, nullable=True)
+    active = Column(Boolean, nullable=False, default=True)
+    last_updated_at = Column(TIMESTAMP, default=now, onupdate=now)
+
+
+class WOSuggestedSupply(Base):
+    """A SKU a triager attached to a WO via the inventory search widget
+    (PRD §4.5e), so the supply dispatcher gets a ready-to-pick product
+    number instead of having to look one up themselves. Kept as its own
+    structured row (not just note text) so it stays individually
+    editable/removable and is reportable later (e.g. most-requested
+    items). sku/description are copied at attach time rather than a live
+    FK to inventory_items, so a WO's supply list stays accurate even if
+    that SKU is later renamed or deactivated in a refresh. Attaching
+    also writes a formatted line into wo_notes (note_type='supply_request')
+    so the dispatcher sees it in the same note timeline they already
+    read — see crud.add_suggested_supplies."""
+    __tablename__ = "wo_suggested_supplies"
+    id = Column(Integer, primary_key=True)
+    work_order_id = Column(Integer, ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False)
+    sku = Column(String, nullable=False)
+    description = Column(String, nullable=False)
+    qty_requested = Column(Integer, nullable=False, default=1)
+    added_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    added_at = Column(TIMESTAMP, default=now)
+
+    work_order = relationship("WorkOrder", back_populates="suggested_supplies")
+    added_by = relationship("User")
+
+    @property
+    def added_by_name(self):
+        return self.added_by.name if self.added_by else None
 
 
 class ResponseTemplate(Base):

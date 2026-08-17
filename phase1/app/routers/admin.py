@@ -12,7 +12,7 @@ children, a team with open WOs/active users) returns 409 with what's
 still attached rather than silently blocking or cascading, unless the
 caller explicitly opts in (cascade_deactivate / confirm_deactivate).
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from zoneinfo import available_timezones
 
@@ -135,6 +135,35 @@ def update_team(team_id: int, payload: schemas.TeamUpdate, db: Session = Depends
     if not team:
         raise HTTPException(404, "team not found")
     return crud.update_team(db, team, payload)
+
+
+# ---- 4.5e: Inventory / supply lookup ----
+
+@router.post("/inventory/preview", response_model=schemas.InventoryImportPreview)
+async def preview_inventory_import(file: UploadFile = File(...), db: Session = Depends(get_db),
+                                     user: models.User = Depends(admin_only)):
+    """Parses the uploaded warehouse CSV and returns a diff against the
+    current catalog (added/changed/removed) WITHOUT applying anything —
+    the admin reviews this before calling /inventory/apply with the same
+    file. Re-parses/re-diffs on each call rather than caching server-side
+    state, so there's no session/token to manage between the two steps."""
+    rows = crud.parse_inventory_csv(await file.read())
+    if not rows:
+        raise HTTPException(400, "no valid rows found in the uploaded file")
+    return crud.diff_inventory_import(db, rows)
+
+
+@router.post("/inventory/apply", response_model=schemas.InventoryImportResult)
+async def apply_inventory_import(file: UploadFile = File(...), db: Session = Depends(get_db),
+                                   user: models.User = Depends(admin_only)):
+    """Applies the same file previously reviewed via /inventory/preview.
+    Inserts new SKUs, updates changed fields on existing ones, and soft-
+    deletes any active SKU no longer present in the file — never a hard
+    delete, since a work order may already reference it."""
+    rows = crud.parse_inventory_csv(await file.read())
+    if not rows:
+        raise HTTPException(400, "no valid rows found in the uploaded file")
+    return crud.apply_inventory_import(db, rows)
 
 
 # ---- Global settings (PRD §15#1) ----
